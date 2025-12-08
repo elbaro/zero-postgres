@@ -35,6 +35,7 @@ rand = "0.9"
 tracing = { version = "0.1", features = ["release_max_level_warn"] }
 memchr = "2"
 simdutf8 = "0.1"
+url = "2"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

@@ -1,6 +1,7 @@
 //! Connection startup and authentication state machine.
 
 use crate::error::{Error, Result};
+use crate::opts::{Opts, SslMode};
 use crate::protocol::backend::{
     AuthenticationMessage, BackendKeyData, ErrorResponse, ParameterStatus, RawMessage,
     ReadyForQuery, msg_type,
@@ -18,112 +19,25 @@ use super::simple_query::BufferSet;
 /// Connection state during startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionState {
-    /// Initial state - need to send SSL request or startup message
     Initial,
-    /// Waiting for SSL response ('S' or 'N')
     WaitingSslResponse,
-    /// SSL handshake in progress
     SslHandshake,
-    /// Waiting for authentication request
     WaitingAuth,
-    /// SASL authentication in progress
     SaslInProgress,
-    /// Waiting for authentication result
     WaitingAuthResult,
-    /// Waiting for server parameters and ReadyForQuery
     WaitingReady,
-    /// Connection established
     Ready,
-    /// Connection failed
     Failed,
-}
-
-/// Connection options for startup.
-#[derive(Debug, Clone)]
-pub struct Opts {
-    /// Database username
-    pub user: String,
-    /// Database name (defaults to username if not set)
-    pub database: Option<String>,
-    /// Password for authentication
-    pub password: Option<String>,
-    /// Application name
-    pub application_name: Option<String>,
-    /// Request SSL connection
-    pub ssl_mode: SslMode,
-    /// Additional parameters
-    pub params: Vec<(String, String)>,
-}
-
-impl Opts {
-    /// Create new connection options with just username.
-    pub fn new(user: impl Into<String>) -> Self {
-        Self {
-            user: user.into(),
-            database: None,
-            password: None,
-            application_name: None,
-            ssl_mode: SslMode::Prefer,
-            params: Vec::new(),
-        }
-    }
-
-    /// Set the database name.
-    pub fn database(mut self, database: impl Into<String>) -> Self {
-        self.database = Some(database.into());
-        self
-    }
-
-    /// Set the password.
-    pub fn password(mut self, password: impl Into<String>) -> Self {
-        self.password = Some(password.into());
-        self
-    }
-
-    /// Set the application name.
-    pub fn application_name(mut self, name: impl Into<String>) -> Self {
-        self.application_name = Some(name.into());
-        self
-    }
-
-    /// Set the SSL mode.
-    pub fn ssl_mode(mut self, mode: SslMode) -> Self {
-        self.ssl_mode = mode;
-        self
-    }
-
-    /// Add a custom parameter.
-    pub fn param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.params.push((name.into(), value.into()));
-        self
-    }
-}
-
-/// SSL connection mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SslMode {
-    /// Don't use SSL
-    Disable,
-    /// Try SSL, fall back to unencrypted if not supported
-    #[default]
-    Prefer,
-    /// Require SSL connection
-    Require,
 }
 
 /// Connection startup state machine.
 pub struct ConnectionStateMachine {
     state: ConnectionState,
     options: Opts,
-    /// Backend key data for cancellation
     backend_key: Option<BackendKeyData>,
-    /// Server parameters received during startup
     server_params: Vec<(String, String)>,
-    /// Current transaction status
     transaction_status: TransactionStatus,
-    /// SCRAM client for SASL authentication
     scram_client: Option<ScramClient>,
-    /// Write buffer
     write_buffer: Vec<u8>,
 }
 
@@ -263,7 +177,10 @@ impl ConnectionStateMachine {
     }
 
     fn write_startup_message(&mut self) {
-        let mut params: Vec<(&str, &str)> = vec![("user", &self.options.user)];
+        let mut params: Vec<(&str, &str)> = vec![
+            ("user", &self.options.user),
+            ("client_encoding", "UTF8"),
+        ];
 
         if let Some(ref db) = self.options.database {
             params.push(("database", db));

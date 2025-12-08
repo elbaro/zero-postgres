@@ -68,15 +68,10 @@ impl Default for BufferSet {
 /// Simple query state machine state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
-    /// Initial state - need to send query
     Initial,
-    /// Waiting for response
     WaitingResponse,
-    /// Processing rows
     ProcessingRows,
-    /// Query completed, waiting for ReadyForQuery
     WaitingReady,
-    /// Finished
     Finished,
 }
 

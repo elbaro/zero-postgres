@@ -47,4 +47,22 @@ impl Stream {
             Stream::Unix(r) => r.get_mut().flush(),
         }
     }
+
+    pub fn is_tcp_loopback(&self) -> bool {
+        match self {
+            Self::Tcp(r) => r
+                .get_ref()
+                .peer_addr()
+                .map(|addr| addr.ip().is_loopback())
+                .unwrap_or(false),
+            #[cfg(feature = "sync-tls")]
+            Self::Tls(r) => r
+                .get_ref()
+                .get_ref()
+                .peer_addr()
+                .map(|addr| addr.ip().is_loopback())
+                .unwrap_or(false),
+            Self::Unix(_) => false,
+        }
+    }
 }

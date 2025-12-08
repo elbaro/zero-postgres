@@ -33,21 +33,13 @@ pub trait ExtendedQueryHandler {
 /// Extended query state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
-    /// Initial state
     Initial,
-    /// Waiting for ParseComplete
     WaitingParse,
-    /// Waiting for BindComplete
     WaitingBind,
-    /// Waiting for ParameterDescription (Describe)
     WaitingDescribe,
-    /// Waiting for RowDescription or NoData
     WaitingRowDesc,
-    /// Processing rows
     ProcessingRows,
-    /// Waiting for ReadyForQuery
     WaitingReady,
-    /// Finished
     Finished,
 }
 
@@ -81,7 +73,6 @@ pub struct ExtendedQueryStateMachine<H> {
     write_buffer: Vec<u8>,
     transaction_status: TransactionStatus,
     skip_rows: bool,
-    /// Prepared statement being created (during prepare)
     prepared_stmt: Option<PreparedStatement>,
 }
 

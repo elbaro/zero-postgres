@@ -1,13 +1,15 @@
 //! Synchronous PostgreSQL connection.
 
 use std::net::TcpStream;
+use std::os::unix::net::UnixStream;
 
 use crate::error::{Error, Result};
+use crate::opts::Opts;
 use crate::protocol::backend::BackendKeyData;
 use crate::protocol::frontend::write_terminate;
 use crate::protocol::types::TransactionStatus;
 use crate::state::action::Action;
-use crate::state::connection::{ConnectionState, ConnectionStateMachine, Opts, SslAction};
+use crate::state::connection::{ConnectionState, ConnectionStateMachine, SslAction};
 use crate::state::simple_query::{BufferSet, ControlFlow, QueryHandler, SimpleQueryStateMachine};
 
 use super::stream::Stream;
@@ -22,7 +24,7 @@ fn read_message_into(stream: &mut Stream, buffer_set: &mut BufferSet) -> Result<
     // Read length (4 bytes, big-endian)
     let mut length_bytes = [0u8; 4];
     stream.read_exact(&mut length_bytes)?;
-    let length = i32::from_be_bytes(length_bytes) as usize;
+    let length = u32::from_be_bytes(length_bytes);
 
     if length < 4 {
         return Err(Error::Protocol(format!(
@@ -32,9 +34,9 @@ fn read_message_into(stream: &mut Stream, buffer_set: &mut BufferSet) -> Result<
     }
 
     // Read payload
-    let payload_len = length - 4;
+    let payload_len = (length - 4) as usize;
     buffer_set.read_buffer.clear();
-    buffer_set.read_buffer.resize(payload_len, 0);
+    buffer_set.read_buffer.resize(payload_len, 0); // TODO: use read_buf
     stream.read_exact(&mut buffer_set.read_buffer)?;
 
     Ok(())
@@ -44,40 +46,47 @@ fn read_message_into(stream: &mut Stream, buffer_set: &mut BufferSet) -> Result<
 pub struct Conn {
     stream: Stream,
     buffer_set: BufferSet,
-    /// Write buffer for outgoing messages
     write_buffer: Vec<u8>,
-    /// Backend key data for query cancellation
     backend_key: Option<BackendKeyData>,
-    /// Server parameters
     server_params: Vec<(String, String)>,
-    /// Current transaction status
     transaction_status: TransactionStatus,
-    /// Connection is broken
     is_broken: bool,
 }
 
 impl Conn {
     /// Connect to a PostgreSQL server.
-    pub fn connect(host: &str, port: u16, options: Opts) -> Result<Self> {
-        let addr = format!("{}:{}", host, port);
-        let stream = TcpStream::connect(&addr)?;
-        stream.set_nodelay(true)?;
+    pub fn new<O: TryInto<Opts>>(opts: O) -> Result<Self>
+    where
+        Error: From<O::Error>,
+    {
+        let opts = opts.try_into()?;
 
-        Self::connect_with_stream(stream, options)
+        let stream = if let Some(ref socket_path) = opts.socket {
+            Stream::unix(UnixStream::connect(socket_path)?)
+        } else {
+            if opts.host.is_empty() {
+                return Err(Error::InvalidUsage("host is empty".into()));
+            }
+            let addr = format!("{}:{}", opts.host, opts.port);
+            let tcp = TcpStream::connect(&addr)?;
+            tcp.set_nodelay(true)?;
+            Stream::tcp(tcp)
+        };
+
+        Self::new_with_stream(stream, opts)
     }
 
-    /// Connect using an existing TCP stream.
-    pub fn connect_with_stream(stream: TcpStream, options: Opts) -> Result<Self> {
-        let mut conn_stream = Stream::tcp(stream);
+    /// Connect using an existing stream.
+    pub fn new_with_stream(mut stream: Stream, options: Opts) -> Result<Self> {
         let mut buffer_set = BufferSet::new();
 
-        let mut state_machine = ConnectionStateMachine::new(options);
+        let mut state_machine = ConnectionStateMachine::new(options.clone());
 
         // Start the connection process
         match state_machine.start() {
             Action::WritePacket(data) => {
-                conn_stream.write_all(data)?;
-                conn_stream.flush()?;
+                stream.write_all(data)?;
+                stream.flush()?;
             }
             _ => return Err(Error::Protocol("Unexpected initial action".into())),
         }
@@ -86,7 +95,7 @@ impl Conn {
         if state_machine.state() == ConnectionState::WaitingSslResponse {
             // Read single byte SSL response
             let mut ssl_response = [0u8; 1];
-            conn_stream.read_exact(&mut ssl_response)?;
+            stream.read_exact(&mut ssl_response)?;
 
             match state_machine.process_ssl_response(ssl_response[0])? {
                 SslAction::StartHandshake => {
@@ -102,8 +111,8 @@ impl Conn {
                     }
                 }
                 SslAction::SendStartup(data) => {
-                    conn_stream.write_all(data)?;
-                    conn_stream.flush()?;
+                    stream.write_all(data)?;
+                    stream.flush()?;
                 }
             }
         }
@@ -111,15 +120,15 @@ impl Conn {
         // Drive the state machine to completion
         loop {
             // Read next message into buffer set
-            read_message_into(&mut conn_stream, &mut buffer_set)?;
+            read_message_into(&mut stream, &mut buffer_set)?;
 
             match state_machine.step(&mut buffer_set)? {
                 Action::NeedPacket(_) => {
                     // Continue reading
                 }
                 Action::WritePacket(data) => {
-                    conn_stream.write_all(data)?;
-                    conn_stream.flush()?;
+                    stream.write_all(data)?;
+                    stream.flush()?;
                 }
                 Action::AsyncMessage(_async_msg) => {
                     // Handle async message during startup
@@ -130,15 +139,63 @@ impl Conn {
             }
         }
 
-        Ok(Self {
-            stream: conn_stream,
+        let conn = Self {
+            stream,
             buffer_set,
             write_buffer: Vec::with_capacity(8192),
             backend_key: state_machine.backend_key().copied(),
             server_params: state_machine.server_params().to_vec(),
             transaction_status: state_machine.transaction_status(),
             is_broken: false,
-        })
+        };
+
+        // Upgrade to Unix socket if connected via TCP to loopback
+        let conn = if options.upgrade_to_unix_socket && conn.stream.is_tcp_loopback() {
+            conn.try_upgrade_to_unix_socket(&options)
+        } else {
+            conn
+        };
+
+        Ok(conn)
+    }
+
+    /// Try to upgrade to Unix socket connection.
+    /// Returns upgraded conn on success, original conn on failure.
+    fn try_upgrade_to_unix_socket(mut self, opts: &Opts) -> Self {
+        // Query unix_socket_directories from server
+        let mut handler = ShowVarHandler { value: None };
+        if self.query("SHOW unix_socket_directories", &mut handler).is_err() {
+            return self;
+        }
+
+        let socket_dir = match handler.value {
+            Some(dirs) => {
+                // May contain multiple directories, use the first one
+                match dirs.split(',').next() {
+                    Some(d) if !d.trim().is_empty() => d.trim().to_string(),
+                    _ => return self,
+                }
+            }
+            None => return self,
+        };
+
+        // Build socket path: {directory}/.s.PGSQL.{port}
+        let socket_path = format!("{}/.s.PGSQL.{}", socket_dir, opts.port);
+
+        // Connect via Unix socket
+        let unix_stream = match UnixStream::connect(&socket_path) {
+            Ok(s) => s,
+            Err(_) => return self,
+        };
+
+        // Create new connection over Unix socket
+        let mut opts_unix = opts.clone();
+        opts_unix.upgrade_to_unix_socket = false;
+
+        match Self::new_with_stream(Stream::unix(unix_stream), opts_unix) {
+            Ok(new_conn) => new_conn,
+            Err(_) => self,
+        }
     }
 
     /// Get the backend key data for query cancellation.
@@ -282,5 +339,23 @@ impl<'a, H: QueryHandler> QueryHandler for HandlerWrapper<'a, H> {
 
     fn empty_query(&mut self) -> Result<()> {
         self.inner.empty_query()
+    }
+}
+
+/// Handler to capture a single value from SHOW query
+struct ShowVarHandler {
+    value: Option<String>,
+}
+
+impl QueryHandler for ShowVarHandler {
+    fn columns(&mut self, _desc: crate::protocol::backend::RowDescription<'_>) -> Result<()> {
+        Ok(())
+    }
+
+    fn row(&mut self, row: crate::protocol::backend::DataRow<'_>) -> Result<ControlFlow> {
+        if let Some(Some(bytes)) = row.iter().next() {
+            self.value = String::from_utf8(bytes.to_vec()).ok();
+        }
+        Ok(ControlFlow::Stop)
     }
 }

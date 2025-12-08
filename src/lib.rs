@@ -10,15 +10,19 @@
 //! # Example
 //!
 //! ```no_run
-//! use zero_postgres::sync::Connection;
-//! use zero_postgres::state::connection::ConnectionOptions;
+//! use zero_postgres::sync::Conn;
+//! use zero_postgres::Opts;
 //!
 //! fn main() -> zero_postgres::error::Result<()> {
-//!     let options = ConnectionOptions::new("postgres")
-//!         .database("mydb")
-//!         .password("secret");
+//!     let opts = Opts {
+//!         host: "localhost".into(),
+//!         user: "postgres".into(),
+//!         database: Some("mydb".into()),
+//!         password: Some("secret".into()),
+//!         ..Default::default()
+//!     };
 //!
-//!     let mut conn = Connection::connect("localhost", 5432, options)?;
+//!     let mut conn = Conn::new(opts)?;
 //!
 //!     let (columns, rows) = conn.query_collect("SELECT 1 AS num")?;
 //!     println!("Columns: {:?}", columns);
@@ -30,6 +34,7 @@
 //! ```
 
 pub mod error;
+pub mod opts;
 pub mod protocol;
 pub mod state;
 
@@ -40,6 +45,6 @@ pub mod sync;
 pub mod tokio;
 
 pub use error::{Error, ErrorFields, Result};
+pub use opts::{Opts, SslMode};
 pub use protocol::types::{FormatCode, Oid, TransactionStatus};
-pub use state::connection::{Opts, SslMode};
 pub use state::simple_query::{ControlFlow, QueryHandler};
