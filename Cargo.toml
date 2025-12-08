@@ -1,0 +1,39 @@
+[package]
+name = "zero-postgres"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "A high-performance PostgreSQL client"
+repository = "https://github.com/elbaro/zero-postgres"
+keywords = ["postgres", "postgresql", "database", "sql", "async"]
+categories = ["database"]
+
+[features]
+default = ["sync", "tokio"]
+sync = []
+tokio = ["dep:tokio"]
+sync-tls = ["dep:native-tls"]
+tokio-tls = ["dep:native-tls", "dep:tokio-native-tls"]
+
+[dependencies]
+thiserror = "2"
+tokio = { version = "1", features = [
+  "io-util",
+  "net",
+  "rt",
+  "sync",
+], optional = true }
+native-tls = { version = "0.2", optional = true }
+tokio-native-tls = { version = "0.3", optional = true }
+zerocopy = { version = "0.8", features = ["derive"] }
+sha2 = "0.10"
+hmac = "0.12"
+pbkdf2 = { version = "0.12", features = ["hmac"] }
+base64 = "0.22"
+md-5 = "0.10"
+rand = "0.8"
+tracing = { version = "0.1", features = ["release_max_level_warn"] }
+memchr = "2"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

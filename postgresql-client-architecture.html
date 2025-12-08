@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostgreSQL Client Library Architecture</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #4ade80;
+            --accent-dim: #22863a;
+            --link: #58a6ff;
+            --border: #30363d;
+            --code-bg: #161b22;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: var(--accent);
+            border-bottom: 2px solid var(--accent-dim);
+            padding-bottom: 10px;
+            font-size: 2em;
+        }
+
+        h2 {
+            color: var(--accent);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+            margin-top: 2em;
+            font-size: 1.5em;
+        }
+
+        h3 {
+            color: var(--text-primary);
+            margin-top: 1.5em;
+            font-size: 1.2em;
+        }
+
+        a {
+            color: var(--link);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        code {
+            background-color: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.9em;
+            border: 1px solid var(--border);
+        }
+
+        pre {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.85em;
+            line-height: 1.5;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+            border: none;
+            font-size: inherit;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1em 0;
+            background-color: var(--bg-secondary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background-color: var(--bg-tertiary);
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background-color: var(--bg-tertiary);
+        }
+
+        .section {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 1.5em 0;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1em;
+            margin-top: -10px;
+            margin-bottom: 2em;
+        }
+
+        /* Syntax highlighting */
+        .keyword { color: #ff7b72; }
+        .type { color: #79c0ff; }
+        .string { color: #a5d6ff; }
+        .comment { color: #8b949e; }
+        .function { color: #d2a8ff; }
+        .lifetime { color: #ffa657; }
+        .macro { color: #79c0ff; }
+
+        .tree {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            color: var(--text-secondary);
+        }
+
+        .tree .dir { color: var(--link); }
+        .tree .file { color: var(--text-primary); }
+        .tree .comment { color: var(--text-secondary); font-style: italic; }
+    </style>
+</head>
+<body>
+    <h1>PostgreSQL Client Library Architecture</h1>
+    <p class="subtitle">Based on zero-mysql patterns and PostgreSQL wire protocol specifics</p>
+
+    <h2>Directory Structure</h2>
+    <pre class="tree"><span class="dir">src/</span>
+├── <span class="dir">protocol/</span>
+│   ├── <span class="dir">frontend/</span>           <span class="comment"># Client → Server messages</span>
+│   │   ├── <span class="file">mod.rs</span>          <span class="comment"># Encoding functions</span>
+│   │   ├── <span class="file">startup.rs</span>      <span class="comment"># StartupMessage, SSLRequest, CancelRequest</span>
+│   │   ├── <span class="file">auth.rs</span>         <span class="comment"># PasswordMessage, SASLInitialResponse, SASLResponse</span>
+│   │   ├── <span class="file">simple.rs</span>       <span class="comment"># Query</span>
+│   │   ├── <span class="file">extended.rs</span>     <span class="comment"># Parse, Bind, Describe, Execute, Close, Sync, Flush</span>
+│   │   └── <span class="file">copy.rs</span>         <span class="comment"># CopyData, CopyDone, CopyFail</span>
+│   │
+│   ├── <span class="dir">backend/</span>            <span class="comment"># Server → Client messages</span>
+│   │   ├── <span class="file">mod.rs</span>          <span class="comment"># RawMessage, type byte constants</span>
+│   │   ├── <span class="file">auth.rs</span>         <span class="comment"># Authentication*, BackendKeyData, ParameterStatus</span>
+│   │   ├── <span class="file">query.rs</span>        <span class="comment"># RowDescription, DataRow, CommandComplete</span>
+│   │   ├── <span class="file">error.rs</span>        <span class="comment"># ErrorResponse, NoticeResponse, field parsing</span>
+│   │   ├── <span class="file">extended.rs</span>     <span class="comment"># ParseComplete, BindComplete, CloseComplete, etc.</span>
+│   │   └── <span class="file">copy.rs</span>         <span class="comment"># CopyInResponse, CopyOutResponse, CopyData, CopyDone</span>
+│   │
+│   ├── <span class="file">types.rs</span>            <span class="comment"># FormatCode, TransactionStatus, Oid</span>
+│   └── <span class="file">codec.rs</span>            <span class="comment"># Int16/Int32/String encoding/decoding</span>
+│
+├── <span class="dir">state/</span>                  <span class="comment"># Sans-I/O state machines</span>
+│   ├── <span class="file">connection.rs</span>       <span class="comment"># Startup + Authentication</span>
+│   ├── <span class="file">simple_query.rs</span>     <span class="comment"># Simple query protocol</span>
+│   ├── <span class="file">extended.rs</span>         <span class="comment"># Extended query protocol</span>
+│   ├── <span class="file">copy.rs</span>             <span class="comment"># COPY protocol</span>
+│   └── <span class="file">action.rs</span>           <span class="comment"># Action enum for I/O requests</span>
+│
+├── <span class="dir">sync/</span>                   <span class="comment"># Synchronous API</span>
+│   ├── <span class="file">conn.rs</span>             <span class="comment"># Connection</span>
+│   └── <span class="file">pool.rs</span>             <span class="comment"># Connection pool (optional)</span>
+│
+├── <span class="dir">tokio/</span>                  <span class="comment"># Async API (feature-gated)</span>
+│   └── <span class="file">conn.rs</span>
+│
+└── <span class="file">lib.rs</span></pre>
+
+    <h2>Message Design</h2>
+
+    <h3>No Wrapping Enum</h3>
+    <p>Parse on demand - each state machine knows what messages it expects:</p>
+    <pre><code><span class="comment">/// Raw message from server - just type byte and payload</span>
+<span class="keyword">pub struct</span> <span class="type">RawMessage</span>&lt;<span class="lifetime">'a</span>&gt; {
+    <span class="keyword">pub</span> type_byte: <span class="type">u8</span>,
+    <span class="keyword">pub</span> payload: &amp;<span class="lifetime">'a</span> [<span class="type">u8</span>],
+}
+
+<span class="comment">/// State machine parses specific messages as needed</span>
+<span class="keyword">impl</span> <span class="type">SimpleQueryStateMachine</span> {
+    <span class="keyword">fn</span> <span class="function">step</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, msg: <span class="type">RawMessage</span>) -&gt; <span class="type">Result</span>&lt;<span class="type">Action</span>&gt; {
+        <span class="keyword">match</span> (<span class="keyword">self</span>.state, msg.type_byte) {
+            (<span class="type">State</span>::WaitingRows, <span class="string">b'D'</span>) =&gt; {
+                <span class="keyword">let</span> row = <span class="type">DataRow</span>::<span class="function">parse</span>(msg.payload)?;
+                <span class="comment">// handle row</span>
+            }
+            (<span class="type">State</span>::WaitingRows, <span class="string">b'C'</span>) =&gt; {
+                <span class="keyword">let</span> complete = <span class="type">CommandComplete</span>::<span class="function">parse</span>(msg.payload)?;
+                <span class="comment">// handle completion</span>
+            }
+            <span class="comment">// ...</span>
+        }
+    }
+}</code></pre>
+
+    <h3>Individual Message Types with Zerocopy</h3>
+    <p>For messages without <code>String</code> or <code>Bytes[n]</code>, derive zerocopy traits directly:</p>
+    <pre><code><span class="comment">// Fixed-size message - derive zerocopy</span>
+<span class="macro">#[derive(FromBytes, KnownLayout, Immutable)]</span>
+<span class="macro">#[repr(C, packed)]</span>
+<span class="keyword">pub struct</span> <span class="type">ReadyForQuery</span> {
+    <span class="keyword">pub</span> status: <span class="type">u8</span>,  <span class="comment">// 'I', 'T', or 'E'</span>
+}
+
+<span class="macro">#[derive(FromBytes, KnownLayout, Immutable)]</span>
+<span class="macro">#[repr(C, packed)]</span>
+<span class="keyword">pub struct</span> <span class="type">BackendKeyData</span> {
+    <span class="keyword">pub</span> pid: <span class="type">U32BE</span>,
+    <span class="keyword">pub</span> secret_key: <span class="type">U32BE</span>,
+}</code></pre>
+
+    <p>For messages with <code>String</code> or <code>Bytes[n]</code> at start/end, split into Head/Tail:</p>
+    <pre><code><span class="comment">// RowDescription: Int16 num_fields, then variable fields</span>
+<span class="macro">#[derive(FromBytes, KnownLayout, Immutable)]</span>
+<span class="macro">#[repr(C, packed)]</span>
+<span class="keyword">pub struct</span> <span class="type">RowDescriptionHead</span> {
+    <span class="keyword">pub</span> num_fields: <span class="type">U16BE</span>,
+}
+
+<span class="keyword">pub struct</span> <span class="type">RowDescription</span>&lt;<span class="lifetime">'a</span>&gt; {
+    head: &amp;<span class="lifetime">'a</span> <span class="type">RowDescriptionHead</span>,
+    fields_data: &amp;<span class="lifetime">'a</span> [<span class="type">u8</span>],  <span class="comment">// Variable-length field definitions</span>
+}
+
+<span class="comment">// CommandComplete: String tag</span>
+<span class="keyword">pub struct</span> <span class="type">CommandComplete</span>&lt;<span class="lifetime">'a</span>&gt; {
+    <span class="keyword">pub</span> tag: &amp;<span class="lifetime">'a</span> <span class="type">str</span>,  <span class="comment">// Just the null-terminated string</span>
+}
+
+<span class="comment">// ErrorResponse: repeated (Byte1 type, String value), Byte1(0)</span>
+<span class="keyword">pub struct</span> <span class="type">ErrorResponse</span>&lt;<span class="lifetime">'a</span>&gt; {
+    fields_data: &amp;<span class="lifetime">'a</span> [<span class="type">u8</span>],  <span class="comment">// Parse on demand</span>
+}
+
+<span class="comment">// DataRow: Int16 num_columns, then (Int32 len, Bytes[n])...</span>
+<span class="macro">#[derive(FromBytes, KnownLayout, Immutable)]</span>
+<span class="macro">#[repr(C, packed)]</span>
+<span class="keyword">pub struct</span> <span class="type">DataRowHead</span> {
+    <span class="keyword">pub</span> num_columns: <span class="type">U16BE</span>,
+}
+
+<span class="keyword">pub struct</span> <span class="type">DataRow</span>&lt;<span class="lifetime">'a</span>&gt; {
+    head: &amp;<span class="lifetime">'a</span> <span class="type">DataRowHead</span>,
+    columns_data: &amp;<span class="lifetime">'a</span> [<span class="type">u8</span>],
+}</code></pre>
+
+    <h3>Bidirectional Messages (COPY)</h3>
+    <p>CopyData and CopyDone are used in both directions:</p>
+    <pre><code><span class="comment">// Shared in protocol/copy.rs or protocol/types.rs</span>
+<span class="keyword">pub struct</span> <span class="type">CopyData</span>&lt;<span class="lifetime">'a</span>&gt;(<span class="keyword">pub</span> &amp;<span class="lifetime">'a</span> [<span class="type">u8</span>]);
+<span class="keyword">pub struct</span> <span class="type">CopyDone</span>;</code></pre>
+
+    <h2>Zero-Copy Row Iteration</h2>
+    <pre><code><span class="keyword">pub struct</span> <span class="type">DataRow</span>&lt;<span class="lifetime">'a</span>&gt; {
+    payload: &amp;<span class="lifetime">'a</span> [<span class="type">u8</span>],
+    num_columns: <span class="type">u16</span>,
+}
+
+<span class="keyword">impl</span>&lt;<span class="lifetime">'a</span>&gt; <span class="type">DataRow</span>&lt;<span class="lifetime">'a</span>&gt; {
+    <span class="keyword">pub fn</span> <span class="function">iter</span>(&amp;<span class="keyword">self</span>) -&gt; <span class="type">DataRowIter</span>&lt;<span class="lifetime">'a</span>&gt; {
+        <span class="type">DataRowIter</span> { remaining: <span class="keyword">self</span>.payload }
+    }
+
+    <span class="keyword">pub fn</span> <span class="function">len</span>(&amp;<span class="keyword">self</span>) -&gt; <span class="type">usize</span> {
+        <span class="keyword">self</span>.num_columns <span class="keyword">as</span> <span class="type">usize</span>
+    }
+}
+
+<span class="keyword">pub struct</span> <span class="type">DataRowIter</span>&lt;<span class="lifetime">'a</span>&gt; {
+    remaining: &amp;<span class="lifetime">'a</span> [<span class="type">u8</span>],
+}
+
+<span class="keyword">impl</span>&lt;<span class="lifetime">'a</span>&gt; <span class="type">Iterator</span> <span class="keyword">for</span> <span class="type">DataRowIter</span>&lt;<span class="lifetime">'a</span>&gt; {
+    <span class="keyword">type</span> <span class="type">Item</span> = <span class="type">Option</span>&lt;&amp;<span class="lifetime">'a</span> [<span class="type">u8</span>]&gt;;  <span class="comment">// None = NULL</span>
+
+    <span class="keyword">fn</span> <span class="function">next</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>) -&gt; <span class="type">Option</span>&lt;<span class="type">Self</span>::<span class="type">Item</span>&gt; {
+        <span class="keyword">if</span> <span class="keyword">self</span>.remaining.<span class="function">is_empty</span>() {
+            <span class="keyword">return</span> <span class="type">None</span>;
+        }
+        <span class="keyword">let</span> len = <span class="type">i32</span>::<span class="function">from_be_bytes</span>(<span class="keyword">self</span>.remaining[..<span class="string">4</span>].<span class="function">try_into</span>().<span class="function">unwrap</span>());
+        <span class="keyword">self</span>.remaining = &amp;<span class="keyword">self</span>.remaining[<span class="string">4</span>..];
+
+        <span class="keyword">if</span> len == <span class="string">-1</span> {
+            <span class="type">Some</span>(<span class="type">None</span>)  <span class="comment">// NULL</span>
+        } <span class="keyword">else</span> {
+            <span class="keyword">let</span> len = len <span class="keyword">as</span> <span class="type">usize</span>;
+            <span class="keyword">let</span> value = &amp;<span class="keyword">self</span>.remaining[..len];
+            <span class="keyword">self</span>.remaining = &amp;<span class="keyword">self</span>.remaining[len..];
+            <span class="type">Some</span>(<span class="type">Some</span>(value))
+        }
+    }
+}</code></pre>
+
+    <p>User provides <code>parse_value</code> to decode <code>&amp;[u8]</code>:</p>
+    <pre><code><span class="keyword">fn</span> <span class="function">row</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, row: <span class="type">DataRow</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;<span class="type">ControlFlow</span>, <span class="type">Error</span>&gt; {
+    <span class="keyword">let mut</span> cols = row.<span class="function">iter</span>();
+    <span class="keyword">let</span> id: <span class="type">i32</span> = <span class="function">parse_value</span>(cols.<span class="function">next</span>()?.<span class="function">unwrap</span>())?;
+    <span class="keyword">let</span> name: &amp;<span class="type">str</span> = <span class="function">parse_value</span>(cols.<span class="function">next</span>()?.<span class="function">unwrap</span>())?;
+    <span class="comment">// ...</span>
+}</code></pre>
+
+    <h2>Handler Trait</h2>
+    <pre><code><span class="keyword">pub trait</span> <span class="type">QueryHandler</span> {
+    <span class="keyword">fn</span> <span class="function">columns</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, desc: <span class="type">RowDescription</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;(), <span class="type">Error</span>&gt;;
+    <span class="keyword">fn</span> <span class="function">row</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, row: <span class="type">DataRow</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;<span class="type">ControlFlow</span>, <span class="type">Error</span>&gt;;
+}
+
+<span class="keyword">pub enum</span> <span class="type">ControlFlow</span> {
+    Continue,
+    Stop,
+}</code></pre>
+
+    <h2>Async Message Handling</h2>
+    <p>Async messages (NotificationResponse, NoticeResponse, ParameterStatus) can arrive at any time.</p>
+
+    <h3>State Machine Action</h3>
+    <pre><code><span class="keyword">pub enum</span> <span class="type">Action</span>&lt;<span class="lifetime">'buf</span>&gt; {
+    NeedPacket(&amp;<span class="lifetime">'buf</span> <span class="keyword">mut</span> <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;),
+    WritePacket(&amp;<span class="lifetime">'buf</span> [<span class="type">u8</span>]),
+    AsyncMessage(<span class="type">AsyncMessage</span>),
+    Finished,
+}
+
+<span class="keyword">pub enum</span> <span class="type">AsyncMessage</span> {
+    Notification { pid: <span class="type">i32</span>, channel: <span class="type">String</span>, payload: <span class="type">String</span> },
+    Notice(<span class="type">NoticeFields</span>),
+    ParameterChanged { name: <span class="type">String</span>, value: <span class="type">String</span> },
+}</code></pre>
+
+    <h3>Sync API: Callback Handler</h3>
+    <pre><code><span class="keyword">pub trait</span> <span class="type">AsyncHandler</span> {
+    <span class="keyword">fn</span> <span class="function">notification</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, pid: <span class="type">i32</span>, channel: &amp;<span class="type">str</span>, payload: &amp;<span class="type">str</span>) {}
+    <span class="keyword">fn</span> <span class="function">notice</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, notice: &amp;<span class="type">NoticeFields</span>) {}
+    <span class="keyword">fn</span> <span class="function">parameter_changed</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, name: &amp;<span class="type">str</span>, value: &amp;<span class="type">str</span>) {}
+}
+
+<span class="keyword">pub struct</span> <span class="type">Connection</span>&lt;H: <span class="type">AsyncHandler</span>&gt; {
+    stream: <span class="type">TcpStream</span>,
+    async_handler: H,
+    <span class="comment">// ...</span>
+}</code></pre>
+
+    <h3>Async API: Channel</h3>
+    <pre><code><span class="keyword">pub struct</span> <span class="type">AsyncConnection</span> {
+    stream: <span class="type">TcpStream</span>,
+    notifications_tx: mpsc::<span class="type">UnboundedSender</span>&lt;<span class="type">Notification</span>&gt;,
+}
+
+<span class="keyword">impl</span> <span class="type">AsyncConnection</span> {
+    <span class="keyword">pub fn</span> <span class="function">subscribe</span>(&amp;<span class="keyword">self</span>) -&gt; mpsc::<span class="type">UnboundedReceiver</span>&lt;<span class="type">Notification</span>&gt;;
+}</code></pre>
+
+    <h2>Buffer Management</h2>
+    <p>Keep zero-mysql's BufferSet pattern to avoid Arc overhead:</p>
+    <pre><code><span class="keyword">pub struct</span> <span class="type">BufferSet</span> {
+    read_buffer: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,
+    write_buffer: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,
+    <span class="comment">// Reusable scratch buffers</span>
+}
+
+<span class="keyword">impl</span> <span class="type">BufferSet</span> {
+    <span class="keyword">pub fn</span> <span class="function">read_buffer</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;;
+    <span class="keyword">pub fn</span> <span class="function">write_buffer</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;;
+    <span class="keyword">pub fn</span> <span class="function">reset</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>);
+}</code></pre>
+
+    <h2>Transaction Status Tracking</h2>
+    <p>PostgreSQL sends transaction status with every ReadyForQuery:</p>
+    <pre><code><span class="macro">#[derive(Debug, Clone, Copy, PartialEq, Eq)]</span>
+<span class="keyword">pub enum</span> <span class="type">TransactionStatus</span> {
+    Idle,           <span class="comment">// 'I'</span>
+    InTransaction,  <span class="comment">// 'T'</span>
+    Failed,         <span class="comment">// 'E'</span>
+}
+
+<span class="keyword">impl</span> <span class="type">Connection</span> {
+    <span class="keyword">pub fn</span> <span class="function">transaction_status</span>(&amp;<span class="keyword">self</span>) -&gt; <span class="type">TransactionStatus</span>;
+    <span class="keyword">pub fn</span> <span class="function">in_transaction</span>(&amp;<span class="keyword">self</span>) -&gt; <span class="type">bool</span>;
+}</code></pre>
+
+    <h2>Pipelining Support</h2>
+    <p>PostgreSQL's extended protocol supports pipelining natively:</p>
+    <pre><code><span class="keyword">pub struct</span> <span class="type">Pipeline</span>&lt;<span class="lifetime">'conn</span>&gt; {
+    conn: &amp;<span class="lifetime">'conn</span> <span class="keyword">mut</span> <span class="type">Connection</span>,
+    pending: <span class="type">Vec</span>&lt;<span class="type">PipelineCommand</span>&gt;,
+}
+
+<span class="keyword">impl</span>&lt;<span class="lifetime">'conn</span>&gt; <span class="type">Pipeline</span>&lt;<span class="lifetime">'conn</span>&gt; {
+    <span class="keyword">pub fn</span> <span class="function">query</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, sql: &amp;<span class="type">str</span>) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Self</span>;
+    <span class="keyword">pub fn</span> <span class="function">prepare</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, name: &amp;<span class="type">str</span>, sql: &amp;<span class="type">str</span>) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Self</span>;
+    <span class="keyword">pub fn</span> <span class="function">execute</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, stmt: &amp;<span class="type">str</span>, params: &amp;[&amp;<span class="keyword">dyn</span> <span class="type">ToSql</span>]) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Self</span>;
+
+    <span class="comment">/// Send all commands and iterate results</span>
+    <span class="keyword">pub fn</span> <span class="function">run</span>(<span class="keyword">self</span>) -&gt; <span class="type">PipelineResults</span>&lt;<span class="lifetime">'conn</span>&gt;;
+}</code></pre>
+
+    <h2>Why Frontend/Backend Separation</h2>
+    <p>PostgreSQL uses distinct message type bytes for each direction (unlike MySQL's symmetric packets). Separating by direction provides:</p>
+    <ol>
+        <li><strong>Type safety</strong> - Cannot accidentally send a backend message from client or vice versa</li>
+        <li><strong>Clear ownership</strong> - Frontend = encoding only, Backend = parsing only</li>
+        <li><strong>Easier testing</strong> - Test encoding and parsing independently</li>
+        <li><strong>Matches protocol</strong> - Directory structure mirrors protocol specification</li>
+        <li><strong>No confusion</strong> - Same type byte means different things: <code>'D'</code> is Describe (frontend) vs DataRow (backend)</li>
+    </ol>
+    <pre><code>frontend/  → <span class="function">encode</span>(&amp;<span class="keyword">mut</span> buf)  → write to socket
+backend/   ← <span class="function">parse</span>(payload)     ← read from socket</code></pre>
+
+    <h2>Key Differences from zero-mysql</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Aspect</th>
+                <th>zero-mysql</th>
+                <th>zero-postgresql</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Message types</td>
+                <td>Single packet type</td>
+                <td>Separate frontend/backend, no wrapper enum</td>
+            </tr>
+            <tr>
+                <td>Handler</td>
+                <td>Complex multi-method</td>
+                <td>Simple: columns() + row()</td>
+            </tr>
+            <tr>
+                <td>Transaction status</td>
+                <td>N/A</td>
+                <td>Tracked from ReadyForQuery</td>
+            </tr>
+            <tr>
+                <td>Pipelining</td>
+                <td>Limited</td>
+                <td>First-class Pipeline API</td>
+            </tr>
+            <tr>
+                <td>Async messages</td>
+                <td>N/A</td>
+                <td>Action::AsyncMessage + handler/channel</td>
+            </tr>
+        </tbody>
+    </table>
+
+</body>
+</html>

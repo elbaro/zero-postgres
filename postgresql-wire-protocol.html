@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostgreSQL 18 Wire Protocol Reference</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --bg-alt: #16213e;
+            --text: #eee;
+            --text-muted: #aaa;
+            --accent: #0f9d58;
+            --accent-light: #4caf50;
+            --code-bg: #0d1117;
+            --border: #333;
+            --link: #64b5f6;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        h1 { color: var(--accent-light); border-bottom: 2px solid var(--accent); padding-bottom: 0.5rem; }
+        h2 { color: var(--accent-light); margin-top: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+        h3 { color: var(--text); margin-top: 1.5rem; }
+        h4 { color: var(--text-muted); margin-top: 1rem; }
+        code {
+            background: var(--code-bg);
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background: var(--code-bg);
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+        pre code { background: none; padding: 0; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 0.5rem 0.75rem;
+            text-align: left;
+        }
+        th { background: var(--bg-alt); color: var(--accent-light); }
+        tr:nth-child(even) { background: var(--bg-alt); }
+        a { color: var(--link); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        strong { color: var(--accent-light); }
+        hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+        ul, ol { padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        .toc { background: var(--bg-alt); padding: 1rem 1.5rem; border-radius: 6px; margin-bottom: 2rem; }
+        .toc ul { list-style: none; padding-left: 0; }
+        .toc li { margin: 0.5rem 0; }
+        .flow-diagram { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin: 1rem 0; font-family: monospace; white-space: pre; overflow-x: auto; }
+    </style>
+</head>
+<body>
+
+<h1>PostgreSQL 18 Wire Protocol Reference</h1>
+<p>A complete reference for implementing a PostgreSQL client library without libpq.</p>
+
+<div class="toc">
+<strong>Contents</strong>
+<ul>
+<li><a href="#overview">Protocol Overview</a></li>
+<li><a href="#startup">Connection Startup</a></li>
+<li><a href="#sasl">SASL Authentication</a></li>
+<li><a href="#simple">Simple Query Protocol</a></li>
+<li><a href="#extended">Extended Query Protocol</a></li>
+<li><a href="#pipelining">Pipelining</a></li>
+<li><a href="#copy">COPY Protocol</a></li>
+<li><a href="#errors">Error and Notice Messages</a></li>
+<li><a href="#async">Asynchronous Messages</a></li>
+<li><a href="#cancel">Query Cancellation</a></li>
+<li><a href="#terminate">Connection Termination</a></li>
+<li><a href="#summary">Message Type Summary</a></li>
+<li><a href="#notes">Implementation Notes</a></li>
+<li><a href="#refs">References</a></li>
+</ul>
+</div>
+
+<h2 id="overview">Protocol Overview</h2>
+<ul>
+<li><strong>Version</strong>: 3.2 (PostgreSQL 18), backward compatible with 3.0 (PostgreSQL 7.4+)</li>
+<li><strong>Transport</strong>: TCP/IP or Unix domain sockets</li>
+<li><strong>Default Port</strong>: 5432</li>
+<li><strong>Byte Order</strong>: Network byte order (big-endian) for all integers</li>
+</ul>
+
+<h3>Message Structure</h3>
+<p>All messages (except startup) follow this format:</p>
+<pre><code>┌─────────┬────────────┬─────────────────┐
+│ Type    │ Length     │ Payload         │
+│ 1 byte  │ 4 bytes    │ (Length-4) bytes│
+└─────────┴────────────┴─────────────────┘</code></pre>
+<ul>
+<li><strong>Type</strong>: Single ASCII character identifying message type</li>
+<li><strong>Length</strong>: Int32 including itself but NOT the type byte</li>
+<li><strong>Payload</strong>: Message-specific data</li>
+</ul>
+<p>Startup messages omit the type byte.</p>
+
+<h3>Base Data Types</h3>
+<table>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Int8</code></td><td>1-byte signed integer</td></tr>
+<tr><td><code>Int16</code></td><td>2-byte signed integer, big-endian</td></tr>
+<tr><td><code>Int32</code></td><td>4-byte signed integer, big-endian</td></tr>
+<tr><td><code>String</code></td><td>Null-terminated UTF-8 string</td></tr>
+<tr><td><code>Byte[n]</code></td><td>Fixed n bytes of raw data</td></tr>
+</table>
+
+<h3>Format Codes</h3>
+<ul>
+<li><code>0</code> = Text format (human-readable, null-terminated not allowed in data)</li>
+<li><code>1</code> = Binary format (type-specific packed representation)</li>
+</ul>
+
+<hr>
+
+<h2 id="startup">Connection Startup</h2>
+
+<h3>Connection Flow Overview</h3>
+<div class="flow-diagram">Client                              Server
+  │                                   │
+  │─── SSLRequest (optional) ────────>│
+  │<─────────────────── 'S' or 'N' ───│
+  │      (if 'S': TLS handshake)      │
+  │                                   │
+  │─── StartupMessage ───────────────>│
+  │<─────────────── Authentication* ──│
+  │     (may repeat for SASL/GSS)     │
+  │─── PasswordMessage/SASL ─────────>│
+  │<─────────────── AuthenticationOk ─│
+  │<─────────────── BackendKeyData ───│
+  │<─────────────── ParameterStatus ──│  (multiple)
+  │<─────────────── ReadyForQuery ────│
+  │                                   │</div>
+
+<h3>Step 1: Optional SSL/GSSAPI Negotiation</h3>
+<p>Before sending StartupMessage, client may request encryption.</p>
+
+<h4>Client sends SSLRequest (no type byte)</h4>
+<pre><code>Int32(8)         Length
+Int32(80877103)  SSL request code</code></pre>
+<p><strong>Server responds</strong> with single byte (not a normal message):</p>
+<ul>
+<li><code>S</code> = SSL accepted, proceed with TLS handshake</li>
+<li><code>N</code> = SSL not supported, continue unencrypted</li>
+</ul>
+
+<h4>Client sends GSSENCRequest (no type byte)</h4>
+<pre><code>Int32(8)         Length
+Int32(80877104)  GSSAPI encryption request code</code></pre>
+<p><strong>Server responds</strong> with single byte: <code>G</code> (accepted) or <code>N</code> (not supported)</p>
+
+<h3>Step 2: StartupMessage</h3>
+<p><strong>Client sends StartupMessage</strong> (no type byte):</p>
+<pre><code>Int32            Length (including self)
+Int32(196608)    Protocol version 3.0 (0x00030000)
+                 Or 196610 for version 3.2 (0x00030002)
+String           Parameter name (e.g., "user")
+String           Parameter value
+...              More name/value pairs
+Byte1(0)         Terminator</code></pre>
+
+<p><strong>Required parameters:</strong></p>
+<ul><li><code>user</code> - Database username</li></ul>
+
+<p><strong>Optional parameters:</strong></p>
+<ul>
+<li><code>database</code> - Database name (defaults to username)</li>
+<li><code>options</code> - Command-line arguments for backend</li>
+<li><code>replication</code> - <code>true</code> for physical, <code>database</code> for logical replication</li>
+<li><code>client_encoding</code> - Client character encoding</li>
+</ul>
+
+<h3>Step 3: Authentication</h3>
+<p><strong>Server responds</strong> with one of these <code>R</code> messages:</p>
+
+<h4>AuthenticationOk</h4>
+<pre><code>Byte1('R')
+Int32(8)
+Int32(0)         Success</code></pre>
+
+<h4>AuthenticationCleartextPassword</h4>
+<pre><code>Byte1('R')
+Int32(8)
+Int32(3)         Request cleartext password</code></pre>
+<p>Client responds with <strong>PasswordMessage</strong>:</p>
+<pre><code>Byte1('p')
+Int32            Length
+String           Password</code></pre>
+
+<h4>AuthenticationMD5Password (deprecated)</h4>
+<pre><code>Byte1('R')
+Int32(12)
+Int32(5)
+Byte4            Salt</code></pre>
+<p>Password = <code>'md5' + md5(md5(password + username) + salt)</code></p>
+
+<h4>AuthenticationSASL</h4>
+<pre><code>Byte1('R')
+Int32            Length
+Int32(10)
+String           Mechanism name (e.g., "SCRAM-SHA-256")
+...              More mechanism names
+Byte1(0)         Terminator</code></pre>
+
+<h3>Step 4: Post-Authentication Messages</h3>
+<p>After successful authentication, server sends:</p>
+
+<p><strong>1. BackendKeyData</strong> - For query cancellation:</p>
+<pre><code>Byte1('K')
+Int32            Length
+Int32            Process ID
+Byte[n]          Secret key (4-256 bytes, typically 4)</code></pre>
+
+<p><strong>2. ParameterStatus</strong> (multiple) - Server configuration:</p>
+<pre><code>Byte1('S')
+Int32            Length
+String           Parameter name
+String           Parameter value</code></pre>
+<p>Common parameters: <code>server_version</code>, <code>server_encoding</code>, <code>client_encoding</code>, <code>DateStyle</code>, <code>TimeZone</code>, <code>integer_datetimes</code>, <code>search_path</code> (new in 3.2)</p>
+
+<p><strong>3. ReadyForQuery</strong> - Connection ready:</p>
+<pre><code>Byte1('Z')
+Int32(5)
+Byte1            Transaction status:
+                 'I' = Idle (not in transaction)
+                 'T' = In transaction block
+                 'E' = In failed transaction block</code></pre>
+
+<hr>
+
+<h2 id="sasl">SASL Authentication (SCRAM-SHA-256)</h2>
+<p>PostgreSQL supports SCRAM-SHA-256 and SCRAM-SHA-256-PLUS (with channel binding).</p>
+
+<h3>Message Flow</h3>
+<ol>
+<li>Server sends <strong>AuthenticationSASL</strong> with mechanism list</li>
+<li>Client sends <strong>SASLInitialResponse</strong>:
+<pre><code>Byte1('p')
+Int32            Length
+String           Mechanism name ("SCRAM-SHA-256" or "SCRAM-SHA-256-PLUS")
+Int32            Length of initial response (-1 if none)
+Byte[n]          SCRAM client-first-message</code></pre></li>
+<li>Server sends <strong>AuthenticationSASLContinue</strong>:
+<pre><code>Byte1('R')
+Int32            Length
+Int32(11)
+Byte[n]          SCRAM server-first-message</code></pre></li>
+<li>Client sends <strong>SASLResponse</strong>:
+<pre><code>Byte1('p')
+Int32            Length
+Byte[n]          SCRAM client-final-message</code></pre></li>
+<li>Server sends <strong>AuthenticationSASLFinal</strong>:
+<pre><code>Byte1('R')
+Int32            Length
+Int32(12)
+Byte[n]          SCRAM server-final-message</code></pre></li>
+<li>Server sends <strong>AuthenticationOk</strong></li>
+</ol>
+
+<h3>SCRAM-SHA-256 Implementation</h3>
+<p>Follow RFC 5802 and RFC 7677 with these PostgreSQL-specific notes:</p>
+<ul>
+<li><strong>Username</strong>: Ignored in SCRAM exchange; use startup message username</li>
+<li><strong>Channel binding type</strong>: <code>tls-server-end-point</code> for SCRAM-SHA-256-PLUS</li>
+<li><strong>Channel binding flag</strong>:
+<ul>
+<li><code>n,,</code> for no channel binding</li>
+<li><code>p=tls-server-end-point,,</code> with SSL</li>
+<li><code>y,,</code> if client supports but server doesn't</li>
+</ul></li>
+</ul>
+<p><strong>Client-first-message</strong>: <code>n,,n=,r=&lt;client-nonce&gt;</code><br>
+<strong>Server-first-message</strong>: <code>r=&lt;combined-nonce&gt;,s=&lt;salt-base64&gt;,i=&lt;iterations&gt;</code><br>
+<strong>Client-final-message</strong>: <code>c=&lt;channel-binding-base64&gt;,r=&lt;combined-nonce&gt;,p=&lt;proof-base64&gt;</code><br>
+<strong>Server-final-message</strong>: <code>v=&lt;server-signature-base64&gt;</code></p>
+
+<hr>
+
+<h2 id="simple">Simple Query Protocol</h2>
+
+<h3>Flow Overview</h3>
+<div class="flow-diagram">Client                              Server
+  │                                   │
+  │─── Query ────────────────────────>│
+  │                                   │
+  │    For each SQL statement:        │
+  │<───────────────── RowDescription ─│  (if returns rows)
+  │<───────────────── DataRow ────────│  (zero or more)
+  │<───────────────── CommandComplete │
+  │         OR                        │
+  │<───────────────── ErrorResponse ──│  (on error)
+  │                                   │
+  │<───────────────── ReadyForQuery ──│  (always last)
+  │                                   │</div>
+
+<h3>Query Message</h3>
+<p><strong>Client sends Query</strong>:</p>
+<pre><code>Byte1('Q')
+Int32            Length
+String           SQL query text (may contain multiple statements)</code></pre>
+
+<h3>Response Sequence</h3>
+<p><strong>Server responds</strong> for each statement in the query:</p>
+
+<p><strong>If SELECT or similar (returns rows):</strong></p>
+<ol>
+<li><strong>RowDescription</strong></li>
+<li>Zero or more <strong>DataRow</strong></li>
+<li><strong>CommandComplete</strong></li>
+</ol>
+
+<p><strong>If INSERT/UPDATE/DELETE/etc:</strong></p>
+<ol><li><strong>CommandComplete</strong></li></ol>
+
+<p><strong>If error occurs:</strong></p>
+<ol><li><strong>ErrorResponse</strong></li></ol>
+
+<p><strong>Always ends with:</strong> <strong>ReadyForQuery</strong></p>
+
+<h3>RowDescription</h3>
+<pre><code>Byte1('T')
+Int32            Length
+Int16            Number of fields
+For each field:
+  String         Field name
+  Int32          Table OID (0 if not a table column)
+  Int16          Column attribute number (0 if not a table column)
+  Int32          Data type OID
+  Int16          Type size (-1 for variable, -2 for null-terminated)
+  Int32          Type modifier (type-specific)
+  Int16          Format code (0=text, 1=binary)</code></pre>
+
+<h3>DataRow</h3>
+<pre><code>Byte1('D')
+Int32            Length
+Int16            Number of columns
+For each column:
+  Int32          Value length (-1 for NULL)
+  Byte[n]        Value data (if not NULL)</code></pre>
+
+<h3>CommandComplete</h3>
+<pre><code>Byte1('C')
+Int32            Length
+String           Command tag, e.g.:
+                 "SELECT 5"
+                 "INSERT 0 1" (oid, rows)
+                 "UPDATE 10"
+                 "DELETE 3"</code></pre>
+
+<h3>EmptyQueryResponse</h3>
+<pre><code>Byte1('I')
+Int32(4)</code></pre>
+
+<hr>
+
+<h2 id="extended">Extended Query Protocol</h2>
+<p>Separates parsing, binding, and execution for efficiency and prepared statements.</p>
+
+<h3>Flow Overview</h3>
+<div class="flow-diagram">Client                              Server
+  │                                   │
+  │─── Parse ────────────────────────>│
+  │<───────────────── ParseComplete ──│
+  │                                   │
+  │─── Bind ─────────────────────────>│
+  │<───────────────── BindComplete ───│
+  │                                   │
+  │─── Describe (optional) ──────────>│
+  │<───────────────── ParameterDesc ──│  (if statement)
+  │<───────────────── RowDescription ─│  (or NoData)
+  │                                   │
+  │─── Execute ──────────────────────>│
+  │<───────────────── DataRow ────────│  (zero or more)
+  │<───────────────── CommandComplete │  (or PortalSuspended)
+  │                                   │
+  │─── Sync ─────────────────────────>│
+  │<───────────────── ReadyForQuery ──│
+  │                                   │</div>
+<p>On error at any step, server sends <strong>ErrorResponse</strong> and skips to <strong>Sync</strong>.</p>
+
+<h3>Parse - Create Prepared Statement</h3>
+<pre><code>Byte1('P')
+Int32            Length
+String           Statement name (empty = unnamed)
+String           SQL query with $1, $2, ... placeholders
+Int16            Number of parameter type OIDs
+Int32[]          Parameter type OIDs (0 = let server infer)</code></pre>
+<p><strong>Response</strong>: ParseComplete or ErrorResponse</p>
+<pre><code>Byte1('1')
+Int32(4)</code></pre>
+
+<h3>Bind - Create Portal</h3>
+<pre><code>Byte1('B')
+Int32            Length
+String           Portal name (empty = unnamed)
+String           Statement name
+Int16            Number of parameter format codes
+Int16[]          Format codes (0=text, 1=binary)
+                 If 0 codes: all text
+                 If 1 code: applies to all
+                 Otherwise: one per parameter
+Int16            Number of parameter values
+For each parameter:
+  Int32          Value length (-1 for NULL)
+  Byte[n]        Value data
+Int16            Number of result format codes
+Int16[]          Result format codes (same rules as parameter formats)</code></pre>
+<p><strong>Response</strong>: BindComplete or ErrorResponse</p>
+<pre><code>Byte1('2')
+Int32(4)</code></pre>
+
+<h3>Execute - Run Portal</h3>
+<pre><code>Byte1('E')
+Int32            Length
+String           Portal name
+Int32            Maximum rows (0 = unlimited)</code></pre>
+<p><strong>Response</strong>: DataRow messages, then CommandComplete or PortalSuspended</p>
+<p><strong>PortalSuspended</strong> (if row limit reached):</p>
+<pre><code>Byte1('s')
+Int32(4)</code></pre>
+
+<h3>Describe - Get Metadata</h3>
+<pre><code>Byte1('D')
+Int32            Length
+Byte1            'S' for statement, 'P' for portal
+String           Statement or portal name</code></pre>
+<p><strong>For Statement</strong>: ParameterDescription then RowDescription (or NoData)<br>
+<strong>For Portal</strong>: RowDescription (or NoData)</p>
+
+<p><strong>ParameterDescription</strong>:</p>
+<pre><code>Byte1('t')
+Int32            Length
+Int16            Number of parameters
+Int32[]          Parameter type OIDs</code></pre>
+
+<p><strong>NoData</strong> (query returns no rows):</p>
+<pre><code>Byte1('n')
+Int32(4)</code></pre>
+
+<h3>Close - Release Resources</h3>
+<pre><code>Byte1('C')
+Int32            Length
+Byte1            'S' for statement, 'P' for portal
+String           Name</code></pre>
+<p><strong>Response</strong>: CloseComplete</p>
+<pre><code>Byte1('3')
+Int32(4)</code></pre>
+
+<h3>Sync - End Extended Query</h3>
+<pre><code>Byte1('S')
+Int32(4)</code></pre>
+<p>Causes implicit commit/rollback if not in explicit transaction.<br>
+<strong>Response</strong>: ReadyForQuery</p>
+
+<h3>Flush - Request Immediate Response</h3>
+<pre><code>Byte1('H')
+Int32(4)</code></pre>
+<p>Forces server to send all pending responses without waiting for Sync.</p>
+
+<hr>
+
+<h2 id="pipelining">Pipelining</h2>
+<p>The extended protocol supports pipelining - sending multiple Parse/Bind/Execute sequences before any Sync.</p>
+<p><strong>Key behaviors:</strong></p>
+<ul>
+<li>After an error, server skips commands until next Sync</li>
+<li>Sync causes implicit COMMIT (success) or ROLLBACK (failure)</li>
+<li>Omit Sync between dependent operations to keep them atomic</li>
+<li>Use Flush to get responses mid-pipeline without closing transaction</li>
+</ul>
+
+<hr>
+
+<h2 id="copy">COPY Protocol</h2>
+
+<h3>COPY TO Flow (Server → Client)</h3>
+<div class="flow-diagram">Client                              Server
+  │                                   │
+  │─── Query "COPY ... TO STDOUT" ───>│
+  │<───────────────── CopyOutResponse │
+  │<───────────────── CopyData ───────│  (repeated)
+  │<───────────────── CopyDone ───────│
+  │<───────────────── CommandComplete │
+  │<───────────────── ReadyForQuery ──│
+  │                                   │</div>
+
+<h3>COPY FROM Flow (Client → Server)</h3>
+<div class="flow-diagram">Client                              Server
+  │                                   │
+  │─── Query "COPY ... FROM STDIN" ──>│
+  │<───────────────── CopyInResponse ─│
+  │─── CopyData ─────────────────────>│  (repeated)
+  │─── CopyDone ─────────────────────>│
+  │<───────────────── CommandComplete │
+  │<───────────────── ReadyForQuery ──│
+  │                                   │</div>
+
+<h3>COPY TO Details (Server → Client)</h3>
+<ol>
+<li>Client sends Query with <code>COPY ... TO STDOUT</code></li>
+<li>Server sends <strong>CopyOutResponse</strong>:
+<pre><code>Byte1('H')
+Int32            Length
+Int8             Overall format (0=text, 1=binary)
+Int16            Number of columns
+Int16[]          Per-column format codes</code></pre></li>
+<li>Server sends <strong>CopyData</strong> messages:
+<pre><code>Byte1('d')
+Int32            Length
+Byte[n]          Row data</code></pre></li>
+<li>Server sends <strong>CopyDone</strong>:
+<pre><code>Byte1('c')
+Int32(4)</code></pre></li>
+<li>Server sends <strong>CommandComplete</strong>, then <strong>ReadyForQuery</strong></li>
+</ol>
+
+<h3>COPY FROM Details (Client → Server)</h3>
+<ol>
+<li>Client sends Query with <code>COPY ... FROM STDIN</code></li>
+<li>Server sends <strong>CopyInResponse</strong>:
+<pre><code>Byte1('G')
+Int32            Length
+Int8             Overall format
+Int16            Number of columns
+Int16[]          Per-column format codes</code></pre></li>
+<li>Client sends <strong>CopyData</strong> messages</li>
+<li>Client sends <strong>CopyDone</strong> or <strong>CopyFail</strong>:
+<pre><code>Byte1('f')
+Int32            Length
+String           Error message</code></pre></li>
+<li>Server sends <strong>CommandComplete</strong> (or ErrorResponse), then <strong>ReadyForQuery</strong></li>
+</ol>
+
+<h3>Text Format</h3>
+<ul>
+<li>Columns separated by tab (<code>\t</code>)</li>
+<li>Rows terminated by newline (<code>\n</code>)</li>
+<li>NULL represented as <code>\N</code></li>
+<li>Backslash escapes: <code>\\</code>, <code>\t</code>, <code>\n</code>, <code>\r</code></li>
+</ul>
+
+<h3>Binary Format</h3>
+<ul>
+<li>Header: <code>PGCOPY\n\377\r\n\0</code> (11 bytes)</li>
+<li>Flags: Int32 (0 for standard)</li>
+<li>Header extension: Int32 length + data</li>
+<li>Each row: Int16 field count, then per field: Int32 length + data</li>
+<li>Trailer: Int16(-1)</li>
+</ul>
+
+<hr>
+
+<h2 id="errors">Error and Notice Messages</h2>
+
+<h3>ErrorResponse / NoticeResponse</h3>
+<pre><code>Byte1('E' or 'N')
+Int32            Length
+Repeated:
+  Byte1          Field type
+  String         Field value
+Byte1(0)         Terminator</code></pre>
+
+<h3>Field Types</h3>
+<table>
+<tr><th>Code</th><th>Name</th><th>Description</th></tr>
+<tr><td><code>S</code></td><td>Severity</td><td>ERROR, FATAL, PANIC, WARNING, NOTICE, DEBUG, INFO, LOG</td></tr>
+<tr><td><code>V</code></td><td>Severity (non-localized)</td><td>Same as S but never translated</td></tr>
+<tr><td><code>C</code></td><td>Code</td><td>SQLSTATE error code (5 chars)</td></tr>
+<tr><td><code>M</code></td><td>Message</td><td>Primary error message</td></tr>
+<tr><td><code>D</code></td><td>Detail</td><td>Optional detailed explanation</td></tr>
+<tr><td><code>H</code></td><td>Hint</td><td>Optional suggestion</td></tr>
+<tr><td><code>P</code></td><td>Position</td><td>Cursor position in query string</td></tr>
+<tr><td><code>p</code></td><td>Internal Position</td><td>Position in internal query</td></tr>
+<tr><td><code>q</code></td><td>Internal Query</td><td>Failed internal command text</td></tr>
+<tr><td><code>W</code></td><td>Where</td><td>Context/stack trace</td></tr>
+<tr><td><code>s</code></td><td>Schema</td><td>Schema name</td></tr>
+<tr><td><code>t</code></td><td>Table</td><td>Table name</td></tr>
+<tr><td><code>c</code></td><td>Column</td><td>Column name</td></tr>
+<tr><td><code>d</code></td><td>Data type</td><td>Data type name</td></tr>
+<tr><td><code>n</code></td><td>Constraint</td><td>Constraint name</td></tr>
+<tr><td><code>F</code></td><td>File</td><td>Source file name</td></tr>
+<tr><td><code>L</code></td><td>Line</td><td>Source line number</td></tr>
+<tr><td><code>R</code></td><td>Routine</td><td>Source routine name</td></tr>
+</table>
+<p>Always present: S, V (9.6+), C, M</p>
+
+<hr>
+
+<h2 id="async">Asynchronous Messages</h2>
+<p>These can arrive at any time (except during COPY):</p>
+
+<h3>NotificationResponse (LISTEN/NOTIFY)</h3>
+<pre><code>Byte1('A')
+Int32            Length
+Int32            Notifying backend PID
+String           Channel name
+String           Payload</code></pre>
+
+<h3>ParameterStatus</h3>
+<pre><code>Byte1('S')
+Int32            Length
+String           Parameter name
+String           New value</code></pre>
+<p>Sent when SET changes a tracked parameter.</p>
+
+<h3>NoticeResponse</h3>
+<p>Non-fatal warnings from server.</p>
+
+<hr>
+
+<h2 id="cancel">Query Cancellation</h2>
+<p>To cancel a running query, open a <strong>new connection</strong> and send:</p>
+
+<h3>CancelRequest (no type byte)</h3>
+<pre><code>Int32            Length
+Int32(80877102)  Cancel request code
+Int32            Backend PID (from BackendKeyData)
+Byte[n]          Secret key (from BackendKeyData)</code></pre>
+<p>Server closes connection immediately with no response. Cancellation is best-effort; the original query may complete anyway. Check original connection for results.</p>
+
+<hr>
+
+<h2 id="terminate">Connection Termination</h2>
+
+<h3>Normal Termination</h3>
+<p>Client sends:</p>
+<pre><code>Byte1('X')
+Int32(4)</code></pre>
+<p>Then closes socket.</p>
+
+<h3>Abnormal Termination</h3>
+<p>If connection drops unexpectedly, any open transaction is rolled back (never committed).</p>
+
+<hr>
+
+<h2>Protocol Version Negotiation</h2>
+<p>If server doesn't support requested protocol version or startup parameters:</p>
+
+<h3>NegotiateProtocolVersion</h3>
+<pre><code>Byte1('v')
+Int32            Length
+Int32            Newest minor version server supports
+Int32            Number of unrecognized parameters
+String[]         Unrecognized parameter names</code></pre>
+<p>Client should reconnect with compatible settings.</p>
+
+<hr>
+
+<h2 id="summary">Message Type Summary</h2>
+
+<h3>Frontend (Client → Server)</h3>
+<table>
+<tr><th>Type</th><th>Name</th></tr>
+<tr><td>-</td><td>StartupMessage</td></tr>
+<tr><td>-</td><td>SSLRequest</td></tr>
+<tr><td>-</td><td>GSSENCRequest</td></tr>
+<tr><td>-</td><td>CancelRequest</td></tr>
+<tr><td><code>p</code></td><td>PasswordMessage / SASLInitialResponse / SASLResponse / GSSResponse</td></tr>
+<tr><td><code>Q</code></td><td>Query</td></tr>
+<tr><td><code>P</code></td><td>Parse</td></tr>
+<tr><td><code>B</code></td><td>Bind</td></tr>
+<tr><td><code>E</code></td><td>Execute</td></tr>
+<tr><td><code>D</code></td><td>Describe</td></tr>
+<tr><td><code>C</code></td><td>Close</td></tr>
+<tr><td><code>S</code></td><td>Sync</td></tr>
+<tr><td><code>H</code></td><td>Flush</td></tr>
+<tr><td><code>F</code></td><td>FunctionCall</td></tr>
+<tr><td><code>d</code></td><td>CopyData</td></tr>
+<tr><td><code>c</code></td><td>CopyDone</td></tr>
+<tr><td><code>f</code></td><td>CopyFail</td></tr>
+<tr><td><code>X</code></td><td>Terminate</td></tr>
+</table>
+
+<h3>Backend (Server → Client)</h3>
+<table>
+<tr><th>Type</th><th>Name</th></tr>
+<tr><td><code>R</code></td><td>Authentication*</td></tr>
+<tr><td><code>K</code></td><td>BackendKeyData</td></tr>
+<tr><td><code>S</code></td><td>ParameterStatus</td></tr>
+<tr><td><code>Z</code></td><td>ReadyForQuery</td></tr>
+<tr><td><code>T</code></td><td>RowDescription</td></tr>
+<tr><td><code>D</code></td><td>DataRow</td></tr>
+<tr><td><code>C</code></td><td>CommandComplete</td></tr>
+<tr><td><code>I</code></td><td>EmptyQueryResponse</td></tr>
+<tr><td><code>E</code></td><td>ErrorResponse</td></tr>
+<tr><td><code>N</code></td><td>NoticeResponse</td></tr>
+<tr><td><code>A</code></td><td>NotificationResponse</td></tr>
+<tr><td><code>1</code></td><td>ParseComplete</td></tr>
+<tr><td><code>2</code></td><td>BindComplete</td></tr>
+<tr><td><code>3</code></td><td>CloseComplete</td></tr>
+<tr><td><code>t</code></td><td>ParameterDescription</td></tr>
+<tr><td><code>n</code></td><td>NoData</td></tr>
+<tr><td><code>s</code></td><td>PortalSuspended</td></tr>
+<tr><td><code>G</code></td><td>CopyInResponse</td></tr>
+<tr><td><code>H</code></td><td>CopyOutResponse</td></tr>
+<tr><td><code>W</code></td><td>CopyBothResponse</td></tr>
+<tr><td><code>d</code></td><td>CopyData</td></tr>
+<tr><td><code>c</code></td><td>CopyDone</td></tr>
+<tr><td><code>V</code></td><td>FunctionCallResponse</td></tr>
+<tr><td><code>v</code></td><td>NegotiateProtocolVersion</td></tr>
+</table>
+
+<hr>
+
+<h2 id="notes">Implementation Notes</h2>
+<ol>
+<li><strong>Buffer Management</strong>: Strings have no length limit; use growable buffers</li>
+<li><strong>Encoding</strong>: Use UTF-8 for all strings; handle encoding parameter</li>
+<li><strong>Null Handling</strong>: Text format cannot contain embedded nulls; binary can</li>
+<li><strong>Transaction Awareness</strong>: Track ReadyForQuery status for proper error handling</li>
+<li><strong>Async Message Handling</strong>: Always be prepared to receive NoticeResponse, ParameterStatus, or NotificationResponse</li>
+<li><strong>Connection Pooling</strong>: BackendKeyData is per-connection; track for cancellation</li>
+<li><strong>SSL</strong>: Negotiate before StartupMessage; fall back gracefully if rejected</li>
+</ol>
+
+<hr>
+
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://www.postgresql.org/docs/current/protocol.html">PostgreSQL 18 Protocol Documentation</a></li>
+<li><a href="https://www.postgresql.org/docs/current/protocol-overview.html">Protocol Overview</a></li>
+<li><a href="https://www.postgresql.org/docs/current/protocol-flow.html">Message Flow</a></li>
+<li><a href="https://www.postgresql.org/docs/current/protocol-message-formats.html">Message Formats</a></li>
+<li><a href="https://www.postgresql.org/docs/current/sasl-authentication.html">SASL Authentication</a></li>
+<li><a href="https://www.postgresql.org/docs/current/protocol-error-fields.html">Error Fields</a></li>
+<li>RFC 5802 (SCRAM)</li>
+<li>RFC 7677 (SCRAM-SHA-256)</li>
+</ul>
+
+</body>
+</html>
