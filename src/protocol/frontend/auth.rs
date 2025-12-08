@@ -75,7 +75,7 @@ impl ScramClient {
 
         // Generate 24-byte random nonce, base64 encoded
         let mut nonce_bytes = [0u8; 24];
-        rand::thread_rng().fill(&mut nonce_bytes);
+        rand::rng().fill(&mut nonce_bytes);
         let nonce = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, nonce_bytes);
 
         Self {
@@ -93,7 +93,7 @@ impl ScramClient {
         use rand::Rng;
 
         let mut nonce_bytes = [0u8; 24];
-        rand::thread_rng().fill(&mut nonce_bytes);
+        rand::rng().fill(&mut nonce_bytes);
         let nonce = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, nonce_bytes);
 
         // p=tls-server-end-point,,

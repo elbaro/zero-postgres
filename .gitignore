@@ -1,1 +1,7 @@
 /target
+/.devenv
+/.devenv.flake.nix
+/devenv.nix
+devenv.lock
+/.direnv/
+/.envrc

@@ -61,7 +61,7 @@ impl Conn {
     {
         let opts = opts.try_into()?;
 
-        let stream = if let Some(ref socket_path) = opts.socket {
+        let stream = if let Some(socket_path) = &opts.socket {
             Stream::unix(UnixStream::connect(socket_path)?)
         } else {
             if opts.host.is_empty() {
@@ -164,7 +164,10 @@ impl Conn {
     fn try_upgrade_to_unix_socket(mut self, opts: &Opts) -> Self {
         // Query unix_socket_directories from server
         let mut handler = ShowVarHandler { value: None };
-        if self.query("SHOW unix_socket_directories", &mut handler).is_err() {
+        if self
+            .query("SHOW unix_socket_directories", &mut handler)
+            .is_err()
+        {
             return self;
         }
 

@@ -136,3 +136,9 @@ impl<Src: std::fmt::Debug, Dst: std::fmt::Debug + ?Sized>
         Error::Protocol(format!("zerocopy cast error: {err:?}"))
     }
 }
+
+impl From<std::convert::Infallible> for Error {
+    fn from(err: std::convert::Infallible) -> Self {
+        match err {}
+    }
+}
