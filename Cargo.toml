@@ -31,9 +31,10 @@ hmac = "0.12"
 pbkdf2 = { version = "0.12", features = ["hmac"] }
 base64 = "0.22"
 md-5 = "0.10"
-rand = "0.8"
+rand = "0.9"
 tracing = { version = "0.1", features = ["release_max_level_warn"] }
 memchr = "2"
+simdutf8 = "0.1"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

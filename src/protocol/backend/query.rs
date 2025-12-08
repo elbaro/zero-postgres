@@ -4,7 +4,8 @@ use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 use crate::error::{Error, Result};
 use crate::protocol::codec::{read_cstr, read_i16, read_i32, read_u16, read_u32};
-use crate::protocol::types::{FormatCode, Oid, U16BE};
+use crate::protocol::types::{FormatCode, Oid};
+use zerocopy::byteorder::big_endian::U16 as U16BE;
 
 /// RowDescription message header.
 #[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]

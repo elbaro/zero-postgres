@@ -4,7 +4,8 @@ use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 use crate::error::{Error, Result};
 use crate::protocol::codec::read_u32;
-use crate::protocol::types::{Oid, U16BE};
+use crate::protocol::types::Oid;
+use zerocopy::byteorder::big_endian::U16 as U16BE;
 
 /// ParseComplete message - statement parsing completed.
 #[derive(Debug, Clone, Copy)]

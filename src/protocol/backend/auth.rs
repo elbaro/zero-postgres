@@ -4,7 +4,8 @@ use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 use crate::error::{Error, Result};
 use crate::protocol::codec::{read_cstr, read_i32, read_u32};
-use crate::protocol::types::{TransactionStatus, U32BE};
+use crate::protocol::types::TransactionStatus;
+use zerocopy::byteorder::big_endian::U32 as U32BE;
 
 /// Authentication method constants.
 pub mod auth_type {

@@ -5,7 +5,7 @@
 use crate::error::{Error, Result};
 use zerocopy::FromBytes;
 
-use super::types::{I16BE, I32BE, U16BE, U32BE};
+use zerocopy::byteorder::big_endian::{I16 as I16BE, I32 as I32BE, U16 as U16BE, U32 as U32BE};
 
 /// Read 1-byte unsigned integer.
 #[inline]
@@ -105,7 +105,7 @@ pub fn read_cstring(data: &[u8]) -> Result<(&[u8], &[u8])> {
 #[inline]
 pub fn read_cstr(data: &[u8]) -> Result<(&str, &[u8])> {
     let (bytes, rest) = read_cstring(data)?;
-    let s = std::str::from_utf8(bytes)
+    let s = simdutf8::compat::from_utf8(bytes)
         .map_err(|e| Error::Protocol(format!("read_cstr: invalid UTF-8: {e}")))?;
     Ok((s, rest))
 }
@@ -228,7 +228,7 @@ impl<'a> MessageBuilder<'a> {
 
     /// Finish building the message and fill in the length field.
     pub fn finish(self) {
-        let len = (self.buf.len() - self.start) as i32;
+        let len = (self.buf.len() - self.start) as u32;
         self.buf[self.start..self.start + 4].copy_from_slice(&len.to_be_bytes());
     }
 }

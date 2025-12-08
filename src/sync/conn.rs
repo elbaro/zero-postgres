@@ -1,6 +1,5 @@
 //! Synchronous PostgreSQL connection.
 
-use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::TcpStream;
 
 use crate::error::{Error, Result};
@@ -11,49 +10,7 @@ use crate::state::action::Action;
 use crate::state::connection::{ConnectionState, ConnectionStateMachine, Opts, SslAction};
 use crate::state::simple_query::{BufferSet, ControlFlow, QueryHandler, SimpleQueryStateMachine};
 
-/// Stream wrapper for TCP or TLS connections.
-enum Stream {
-    Tcp(BufReader<TcpStream>, BufWriter<TcpStream>),
-    #[cfg(feature = "sync-tls")]
-    Tls(
-        BufReader<native_tls::TlsStream<TcpStream>>,
-        BufWriter<native_tls::TlsStream<TcpStream>>,
-    ),
-}
-
-impl Stream {
-    fn tcp(stream: TcpStream) -> Result<Self> {
-        let reader = stream.try_clone()?;
-        Ok(Self::Tcp(BufReader::new(reader), BufWriter::new(stream)))
-    }
-
-    fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
-        match self {
-            Stream::Tcp(reader, _) => reader.read_exact(buf)?,
-            #[cfg(feature = "sync-tls")]
-            Stream::Tls(reader, _) => reader.read_exact(buf)?,
-        }
-        Ok(())
-    }
-
-    fn write_all(&mut self, buf: &[u8]) -> Result<()> {
-        match self {
-            Stream::Tcp(_, writer) => writer.write_all(buf)?,
-            #[cfg(feature = "sync-tls")]
-            Stream::Tls(_, writer) => writer.write_all(buf)?,
-        }
-        Ok(())
-    }
-
-    fn flush(&mut self) -> Result<()> {
-        match self {
-            Stream::Tcp(_, writer) => writer.flush()?,
-            #[cfg(feature = "sync-tls")]
-            Stream::Tls(_, writer) => writer.flush()?,
-        }
-        Ok(())
-    }
-}
+use super::stream::Stream;
 
 /// Read a message from the stream into the buffer set.
 fn read_message_into(stream: &mut Stream, buffer_set: &mut BufferSet) -> Result<()> {
@@ -111,7 +68,7 @@ impl Conn {
 
     /// Connect using an existing TCP stream.
     pub fn connect_with_stream(stream: TcpStream, options: Opts) -> Result<Self> {
-        let mut conn_stream = Stream::tcp(stream)?;
+        let mut conn_stream = Stream::tcp(stream);
         let mut buffer_set = BufferSet::new();
 
         let mut state_machine = ConnectionStateMachine::new(options);

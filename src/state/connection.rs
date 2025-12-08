@@ -381,7 +381,7 @@ impl ConnectionStateMachine {
                     .as_mut()
                     .ok_or_else(|| Error::Protocol("SCRAM client not initialized".into()))?;
 
-                let server_first = std::str::from_utf8(data)
+                let server_first = simdutf8::compat::from_utf8(data)
                     .map_err(|e| Error::Auth(format!("Invalid server-first-message: {}", e)))?;
 
                 let client_final = scram
@@ -398,7 +398,7 @@ impl ConnectionStateMachine {
                     .as_ref()
                     .ok_or_else(|| Error::Protocol("SCRAM client not initialized".into()))?;
 
-                let server_final = std::str::from_utf8(data)
+                let server_final = simdutf8::compat::from_utf8(data)
                     .map_err(|e| Error::Auth(format!("Invalid server-final-message: {}", e)))?;
 
                 scram
