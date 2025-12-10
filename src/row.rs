@@ -3,7 +3,7 @@
 use crate::error::{Error, Result};
 use crate::protocol::backend::query::{DataRow, FieldDescription};
 use crate::protocol::types::FormatCode;
-use crate::value::FromValue;
+use crate::value::FromWire;
 
 /// Trait for decoding a PostgreSQL row into a Rust type.
 pub trait FromRow<'a>: Sized {
@@ -12,7 +12,7 @@ pub trait FromRow<'a>: Sized {
 }
 
 /// Decode a single column value.
-fn decode_column<'a, T: FromValue<'a>>(
+fn decode_column<'a, T: FromWire<'a>>(
     field: &FieldDescription,
     value: Option<&'a [u8]>,
 ) -> Result<T> {
@@ -27,7 +27,7 @@ fn decode_column<'a, T: FromValue<'a>>(
 
 // === Tuple implementations ===
 
-impl<'a, T1: FromValue<'a>> FromRow<'a> for (T1,) {
+impl<'a, T1: FromWire<'a>> FromRow<'a> for (T1,) {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 1 {
             return Err(Error::Decode("not enough columns for tuple".into()));
@@ -38,7 +38,7 @@ impl<'a, T1: FromValue<'a>> FromRow<'a> for (T1,) {
     }
 }
 
-impl<'a, T1: FromValue<'a>, T2: FromValue<'a>> FromRow<'a> for (T1, T2) {
+impl<'a, T1: FromWire<'a>, T2: FromWire<'a>> FromRow<'a> for (T1, T2) {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 2 {
             return Err(Error::Decode("not enough columns for tuple".into()));
@@ -50,7 +50,7 @@ impl<'a, T1: FromValue<'a>, T2: FromValue<'a>> FromRow<'a> for (T1, T2) {
     }
 }
 
-impl<'a, T1: FromValue<'a>, T2: FromValue<'a>, T3: FromValue<'a>> FromRow<'a> for (T1, T2, T3) {
+impl<'a, T1: FromWire<'a>, T2: FromWire<'a>, T3: FromWire<'a>> FromRow<'a> for (T1, T2, T3) {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 3 {
             return Err(Error::Decode("not enough columns for tuple".into()));
@@ -63,7 +63,7 @@ impl<'a, T1: FromValue<'a>, T2: FromValue<'a>, T3: FromValue<'a>> FromRow<'a> fo
     }
 }
 
-impl<'a, T1: FromValue<'a>, T2: FromValue<'a>, T3: FromValue<'a>, T4: FromValue<'a>> FromRow<'a>
+impl<'a, T1: FromWire<'a>, T2: FromWire<'a>, T3: FromWire<'a>, T4: FromWire<'a>> FromRow<'a>
     for (T1, T2, T3, T4)
 {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
@@ -79,14 +79,8 @@ impl<'a, T1: FromValue<'a>, T2: FromValue<'a>, T3: FromValue<'a>, T4: FromValue<
     }
 }
 
-impl<
-        'a,
-        T1: FromValue<'a>,
-        T2: FromValue<'a>,
-        T3: FromValue<'a>,
-        T4: FromValue<'a>,
-        T5: FromValue<'a>,
-    > FromRow<'a> for (T1, T2, T3, T4, T5)
+impl<'a, T1: FromWire<'a>, T2: FromWire<'a>, T3: FromWire<'a>, T4: FromWire<'a>, T5: FromWire<'a>>
+    FromRow<'a> for (T1, T2, T3, T4, T5)
 {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 5 {
@@ -103,14 +97,14 @@ impl<
 }
 
 impl<
-        'a,
-        T1: FromValue<'a>,
-        T2: FromValue<'a>,
-        T3: FromValue<'a>,
-        T4: FromValue<'a>,
-        T5: FromValue<'a>,
-        T6: FromValue<'a>,
-    > FromRow<'a> for (T1, T2, T3, T4, T5, T6)
+    'a,
+    T1: FromWire<'a>,
+    T2: FromWire<'a>,
+    T3: FromWire<'a>,
+    T4: FromWire<'a>,
+    T5: FromWire<'a>,
+    T6: FromWire<'a>,
+> FromRow<'a> for (T1, T2, T3, T4, T5, T6)
 {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 6 {
@@ -128,15 +122,15 @@ impl<
 }
 
 impl<
-        'a,
-        T1: FromValue<'a>,
-        T2: FromValue<'a>,
-        T3: FromValue<'a>,
-        T4: FromValue<'a>,
-        T5: FromValue<'a>,
-        T6: FromValue<'a>,
-        T7: FromValue<'a>,
-    > FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7)
+    'a,
+    T1: FromWire<'a>,
+    T2: FromWire<'a>,
+    T3: FromWire<'a>,
+    T4: FromWire<'a>,
+    T5: FromWire<'a>,
+    T6: FromWire<'a>,
+    T7: FromWire<'a>,
+> FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7)
 {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 7 {
@@ -155,16 +149,16 @@ impl<
 }
 
 impl<
-        'a,
-        T1: FromValue<'a>,
-        T2: FromValue<'a>,
-        T3: FromValue<'a>,
-        T4: FromValue<'a>,
-        T5: FromValue<'a>,
-        T6: FromValue<'a>,
-        T7: FromValue<'a>,
-        T8: FromValue<'a>,
-    > FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8)
+    'a,
+    T1: FromWire<'a>,
+    T2: FromWire<'a>,
+    T3: FromWire<'a>,
+    T4: FromWire<'a>,
+    T5: FromWire<'a>,
+    T6: FromWire<'a>,
+    T7: FromWire<'a>,
+    T8: FromWire<'a>,
+> FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8)
 {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 8 {
@@ -184,17 +178,17 @@ impl<
 }
 
 impl<
-        'a,
-        T1: FromValue<'a>,
-        T2: FromValue<'a>,
-        T3: FromValue<'a>,
-        T4: FromValue<'a>,
-        T5: FromValue<'a>,
-        T6: FromValue<'a>,
-        T7: FromValue<'a>,
-        T8: FromValue<'a>,
-        T9: FromValue<'a>,
-    > FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8, T9)
+    'a,
+    T1: FromWire<'a>,
+    T2: FromWire<'a>,
+    T3: FromWire<'a>,
+    T4: FromWire<'a>,
+    T5: FromWire<'a>,
+    T6: FromWire<'a>,
+    T7: FromWire<'a>,
+    T8: FromWire<'a>,
+    T9: FromWire<'a>,
+> FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8, T9)
 {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 9 {
@@ -215,18 +209,18 @@ impl<
 }
 
 impl<
-        'a,
-        T1: FromValue<'a>,
-        T2: FromValue<'a>,
-        T3: FromValue<'a>,
-        T4: FromValue<'a>,
-        T5: FromValue<'a>,
-        T6: FromValue<'a>,
-        T7: FromValue<'a>,
-        T8: FromValue<'a>,
-        T9: FromValue<'a>,
-        T10: FromValue<'a>,
-    > FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)
+    'a,
+    T1: FromWire<'a>,
+    T2: FromWire<'a>,
+    T3: FromWire<'a>,
+    T4: FromWire<'a>,
+    T5: FromWire<'a>,
+    T6: FromWire<'a>,
+    T7: FromWire<'a>,
+    T8: FromWire<'a>,
+    T9: FromWire<'a>,
+    T10: FromWire<'a>,
+> FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)
 {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 10 {
@@ -248,19 +242,19 @@ impl<
 }
 
 impl<
-        'a,
-        T1: FromValue<'a>,
-        T2: FromValue<'a>,
-        T3: FromValue<'a>,
-        T4: FromValue<'a>,
-        T5: FromValue<'a>,
-        T6: FromValue<'a>,
-        T7: FromValue<'a>,
-        T8: FromValue<'a>,
-        T9: FromValue<'a>,
-        T10: FromValue<'a>,
-        T11: FromValue<'a>,
-    > FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11)
+    'a,
+    T1: FromWire<'a>,
+    T2: FromWire<'a>,
+    T3: FromWire<'a>,
+    T4: FromWire<'a>,
+    T5: FromWire<'a>,
+    T6: FromWire<'a>,
+    T7: FromWire<'a>,
+    T8: FromWire<'a>,
+    T9: FromWire<'a>,
+    T10: FromWire<'a>,
+    T11: FromWire<'a>,
+> FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11)
 {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 11 {
@@ -283,20 +277,20 @@ impl<
 }
 
 impl<
-        'a,
-        T1: FromValue<'a>,
-        T2: FromValue<'a>,
-        T3: FromValue<'a>,
-        T4: FromValue<'a>,
-        T5: FromValue<'a>,
-        T6: FromValue<'a>,
-        T7: FromValue<'a>,
-        T8: FromValue<'a>,
-        T9: FromValue<'a>,
-        T10: FromValue<'a>,
-        T11: FromValue<'a>,
-        T12: FromValue<'a>,
-    > FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12)
+    'a,
+    T1: FromWire<'a>,
+    T2: FromWire<'a>,
+    T3: FromWire<'a>,
+    T4: FromWire<'a>,
+    T5: FromWire<'a>,
+    T6: FromWire<'a>,
+    T7: FromWire<'a>,
+    T8: FromWire<'a>,
+    T9: FromWire<'a>,
+    T10: FromWire<'a>,
+    T11: FromWire<'a>,
+    T12: FromWire<'a>,
+> FromRow<'a> for (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12)
 {
     fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
         if cols.len() < 12 {

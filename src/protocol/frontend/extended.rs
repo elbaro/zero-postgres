@@ -2,6 +2,7 @@
 
 use crate::protocol::codec::MessageBuilder;
 use crate::protocol::types::{FormatCode, Oid};
+use crate::value::ToParams;
 
 /// Write a Parse message to create a prepared statement.
 ///
@@ -23,15 +24,13 @@ pub fn write_parse(buf: &mut Vec<u8>, name: &str, query: &str, param_oids: &[Oid
 ///
 /// - `portal`: Portal name (empty string for unnamed portal)
 /// - `statement`: Statement name
-/// - `param_formats`: Format codes for parameters (0=text, 1=binary)
-/// - `params`: Parameter values (None for NULL)
+/// - `params`: Parameter values (tuple of ToValue types)
 /// - `result_formats`: Format codes for results
-pub fn write_bind(
+pub fn write_bind<P: ToParams>(
     buf: &mut Vec<u8>,
     portal: &str,
     statement: &str,
-    param_formats: &[FormatCode],
-    params: &[Option<&[u8]>],
+    params: &P,
     result_formats: &[FormatCode],
 ) {
     let mut msg = MessageBuilder::new(buf, super::msg_type::BIND);
@@ -40,25 +39,16 @@ pub fn write_bind(
     msg.write_cstr(portal);
     msg.write_cstr(statement);
 
-    // Parameter format codes
-    msg.write_i16(param_formats.len() as i16);
-    for &fmt in param_formats {
-        msg.write_i16(fmt as i16);
+    // Parameter format codes - all binary (1)
+    let param_count = params.param_count();
+    msg.write_i16(param_count as i16);
+    for _ in 0..param_count {
+        msg.write_i16(FormatCode::Binary as i16);
     }
 
-    // Parameter values
-    msg.write_i16(params.len() as i16);
-    for param in params {
-        match param {
-            Some(data) => {
-                msg.write_i32(data.len() as i32);
-                msg.write_bytes(data);
-            }
-            None => {
-                msg.write_i32(-1); // NULL
-            }
-        }
-    }
+    // Parameter values (count + length-prefixed data)
+    msg.write_i16(param_count as i16);
+    params.encode_params(msg.buf());
 
     // Result format codes
     msg.write_i16(result_formats.len() as i16);
@@ -67,16 +57,6 @@ pub fn write_bind(
     }
 
     msg.finish();
-}
-
-/// Write a Bind message with default text format for all parameters and results.
-pub fn write_bind_all_text(
-    buf: &mut Vec<u8>,
-    portal: &str,
-    statement: &str,
-    params: &[Option<&[u8]>],
-) {
-    write_bind(buf, portal, statement, &[], params, &[]);
 }
 
 /// Write an Execute message to run a portal.

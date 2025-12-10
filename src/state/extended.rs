@@ -7,10 +7,11 @@ use crate::protocol::backend::{
     RowDescription, msg_type,
 };
 use crate::protocol::frontend::{
-    write_bind, write_close_statement, write_describe_statement, write_execute, write_parse,
-    write_sync,
+    write_bind, write_close_statement, write_describe_portal, write_describe_statement,
+    write_execute, write_parse, write_sync,
 };
 use crate::protocol::types::{FormatCode, Oid, TransactionStatus};
+use crate::value::ToParams;
 
 use super::action::{Action, AsyncMessage};
 use super::simple_query::{BufferSet, ControlFlow};
@@ -59,6 +60,38 @@ pub struct PreparedStatement {
 pub struct ColumnInfo {
     pub name: String,
     pub tail: FieldDescriptionTail,
+}
+
+impl ColumnInfo {
+    /// Table OID (0 if not a table column)
+    pub fn table_oid(&self) -> Oid {
+        self.tail.table_oid.get()
+    }
+
+    /// Column attribute number (0 if not a table column)
+    pub fn column_id(&self) -> i16 {
+        self.tail.column_id.get()
+    }
+
+    /// Data type OID
+    pub fn type_oid(&self) -> Oid {
+        self.tail.type_oid.get()
+    }
+
+    /// Type size (-1 for variable, -2 for null-terminated)
+    pub fn type_size(&self) -> i16 {
+        self.tail.type_size.get()
+    }
+
+    /// Type modifier (type-specific)
+    pub fn type_modifier(&self) -> i32 {
+        self.tail.type_modifier.get()
+    }
+
+    /// Format code (0=text, 1=binary)
+    pub fn format(&self) -> FormatCode {
+        FormatCode::from_u16(self.tail.format.get())
+    }
 }
 
 /// Extended query protocol state machine.
@@ -124,33 +157,22 @@ impl<H: BinaryHandler> ExtendedQueryStateMachine<H> {
 
     /// Execute a prepared statement.
     ///
-    /// This sends Bind + Execute + Sync messages.
-    pub fn execute(
-        &mut self,
-        statement: &str,
-        params: &[Option<&[u8]>],
-        param_formats: &[FormatCode],
-        result_formats: &[FormatCode],
-    ) -> Action<'_> {
+    /// This sends Bind + Describe + Execute + Sync messages.
+    pub fn execute<P: ToParams>(&mut self, statement: &str, params: &P) -> Action<'_> {
         self.write_buffer.clear();
         write_bind(
             &mut self.write_buffer,
             "", // unnamed portal
             statement,
-            param_formats,
             params,
-            result_formats,
+            &[], // result formats (empty = use default)
         );
+        write_describe_portal(&mut self.write_buffer, ""); // get RowDescription
         write_execute(&mut self.write_buffer, "", 0); // unnamed portal, unlimited rows
         write_sync(&mut self.write_buffer);
 
         self.state = State::WaitingBind;
         Action::WritePacket(&self.write_buffer)
-    }
-
-    /// Execute a prepared statement with all text parameters.
-    pub fn execute_text(&mut self, statement: &str, params: &[Option<&[u8]>]) -> Action<'_> {
-        self.execute(statement, params, &[], &[])
     }
 
     /// Close a prepared statement.
@@ -296,6 +318,11 @@ impl<H: BinaryHandler> ExtendedQueryStateMachine<H> {
             msg_type::ROW_DESCRIPTION => {
                 let desc = RowDescription::parse(payload)?;
                 self.handler.columns(desc)?;
+                Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
+            }
+            msg_type::NO_DATA => {
+                // Statement doesn't return rows (e.g., INSERT without RETURNING)
+                NoData::parse(payload)?;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
             msg_type::DATA_ROW => {

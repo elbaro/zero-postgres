@@ -1,4 +1,4 @@
-//! Value decoding traits and implementations.
+//! Value encoding and decoding traits.
 
 use crate::error::{Error, Result};
 use crate::protocol::types::{FormatCode, Oid};
@@ -10,7 +10,7 @@ use crate::protocol::types::{FormatCode, Oid};
 /// - `from_text()` - Decode from text format (default for simple queries)
 /// - `from_binary()` - Decode from binary format
 /// - `from_unknown()` - Handle custom/extension types with OID
-pub trait FromValue<'a>: Sized {
+pub trait FromWire<'a>: Sized {
     /// Decode from NULL value.
     ///
     /// Default implementation returns an error. Override for types that can
@@ -24,7 +24,9 @@ pub trait FromValue<'a>: Sized {
     /// Text format is the default for simple queries. Values are UTF-8 encoded
     /// string representations.
     fn from_text(_bytes: &'a [u8]) -> Result<Self> {
-        Err(Error::Decode("text format not supported for this type".into()))
+        Err(Error::Decode(
+            "text format not supported for this type".into(),
+        ))
     }
 
     /// Decode from binary format bytes.
@@ -48,7 +50,7 @@ pub trait FromValue<'a>: Sized {
 
 // === Option<T> - NULL handling ===
 
-impl<'a, T: FromValue<'a>> FromValue<'a> for Option<T> {
+impl<'a, T: FromWire<'a>> FromWire<'a> for Option<T> {
     fn from_null() -> Result<Self> {
         Ok(None)
     }
@@ -68,7 +70,7 @@ impl<'a, T: FromValue<'a>> FromValue<'a> for Option<T> {
 
 // === Boolean ===
 
-impl FromValue<'_> for bool {
+impl FromWire<'_> for bool {
     fn from_text(bytes: &[u8]) -> Result<Self> {
         match bytes {
             b"t" | b"true" | b"TRUE" | b"T" | b"1" => Ok(true),
@@ -93,7 +95,7 @@ impl FromValue<'_> for bool {
 
 // === Integer types ===
 
-impl FromValue<'_> for i16 {
+impl FromWire<'_> for i16 {
     fn from_text(bytes: &[u8]) -> Result<Self> {
         let s = std::str::from_utf8(bytes)
             .map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))?;
@@ -109,7 +111,7 @@ impl FromValue<'_> for i16 {
     }
 }
 
-impl FromValue<'_> for i32 {
+impl FromWire<'_> for i32 {
     fn from_text(bytes: &[u8]) -> Result<Self> {
         let s = std::str::from_utf8(bytes)
             .map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))?;
@@ -125,7 +127,7 @@ impl FromValue<'_> for i32 {
     }
 }
 
-impl FromValue<'_> for i64 {
+impl FromWire<'_> for i64 {
     fn from_text(bytes: &[u8]) -> Result<Self> {
         let s = std::str::from_utf8(bytes)
             .map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))?;
@@ -143,7 +145,7 @@ impl FromValue<'_> for i64 {
 
 // === Floating point types ===
 
-impl FromValue<'_> for f32 {
+impl FromWire<'_> for f32 {
     fn from_text(bytes: &[u8]) -> Result<Self> {
         let s = std::str::from_utf8(bytes)
             .map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))?;
@@ -159,7 +161,7 @@ impl FromValue<'_> for f32 {
     }
 }
 
-impl FromValue<'_> for f64 {
+impl FromWire<'_> for f64 {
     fn from_text(bytes: &[u8]) -> Result<Self> {
         let s = std::str::from_utf8(bytes)
             .map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))?;
@@ -177,7 +179,7 @@ impl FromValue<'_> for f64 {
 
 // === String types ===
 
-impl<'a> FromValue<'a> for &'a str {
+impl<'a> FromWire<'a> for &'a str {
     fn from_text(bytes: &'a [u8]) -> Result<Self> {
         std::str::from_utf8(bytes).map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))
     }
@@ -187,7 +189,7 @@ impl<'a> FromValue<'a> for &'a str {
     }
 }
 
-impl FromValue<'_> for String {
+impl FromWire<'_> for String {
     fn from_text(bytes: &[u8]) -> Result<Self> {
         String::from_utf8(bytes.to_vec())
             .map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))
@@ -201,7 +203,7 @@ impl FromValue<'_> for String {
 
 // === Byte types ===
 
-impl<'a> FromValue<'a> for &'a [u8] {
+impl<'a> FromWire<'a> for &'a [u8] {
     fn from_text(bytes: &'a [u8]) -> Result<Self> {
         // Text format for bytea is hex-encoded: \x followed by hex digits
         // For simplicity, we just return the raw bytes (caller can decode if needed)
@@ -213,7 +215,7 @@ impl<'a> FromValue<'a> for &'a [u8] {
     }
 }
 
-impl FromValue<'_> for Vec<u8> {
+impl FromWire<'_> for Vec<u8> {
     fn from_text(bytes: &[u8]) -> Result<Self> {
         // Text format for bytea is hex-encoded: \xDEADBEEF
         if bytes.starts_with(b"\\x") {
@@ -252,6 +254,178 @@ fn hex_digit(b: u8) -> Result<u8> {
         _ => Err(Error::Decode(format!("invalid hex digit: {}", b as char))),
     }
 }
+
+// ============================================================================
+// ENCODING (ToValue / ToParams)
+// ============================================================================
+
+/// Trait for encoding Rust values as PostgreSQL binary parameters.
+///
+/// Implementations write length-prefixed binary data directly to the buffer:
+/// - Int32 length followed by the value bytes, OR
+/// - Int32 -1 for NULL
+pub trait ToWire {
+    /// Encode as a length-prefixed binary parameter.
+    fn encode_param(&self, buf: &mut Vec<u8>);
+}
+
+// === Option<T> - NULL handling ===
+
+impl<T: ToWire> ToWire for Option<T> {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        match self {
+            Some(v) => v.encode_param(buf),
+            None => buf.extend_from_slice(&(-1_i32).to_be_bytes()),
+        }
+    }
+}
+
+// === Boolean ===
+
+impl ToWire for bool {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&1_i32.to_be_bytes());
+        buf.push(if *self { 1 } else { 0 });
+    }
+}
+
+// === Integer types ===
+
+impl ToWire for i16 {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&2_i32.to_be_bytes());
+        buf.extend_from_slice(&self.to_be_bytes());
+    }
+}
+
+impl ToWire for i32 {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&4_i32.to_be_bytes());
+        buf.extend_from_slice(&self.to_be_bytes());
+    }
+}
+
+impl ToWire for i64 {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&8_i32.to_be_bytes());
+        buf.extend_from_slice(&self.to_be_bytes());
+    }
+}
+
+// === Floating point types ===
+
+impl ToWire for f32 {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&4_i32.to_be_bytes());
+        buf.extend_from_slice(&self.to_be_bytes());
+    }
+}
+
+impl ToWire for f64 {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&8_i32.to_be_bytes());
+        buf.extend_from_slice(&self.to_be_bytes());
+    }
+}
+
+// === String types ===
+
+impl ToWire for &str {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&(self.len() as i32).to_be_bytes());
+        buf.extend_from_slice(self.as_bytes());
+    }
+}
+
+impl ToWire for String {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        self.as_str().encode_param(buf);
+    }
+}
+
+// === Byte types ===
+
+impl ToWire for &[u8] {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&(self.len() as i32).to_be_bytes());
+        buf.extend_from_slice(self);
+    }
+}
+
+impl ToWire for Vec<u8> {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        self.as_slice().encode_param(buf);
+    }
+}
+
+// === Reference support ===
+
+impl<T: ToWire + ?Sized> ToWire for &T {
+    fn encode_param(&self, buf: &mut Vec<u8>) {
+        (*self).encode_param(buf);
+    }
+}
+
+// ============================================================================
+// ToParams - Tuple encoding
+// ============================================================================
+
+/// Trait for encoding multiple parameters.
+pub trait ToParams {
+    /// Number of parameters.
+    fn param_count(&self) -> usize;
+
+    /// Encode all parameters to the buffer.
+    fn encode_params(&self, buf: &mut Vec<u8>);
+}
+
+// Empty params
+impl ToParams for () {
+    fn param_count(&self) -> usize {
+        0
+    }
+
+    fn encode_params(&self, _buf: &mut Vec<u8>) {}
+}
+
+// Reference support
+impl<T: ToParams + ?Sized> ToParams for &T {
+    fn param_count(&self) -> usize {
+        (*self).param_count()
+    }
+
+    fn encode_params(&self, buf: &mut Vec<u8>) {
+        (*self).encode_params(buf);
+    }
+}
+
+// Tuple implementations via macro
+macro_rules! impl_to_params {
+    ($count:expr, $($idx:tt: $T:ident),+) => {
+        impl<$($T: ToValue),+> ToParams for ($($T,)+) {
+            fn param_count(&self) -> usize {
+                $count
+            }
+
+            fn encode_params(&self, buf: &mut Vec<u8>) {
+                $(self.$idx.encode_param(buf);)+
+            }
+        }
+    };
+}
+
+impl_to_params!(1, 0: T0);
+impl_to_params!(2, 0: T0, 1: T1);
+impl_to_params!(3, 0: T0, 1: T1, 2: T2);
+impl_to_params!(4, 0: T0, 1: T1, 2: T2, 3: T3);
+impl_to_params!(5, 0: T0, 1: T1, 2: T2, 3: T3, 4: T4);
+impl_to_params!(6, 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5);
+impl_to_params!(7, 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6);
+impl_to_params!(8, 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7);
+impl_to_params!(9, 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7, 8: T8);
+impl_to_params!(10, 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7, 8: T8, 9: T9);
+impl_to_params!(11, 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7, 8: T8, 9: T9, 10: T10);
+impl_to_params!(12, 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7, 8: T8, 9: T9, 10: T10, 11: T11);
 
 #[cfg(test)]
 mod tests {

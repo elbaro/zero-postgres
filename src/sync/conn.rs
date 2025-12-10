@@ -12,6 +12,7 @@ use crate::state::action::Action;
 use crate::state::connection::{ConnectionState, ConnectionStateMachine, SslAction};
 use crate::state::extended::{BinaryHandler, ExtendedQueryStateMachine, PreparedStatement};
 use crate::state::simple_query::{BufferSet, ControlFlow, SimpleQueryStateMachine, TextHandler};
+use crate::value::ToParams;
 
 use super::stream::Stream;
 
@@ -400,13 +401,13 @@ impl Conn {
     }
 
     /// Execute a prepared statement with a handler.
-    pub fn execute<H: BinaryHandler>(
+    pub fn exec<P: ToParams, H: BinaryHandler>(
         &mut self,
         statement: &str,
-        params: &[Option<&[u8]>],
+        params: P,
         handler: &mut H,
     ) -> Result<()> {
-        let result = self.execute_inner(statement, params, handler);
+        let result = self.exec_inner(statement, &params, handler);
         if let Err(ref e) = result {
             if e.is_connection_broken() {
                 self.is_broken = true;
@@ -415,17 +416,17 @@ impl Conn {
         result
     }
 
-    fn execute_inner<H: BinaryHandler>(
+    fn exec_inner<P: ToParams, H: BinaryHandler>(
         &mut self,
         statement: &str,
-        params: &[Option<&[u8]>],
+        params: &P,
         handler: &mut H,
     ) -> Result<()> {
         let mut state_machine =
             ExtendedQueryStateMachine::new(ExtendedHandlerWrapper { inner: handler });
 
-        // Send Bind + Execute + Sync
-        match state_machine.execute_text(statement, params) {
+        // Send Bind + Describe + Execute + Sync
+        match state_machine.execute(statement, params) {
             Action::WritePacket(data) => {
                 self.stream.write_all(data)?;
                 self.stream.flush()?;
@@ -455,25 +456,10 @@ impl Conn {
     }
 
     /// Execute a prepared statement and discard results.
-    pub fn execute_drop(
-        &mut self,
-        statement: &str,
-        params: &[Option<&[u8]>],
-    ) -> Result<Option<u64>> {
+    pub fn exec_drop<P: ToParams>(&mut self, statement: &str, params: P) -> Result<Option<u64>> {
         let mut handler = crate::state::extended::DropHandler::new();
-        self.execute(statement, params, &mut handler)?;
+        self.exec(statement, params, &mut handler)?;
         Ok(handler.rows_affected())
-    }
-
-    /// Execute a prepared statement and collect all rows.
-    pub fn execute_collect(
-        &mut self,
-        statement: &str,
-        params: &[Option<&[u8]>],
-    ) -> Result<Vec<Vec<Option<Vec<u8>>>>> {
-        let mut handler = BinaryCollectHandler::new();
-        self.execute(statement, params, &mut handler)?;
-        Ok(handler.take_rows())
     }
 
     /// Execute a prepared statement and collect typed rows.
@@ -482,15 +468,15 @@ impl Conn {
     ///
     /// ```ignore
     /// conn.prepare("stmt1", "SELECT id, name FROM users WHERE id = $1")?;
-    /// let rows: Vec<(i32, String)> = conn.execute_typed("stmt1", &[Some(b"42")])?;
+    /// let rows: Vec<(i32, String)> = conn.exec_collect("stmt1", (42,))?;
     /// ```
-    pub fn execute_typed<T: for<'a> crate::row::FromRow<'a>>(
+    pub fn exec_collect<T: for<'a> crate::row::FromRow<'a>, P: ToParams>(
         &mut self,
         statement: &str,
-        params: &[Option<&[u8]>],
+        params: P,
     ) -> Result<Vec<T>> {
         let mut handler = crate::handler::TypedCollectHandler::<T>::new();
-        self.execute(statement, params, &mut handler)?;
+        self.exec(statement, params, &mut handler)?;
         Ok(handler.into_rows())
     }
 

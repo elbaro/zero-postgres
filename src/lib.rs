@@ -53,4 +53,4 @@ pub use opts::{Opts, SslMode};
 pub use protocol::types::{FormatCode, Oid, TransactionStatus};
 pub use row::FromRow;
 pub use state::simple_query::{ControlFlow, TextHandler};
-pub use value::FromValue;
+pub use value::{FromWire, ToParams, ToWire};
