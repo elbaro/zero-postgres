@@ -1,6 +1,6 @@
 //! Action types for state machine I/O requests.
 
-use crate::error::ErrorFields;
+use crate::error::ServerError;
 
 /// Action requested by a state machine.
 ///
@@ -49,7 +49,7 @@ pub enum AsyncMessage {
     },
 
     /// Non-fatal notice/warning from server.
-    Notice(ErrorFields),
+    Notice(ServerError),
 
     /// Server parameter value changed.
     ParameterChanged {

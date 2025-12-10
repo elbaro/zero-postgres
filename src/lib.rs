@@ -47,7 +47,7 @@ pub mod sync;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
-pub use error::{Error, ErrorFields, Result};
+pub use error::{Error, Result, ServerError};
 pub use handler::{TypedCollectHandler, TypedFirstRowHandler};
 pub use opts::{Opts, SslMode};
 pub use protocol::types::{FormatCode, Oid, TransactionStatus};

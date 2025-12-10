@@ -390,7 +390,7 @@ impl<H: BinaryHandler> ExtendedQueryStateMachine<H> {
         match msg.type_byte {
             msg_type::NOTICE_RESPONSE => {
                 let notice = crate::protocol::backend::NoticeResponse::parse(msg.payload)?;
-                Ok(Action::AsyncMessage(AsyncMessage::Notice(notice.fields)))
+                Ok(Action::AsyncMessage(AsyncMessage::Notice(notice.0)))
             }
             msg_type::PARAMETER_STATUS => {
                 let param = crate::protocol::backend::auth::ParameterStatus::parse(msg.payload)?;
