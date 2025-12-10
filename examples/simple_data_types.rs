@@ -38,7 +38,7 @@ fn main() -> zero_postgres::Result<()> {
     conn.query_drop("INSERT INTO test_types (col_bool) VALUES (NULL), (TRUE), (FALSE)")?;
 
     let rows: Vec<(i32, Option<bool>)> =
-        conn.query_typed("SELECT id, col_bool FROM test_types ORDER BY id")?;
+        conn.query_collect("SELECT id, col_bool FROM test_types ORDER BY id")?;
     println!("boolean:");
     for (id, val) in &rows {
         println!("  id={}, value={:?}", id, val);
@@ -50,12 +50,10 @@ fn main() -> zero_postgres::Result<()> {
     println!("=== Integer Types ===\n");
 
     // smallint: -32768 to 32767
-    conn.query_drop(
-        "INSERT INTO test_types (col_smallint) VALUES (NULL), (0), (-32768), (32767)",
-    )?;
+    conn.query_drop("INSERT INTO test_types (col_smallint) VALUES (NULL), (0), (-32768), (32767)")?;
 
     let rows: Vec<(i32, Option<i16>)> =
-        conn.query_typed("SELECT id, col_smallint FROM test_types ORDER BY id")?;
+        conn.query_collect("SELECT id, col_smallint FROM test_types ORDER BY id")?;
     println!("smallint (range: -32768 to 32767):");
     for (id, val) in &rows {
         println!("  id={}, value={:?}", id, val);
@@ -69,7 +67,7 @@ fn main() -> zero_postgres::Result<()> {
     )?;
 
     let rows: Vec<(i32, Option<i32>)> =
-        conn.query_typed("SELECT id, col_int FROM test_types ORDER BY id")?;
+        conn.query_collect("SELECT id, col_int FROM test_types ORDER BY id")?;
     println!("integer (range: -2147483648 to 2147483647):");
     for (id, val) in &rows {
         println!("  id={}, value={:?}", id, val);
@@ -83,7 +81,7 @@ fn main() -> zero_postgres::Result<()> {
     )?;
 
     let rows: Vec<(i32, Option<i64>)> =
-        conn.query_typed("SELECT id, col_bigint FROM test_types ORDER BY id")?;
+        conn.query_collect("SELECT id, col_bigint FROM test_types ORDER BY id")?;
     println!("bigint (range: -9223372036854775808 to 9223372036854775807):");
     for (id, val) in &rows {
         println!("  id={}, value={:?}", id, val);
@@ -99,7 +97,7 @@ fn main() -> zero_postgres::Result<()> {
     )?;
 
     let rows: Vec<(i32, Option<f32>)> =
-        conn.query_typed("SELECT id, col_real FROM test_types ORDER BY id")?;
+        conn.query_collect("SELECT id, col_real FROM test_types ORDER BY id")?;
     println!("real (4 bytes, 6 decimal digits precision):");
     for (id, val) in &rows {
         println!("  id={}, value={:?}", id, val);
@@ -112,7 +110,7 @@ fn main() -> zero_postgres::Result<()> {
     )?;
 
     let rows: Vec<(i32, Option<f64>)> =
-        conn.query_typed("SELECT id, col_double FROM test_types ORDER BY id")?;
+        conn.query_collect("SELECT id, col_double FROM test_types ORDER BY id")?;
     println!("double precision (8 bytes, 15 decimal digits precision):");
     for (id, val) in &rows {
         println!("  id={}, value={:?}", id, val);
@@ -131,7 +129,7 @@ fn main() -> zero_postgres::Result<()> {
     conn.query_drop("INSERT INTO test_types (col_text) VALUES ('japanese: こんにちは')")?;
 
     let rows: Vec<(i32, Option<String>)> =
-        conn.query_typed("SELECT id, col_text FROM test_types ORDER BY id")?;
+        conn.query_collect("SELECT id, col_text FROM test_types ORDER BY id")?;
     println!("text:");
     for (id, val) in &rows {
         println!("  id={}, value={:?}", id, val);
@@ -147,7 +145,7 @@ fn main() -> zero_postgres::Result<()> {
     conn.query_drop("INSERT INTO test_types (col_bytea) VALUES (E'\\\\xDEADBEEF')")?;
 
     let rows: Vec<(i32, Option<Vec<u8>>)> =
-        conn.query_typed("SELECT id, col_bytea FROM test_types ORDER BY id")?;
+        conn.query_collect("SELECT id, col_bytea FROM test_types ORDER BY id")?;
     println!("bytea:");
     for (id, val) in &rows {
         match val {
@@ -166,8 +164,8 @@ fn main() -> zero_postgres::Result<()> {
          VALUES (TRUE, 42, 3.14, 'hello')",
     )?;
 
-    let rows: Vec<(i32, Option<bool>, Option<i32>, Option<f64>, Option<String>)> = conn
-        .query_typed("SELECT id, col_bool, col_int, col_double, col_text FROM test_types")?;
+    let rows: Vec<(i32, Option<bool>, Option<i32>, Option<f64>, Option<String>)> =
+        conn.query_collect("SELECT id, col_bool, col_int, col_double, col_text FROM test_types")?;
     println!("Mixed row:");
     for (id, b, i, d, t) in &rows {
         println!(

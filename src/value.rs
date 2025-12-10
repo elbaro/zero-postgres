@@ -402,7 +402,7 @@ impl<T: ToParams + ?Sized> ToParams for &T {
 // Tuple implementations via macro
 macro_rules! impl_to_params {
     ($count:expr, $($idx:tt: $T:ident),+) => {
-        impl<$($T: ToValue),+> ToParams for ($($T,)+) {
+        impl<$($T: ToWire),+> ToParams for ($($T,)+) {
             fn param_count(&self) -> usize {
                 $count
             }

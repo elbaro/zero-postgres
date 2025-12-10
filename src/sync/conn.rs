@@ -291,16 +291,6 @@ impl Conn {
         Ok(handler.rows_affected())
     }
 
-    /// Execute a simple query and collect all rows.
-    pub fn query_collect(
-        &mut self,
-        sql: &str,
-    ) -> Result<(Option<Vec<String>>, Vec<Vec<Option<Vec<u8>>>>)> {
-        let mut handler = crate::state::simple_query::CollectHandler::new();
-        self.query(sql, &mut handler)?;
-        Ok((handler.columns().map(|c| c.to_vec()), handler.take_rows()))
-    }
-
     /// Execute a simple query and collect typed rows.
     ///
     /// # Example
@@ -311,7 +301,10 @@ impl Conn {
     ///     println!("{}: {}", id, name);
     /// }
     /// ```
-    pub fn query_typed<T: for<'a> crate::row::FromRow<'a>>(&mut self, sql: &str) -> Result<Vec<T>> {
+    pub fn query_collect<T: for<'a> crate::row::FromRow<'a>>(
+        &mut self,
+        sql: &str,
+    ) -> Result<Vec<T>> {
         let mut handler = crate::handler::TypedCollectHandler::<T>::new();
         self.query(sql, &mut handler)?;
         Ok(handler.into_rows())
