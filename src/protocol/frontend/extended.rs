@@ -48,7 +48,7 @@ pub fn write_bind<P: ToParams>(
 
     // Parameter values (count + length-prefixed data)
     msg.write_i16(param_count as i16);
-    params.encode_params(msg.buf());
+    params.to_binary(msg.buf());
 
     // Result format codes
     msg.write_i16(result_formats.len() as i16);

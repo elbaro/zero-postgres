@@ -266,15 +266,15 @@ fn hex_digit(b: u8) -> Result<u8> {
 /// - Int32 -1 for NULL
 pub trait ToWire {
     /// Encode as a length-prefixed binary parameter.
-    fn encode_param(&self, buf: &mut Vec<u8>);
+    fn to_binary(&self, buf: &mut Vec<u8>);
 }
 
 // === Option<T> - NULL handling ===
 
 impl<T: ToWire> ToWire for Option<T> {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
+    fn to_binary(&self, buf: &mut Vec<u8>) {
         match self {
-            Some(v) => v.encode_param(buf),
+            Some(v) => v.to_binary(buf),
             None => buf.extend_from_slice(&(-1_i32).to_be_bytes()),
         }
     }
@@ -283,7 +283,7 @@ impl<T: ToWire> ToWire for Option<T> {
 // === Boolean ===
 
 impl ToWire for bool {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
+    fn to_binary(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&1_i32.to_be_bytes());
         buf.push(if *self { 1 } else { 0 });
     }
@@ -292,21 +292,21 @@ impl ToWire for bool {
 // === Integer types ===
 
 impl ToWire for i16 {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
+    fn to_binary(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&2_i32.to_be_bytes());
         buf.extend_from_slice(&self.to_be_bytes());
     }
 }
 
 impl ToWire for i32 {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
+    fn to_binary(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&4_i32.to_be_bytes());
         buf.extend_from_slice(&self.to_be_bytes());
     }
 }
 
 impl ToWire for i64 {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
+    fn to_binary(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&8_i32.to_be_bytes());
         buf.extend_from_slice(&self.to_be_bytes());
     }
@@ -315,14 +315,14 @@ impl ToWire for i64 {
 // === Floating point types ===
 
 impl ToWire for f32 {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
+    fn to_binary(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&4_i32.to_be_bytes());
         buf.extend_from_slice(&self.to_be_bytes());
     }
 }
 
 impl ToWire for f64 {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
+    fn to_binary(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&8_i32.to_be_bytes());
         buf.extend_from_slice(&self.to_be_bytes());
     }
@@ -331,38 +331,38 @@ impl ToWire for f64 {
 // === String types ===
 
 impl ToWire for &str {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
+    fn to_binary(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&(self.len() as i32).to_be_bytes());
         buf.extend_from_slice(self.as_bytes());
     }
 }
 
 impl ToWire for String {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
-        self.as_str().encode_param(buf);
+    fn to_binary(&self, buf: &mut Vec<u8>) {
+        self.as_str().to_binary(buf);
     }
 }
 
 // === Byte types ===
 
 impl ToWire for &[u8] {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
+    fn to_binary(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&(self.len() as i32).to_be_bytes());
         buf.extend_from_slice(self);
     }
 }
 
 impl ToWire for Vec<u8> {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
-        self.as_slice().encode_param(buf);
+    fn to_binary(&self, buf: &mut Vec<u8>) {
+        self.as_slice().to_binary(buf);
     }
 }
 
 // === Reference support ===
 
 impl<T: ToWire + ?Sized> ToWire for &T {
-    fn encode_param(&self, buf: &mut Vec<u8>) {
-        (*self).encode_param(buf);
+    fn to_binary(&self, buf: &mut Vec<u8>) {
+        (*self).to_binary(buf);
     }
 }
 
@@ -376,7 +376,7 @@ pub trait ToParams {
     fn param_count(&self) -> usize;
 
     /// Encode all parameters to the buffer.
-    fn encode_params(&self, buf: &mut Vec<u8>);
+    fn to_binary(&self, buf: &mut Vec<u8>);
 }
 
 // Empty params
@@ -385,7 +385,7 @@ impl ToParams for () {
         0
     }
 
-    fn encode_params(&self, _buf: &mut Vec<u8>) {}
+    fn to_binary(&self, _buf: &mut Vec<u8>) {}
 }
 
 // Reference support
@@ -394,8 +394,8 @@ impl<T: ToParams + ?Sized> ToParams for &T {
         (*self).param_count()
     }
 
-    fn encode_params(&self, buf: &mut Vec<u8>) {
-        (*self).encode_params(buf);
+    fn to_binary(&self, buf: &mut Vec<u8>) {
+        (*self).to_binary(buf);
     }
 }
 
@@ -407,8 +407,8 @@ macro_rules! impl_to_params {
                 $count
             }
 
-            fn encode_params(&self, buf: &mut Vec<u8>) {
-                $(self.$idx.encode_param(buf);)+
+            fn to_binary(&self, buf: &mut Vec<u8>) {
+                $(self.$idx.to_binary(buf);)+
             }
         }
     };
