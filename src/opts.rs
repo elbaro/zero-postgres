@@ -19,17 +19,55 @@ pub enum SslMode {
 /// Connection options for PostgreSQL.
 #[derive(Debug, Clone)]
 pub struct Opts {
+    /// Hostname or IP address.
+    ///
+    /// Default: `""`
     pub host: String,
+
+    /// Port number for the PostgreSQL server.
+    ///
+    /// Default: `5432`
     pub port: u16,
+
+    /// Unix socket path.
+    ///
+    /// Default: `None`
     pub socket: Option<String>,
+
+    /// Username for authentication.
+    ///
+    /// Default: `""`
     pub user: String,
+
+    /// Database name to use.
+    ///
+    /// Default: `None`
     pub database: Option<String>,
+
+    /// Password for authentication.
+    ///
+    /// Default: `None`
     pub password: Option<String>,
+
+    /// Application name to report to the server.
+    ///
+    /// Default: `None`
     pub application_name: Option<String>,
+
+    /// SSL connection mode.
+    ///
+    /// Default: `SslMode::Prefer`
     pub ssl_mode: SslMode,
+
+    /// Additional connection parameters.
+    ///
+    /// Default: `[]`
     pub params: Vec<(String, String)>,
-    /// If connected via TCP to loopback, upgrade to Unix socket for better performance.
-    pub upgrade_to_unix_socket: bool,
+
+    /// When connected via TCP to loopback, upgrade to Unix socket for better performance.
+    ///
+    /// Default: `true`
+    pub prefer_unix_socket: bool,
 }
 
 impl Default for Opts {
@@ -44,7 +82,7 @@ impl Default for Opts {
             application_name: None,
             ssl_mode: SslMode::Prefer,
             params: Vec::new(),
-            upgrade_to_unix_socket: true,
+            prefer_unix_socket: true,
         }
     }
 }
@@ -59,6 +97,7 @@ impl TryFrom<&Url> for Opts {
     /// Supported query parameters:
     /// - `sslmode`: disable, prefer, require
     /// - `application_name`: application name
+    /// - `prefer_unix_socket`: true/True/1/yes/on or false/False/0/no/off
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
         if url.scheme() != "postgres" && url.scheme() != "pg" {
             return Err(Error::InvalidUsage(format!(
@@ -95,6 +134,18 @@ impl TryFrom<&Url> for Opts {
                 }
                 "application_name" => {
                     opts.application_name = Some(value.to_string());
+                }
+                "prefer_unix_socket" => {
+                    opts.prefer_unix_socket = match value.as_ref() {
+                        "true" | "True" | "1" | "yes" | "on" => true,
+                        "false" | "False" | "0" | "no" | "off" => false,
+                        _ => {
+                            return Err(Error::InvalidUsage(format!(
+                                "Invalid prefer_unix_socket: {}",
+                                value
+                            )));
+                        }
+                    };
                 }
                 _ => {
                     opts.params.push((key.to_string(), value.to_string()));

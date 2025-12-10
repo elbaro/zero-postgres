@@ -1,6 +1,7 @@
 //! Extended query protocol state machine.
 
 use crate::error::{Error, Result};
+use crate::handler::BinaryHandler;
 use crate::protocol::backend::{
     BindComplete, CloseComplete, CommandComplete, DataRow, ErrorResponse, FieldDescriptionTail,
     NoData, ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
@@ -14,22 +15,7 @@ use crate::protocol::types::{FormatCode, Oid, TransactionStatus};
 use crate::value::ToParams;
 
 use super::action::{Action, AsyncMessage};
-use super::simple_query::{BufferSet, ControlFlow};
-
-/// Handler for extended query results.
-pub trait BinaryHandler {
-    /// Called when column descriptions are received.
-    fn columns(&mut self, desc: RowDescription<'_>) -> Result<()>;
-
-    /// Called for each data row.
-    fn row(&mut self, row: DataRow<'_>) -> Result<ControlFlow>;
-
-    /// Called when a command completes.
-    fn command_complete(&mut self, complete: CommandComplete<'_>) -> Result<()> {
-        let _ = complete;
-        Ok(())
-    }
-}
+use super::simple_query::BufferSet;
 
 /// Extended query state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,36 +81,26 @@ impl ColumnInfo {
 }
 
 /// Extended query protocol state machine.
-pub struct ExtendedQueryStateMachine<H> {
+pub struct ExtendedQueryStateMachine<'a, H> {
     state: State,
-    handler: H,
+    handler: &'a mut H,
     write_buffer: Vec<u8>,
+    column_buffer: Vec<u8>,
     transaction_status: TransactionStatus,
-    skip_rows: bool,
     prepared_stmt: Option<PreparedStatement>,
 }
 
-impl<H: BinaryHandler> ExtendedQueryStateMachine<H> {
+impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
     /// Create a new extended query state machine.
-    pub fn new(handler: H) -> Self {
+    pub fn new(handler: &'a mut H) -> Self {
         Self {
             state: State::Initial,
             handler,
             write_buffer: Vec::new(),
+            column_buffer: Vec::new(),
             transaction_status: TransactionStatus::Idle,
-            skip_rows: false,
             prepared_stmt: None,
         }
-    }
-
-    /// Get the handler.
-    pub fn handler(&self) -> &H {
-        &self.handler
-    }
-
-    /// Get mutable access to the handler.
-    pub fn handler_mut(&mut self) -> &mut H {
-        &mut self.handler
     }
 
     /// Get the transaction status.
@@ -297,9 +273,11 @@ impl<H: BinaryHandler> ExtendedQueryStateMachine<H> {
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
             msg_type::ROW_DESCRIPTION => {
-                // Extended query can return RowDescription before rows
-                let desc = RowDescription::parse(payload)?;
-                self.handler.columns(desc)?;
+                // Store column buffer for later use in row callbacks
+                self.column_buffer.clear();
+                self.column_buffer.extend_from_slice(payload);
+                let cols = RowDescription::parse(&self.column_buffer)?;
+                self.handler.result_start(cols)?;
                 self.state = State::ProcessingRows;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
@@ -316,8 +294,11 @@ impl<H: BinaryHandler> ExtendedQueryStateMachine<H> {
 
         match type_byte {
             msg_type::ROW_DESCRIPTION => {
-                let desc = RowDescription::parse(payload)?;
-                self.handler.columns(desc)?;
+                // Store column buffer for later use in row callbacks
+                self.column_buffer.clear();
+                self.column_buffer.extend_from_slice(payload);
+                let cols = RowDescription::parse(&self.column_buffer)?;
+                self.handler.result_start(cols)?;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
             msg_type::NO_DATA => {
@@ -326,21 +307,14 @@ impl<H: BinaryHandler> ExtendedQueryStateMachine<H> {
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
             msg_type::DATA_ROW => {
-                if !self.skip_rows {
-                    let row = DataRow::parse(payload)?;
-                    match self.handler.row(row)? {
-                        ControlFlow::Continue => {}
-                        ControlFlow::Stop => {
-                            self.skip_rows = true;
-                        }
-                    }
-                }
+                let cols = RowDescription::parse(&self.column_buffer)?;
+                let row = DataRow::parse(payload)?;
+                self.handler.row(cols, row)?;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
             msg_type::COMMAND_COMPLETE => {
                 let complete = CommandComplete::parse(payload)?;
-                self.handler.command_complete(complete)?;
-                self.skip_rows = false;
+                self.handler.result_end(complete)?;
                 self.state = State::WaitingReady;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
@@ -416,33 +390,3 @@ impl<H: BinaryHandler> ExtendedQueryStateMachine<H> {
     }
 }
 
-/// A handler that discards all results.
-#[derive(Debug, Default)]
-pub struct DropHandler {
-    rows_affected: Option<u64>,
-}
-
-impl DropHandler {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn rows_affected(&self) -> Option<u64> {
-        self.rows_affected
-    }
-}
-
-impl BinaryHandler for DropHandler {
-    fn columns(&mut self, _desc: RowDescription<'_>) -> Result<()> {
-        Ok(())
-    }
-
-    fn row(&mut self, _row: DataRow<'_>) -> Result<ControlFlow> {
-        Ok(ControlFlow::Continue)
-    }
-
-    fn command_complete(&mut self, complete: CommandComplete<'_>) -> Result<()> {
-        self.rows_affected = complete.rows_affected();
-        Ok(())
-    }
-}

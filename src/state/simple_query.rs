@@ -1,6 +1,7 @@
 //! Simple query protocol state machine.
 
 use crate::error::{Error, Result};
+use crate::handler::TextHandler;
 use crate::protocol::backend::{
     CommandComplete, DataRow, EmptyQueryResponse, ErrorResponse, RawMessage, ReadyForQuery,
     RowDescription, msg_type,
@@ -9,37 +10,6 @@ use crate::protocol::frontend::write_query;
 use crate::protocol::types::TransactionStatus;
 
 use super::action::{Action, AsyncMessage};
-
-/// Control flow for row processing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ControlFlow {
-    /// Continue processing rows
-    Continue,
-    /// Stop processing (remaining rows will be discarded)
-    Stop,
-}
-
-/// Handler for simple query results.
-pub trait TextHandler {
-    /// Called when column descriptions are received.
-    fn columns(&mut self, desc: RowDescription<'_>) -> Result<()>;
-
-    /// Called for each data row.
-    ///
-    /// Return `ControlFlow::Stop` to stop processing rows early.
-    fn row(&mut self, row: DataRow<'_>) -> Result<ControlFlow>;
-
-    /// Called when a command completes.
-    fn command_complete(&mut self, complete: CommandComplete<'_>) -> Result<()> {
-        let _ = complete;
-        Ok(())
-    }
-
-    /// Called for empty query response.
-    fn empty_query(&mut self) -> Result<()> {
-        Ok(())
-    }
-}
 
 /// Buffer set for state machine operations.
 pub struct BufferSet {
@@ -76,34 +46,24 @@ enum State {
 }
 
 /// Simple query protocol state machine.
-pub struct SimpleQueryStateMachine<H> {
+pub struct SimpleQueryStateMachine<'a, H> {
     state: State,
-    handler: H,
+    handler: &'a mut H,
     write_buffer: Vec<u8>,
+    column_buffer: Vec<u8>,
     transaction_status: TransactionStatus,
-    skip_rows: bool,
 }
 
-impl<H: TextHandler> SimpleQueryStateMachine<H> {
+impl<'a, H: TextHandler> SimpleQueryStateMachine<'a, H> {
     /// Create a new simple query state machine.
-    pub fn new(handler: H) -> Self {
+    pub fn new(handler: &'a mut H) -> Self {
         Self {
             state: State::Initial,
             handler,
             write_buffer: Vec::new(),
+            column_buffer: Vec::new(),
             transaction_status: TransactionStatus::Idle,
-            skip_rows: false,
         }
-    }
-
-    /// Get the handler.
-    pub fn handler(&self) -> &H {
-        &self.handler
-    }
-
-    /// Get mutable access to the handler.
-    pub fn handler_mut(&mut self) -> &mut H {
-        &mut self.handler
     }
 
     /// Get the transaction status from the final ReadyForQuery.
@@ -159,21 +119,24 @@ impl<H: TextHandler> SimpleQueryStateMachine<H> {
 
         match type_byte {
             msg_type::ROW_DESCRIPTION => {
-                let desc = RowDescription::parse(payload)?;
-                self.handler.columns(desc)?;
+                // Store column buffer for later use in row callbacks
+                self.column_buffer.clear();
+                self.column_buffer.extend_from_slice(payload);
+                let cols = RowDescription::parse(&self.column_buffer)?;
+                self.handler.result_start(cols)?;
                 self.state = State::ProcessingRows;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
             msg_type::COMMAND_COMPLETE => {
                 let complete = CommandComplete::parse(payload)?;
-                self.handler.command_complete(complete)?;
+                self.handler.result_end(complete)?;
                 // More commands may follow in a multi-statement query
                 self.state = State::WaitingResponse;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
             msg_type::EMPTY_QUERY_RESPONSE => {
                 EmptyQueryResponse::parse(payload)?;
-                self.handler.empty_query()?;
+                // Empty query string - silently ignore
                 self.state = State::WaitingReady;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
@@ -196,21 +159,14 @@ impl<H: TextHandler> SimpleQueryStateMachine<H> {
 
         match type_byte {
             msg_type::DATA_ROW => {
-                if !self.skip_rows {
-                    let row = DataRow::parse(payload)?;
-                    match self.handler.row(row)? {
-                        ControlFlow::Continue => {}
-                        ControlFlow::Stop => {
-                            self.skip_rows = true;
-                        }
-                    }
-                }
+                let cols = RowDescription::parse(&self.column_buffer)?;
+                let row = DataRow::parse(payload)?;
+                self.handler.row(cols, row)?;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
             msg_type::COMMAND_COMPLETE => {
                 let complete = CommandComplete::parse(payload)?;
-                self.handler.command_complete(complete)?;
-                self.skip_rows = false;
+                self.handler.result_end(complete)?;
                 // More commands may follow
                 self.state = State::WaitingResponse;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
@@ -272,88 +228,3 @@ impl<H: TextHandler> SimpleQueryStateMachine<H> {
     }
 }
 
-/// A simple handler that collects all rows into a vector.
-#[derive(Debug, Default)]
-pub struct CollectHandler {
-    columns: Option<Vec<String>>,
-    rows: Vec<Vec<Option<Vec<u8>>>>,
-    command_tag: Option<String>,
-}
-
-impl CollectHandler {
-    /// Create a new collect handler.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Get the column names.
-    pub fn columns(&self) -> Option<&[String]> {
-        self.columns.as_deref()
-    }
-
-    /// Get the collected rows.
-    pub fn rows(&self) -> &[Vec<Option<Vec<u8>>>] {
-        &self.rows
-    }
-
-    /// Take the collected rows.
-    pub fn take_rows(&mut self) -> Vec<Vec<Option<Vec<u8>>>> {
-        std::mem::take(&mut self.rows)
-    }
-
-    /// Get the command tag from the last command.
-    pub fn command_tag(&self) -> Option<&str> {
-        self.command_tag.as_deref()
-    }
-}
-
-impl TextHandler for CollectHandler {
-    fn columns(&mut self, desc: RowDescription<'_>) -> Result<()> {
-        self.columns = Some(desc.fields().iter().map(|f| f.name.to_string()).collect());
-        Ok(())
-    }
-
-    fn row(&mut self, row: DataRow<'_>) -> Result<ControlFlow> {
-        let values: Vec<Option<Vec<u8>>> = row.iter().map(|v| v.map(|b| b.to_vec())).collect();
-        self.rows.push(values);
-        Ok(ControlFlow::Continue)
-    }
-
-    fn command_complete(&mut self, complete: CommandComplete<'_>) -> Result<()> {
-        self.command_tag = Some(complete.tag.to_string());
-        Ok(())
-    }
-}
-
-/// A handler that discards all results.
-#[derive(Debug, Default)]
-pub struct DropHandler {
-    rows_affected: Option<u64>,
-}
-
-impl DropHandler {
-    /// Create a new drop handler.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Get the number of rows affected (if applicable).
-    pub fn rows_affected(&self) -> Option<u64> {
-        self.rows_affected
-    }
-}
-
-impl TextHandler for DropHandler {
-    fn columns(&mut self, _desc: RowDescription<'_>) -> Result<()> {
-        Ok(())
-    }
-
-    fn row(&mut self, _row: DataRow<'_>) -> Result<ControlFlow> {
-        Ok(ControlFlow::Continue)
-    }
-
-    fn command_complete(&mut self, complete: CommandComplete<'_>) -> Result<()> {
-        self.rows_affected = complete.rows_affected();
-        Ok(())
-    }
-}

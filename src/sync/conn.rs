@@ -4,14 +4,15 @@ use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 
 use crate::error::{Error, Result};
+use crate::handler::{BinaryHandler, DropHandler, TextHandler};
 use crate::opts::Opts;
 use crate::protocol::backend::BackendKeyData;
 use crate::protocol::frontend::write_terminate;
 use crate::protocol::types::TransactionStatus;
 use crate::state::action::Action;
 use crate::state::connection::{ConnectionState, ConnectionStateMachine, SslAction};
-use crate::state::extended::{BinaryHandler, ExtendedQueryStateMachine, PreparedStatement};
-use crate::state::simple_query::{BufferSet, ControlFlow, SimpleQueryStateMachine, TextHandler};
+use crate::state::extended::{ExtendedQueryStateMachine, PreparedStatement};
+use crate::state::simple_query::{BufferSet, SimpleQueryStateMachine};
 use crate::value::ToParams;
 
 use super::stream::Stream;
@@ -152,7 +153,7 @@ impl Conn {
         };
 
         // Upgrade to Unix socket if connected via TCP to loopback
-        let conn = if options.upgrade_to_unix_socket && conn.stream.is_tcp_loopback() {
+        let conn = if options.prefer_unix_socket && conn.stream.is_tcp_loopback() {
             conn.try_upgrade_to_unix_socket(&options)
         } else {
             conn
@@ -195,7 +196,7 @@ impl Conn {
 
         // Create new connection over Unix socket
         let mut opts_unix = opts.clone();
-        opts_unix.upgrade_to_unix_socket = false;
+        opts_unix.prefer_unix_socket = false;
 
         match Self::new_with_stream(Stream::unix(unix_stream), opts_unix) {
             Ok(new_conn) => new_conn,
@@ -248,7 +249,7 @@ impl Conn {
     }
 
     fn query_inner<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
-        let mut state_machine = SimpleQueryStateMachine::new(HandlerWrapper { inner: handler });
+        let mut state_machine = SimpleQueryStateMachine::new(handler);
 
         // Start query
         match state_machine.start(sql) {
@@ -286,7 +287,7 @@ impl Conn {
 
     /// Execute a simple query and discard results.
     pub fn query_drop(&mut self, sql: &str) -> Result<Option<u64>> {
-        let mut handler = crate::state::simple_query::DropHandler::new();
+        let mut handler = DropHandler::new();
         self.query(sql, &mut handler)?;
         Ok(handler.rows_affected())
     }
@@ -305,7 +306,7 @@ impl Conn {
         &mut self,
         sql: &str,
     ) -> Result<Vec<T>> {
-        let mut handler = crate::handler::TypedCollectHandler::<T>::new();
+        let mut handler = crate::handler::CollectHandler::<T>::new();
         self.query(sql, &mut handler)?;
         Ok(handler.into_rows())
     }
@@ -315,7 +316,7 @@ impl Conn {
         &mut self,
         sql: &str,
     ) -> Result<Option<T>> {
-        let mut handler = crate::handler::TypedFirstRowHandler::<T>::new();
+        let mut handler = crate::handler::FirstRowHandler::<T>::new();
         self.query(sql, &mut handler)?;
         Ok(handler.into_row())
     }
@@ -358,8 +359,8 @@ impl Conn {
         query: &str,
         param_oids: &[u32],
     ) -> Result<PreparedStatement> {
-        let mut state_machine =
-            ExtendedQueryStateMachine::new(crate::state::extended::DropHandler::new());
+        let mut handler = DropHandler::new();
+        let mut state_machine = ExtendedQueryStateMachine::new(&mut handler);
 
         // Send Parse + Describe + Sync
         match state_machine.prepare(name, query, param_oids) {
@@ -415,8 +416,7 @@ impl Conn {
         params: &P,
         handler: &mut H,
     ) -> Result<()> {
-        let mut state_machine =
-            ExtendedQueryStateMachine::new(ExtendedHandlerWrapper { inner: handler });
+        let mut state_machine = ExtendedQueryStateMachine::new(handler);
 
         // Send Bind + Describe + Execute + Sync
         match state_machine.execute(statement, params) {
@@ -450,7 +450,7 @@ impl Conn {
 
     /// Execute a prepared statement and discard results.
     pub fn exec_drop<P: ToParams>(&mut self, statement: &str, params: P) -> Result<Option<u64>> {
-        let mut handler = crate::state::extended::DropHandler::new();
+        let mut handler = DropHandler::new();
         self.exec(statement, params, &mut handler)?;
         Ok(handler.rows_affected())
     }
@@ -468,7 +468,7 @@ impl Conn {
         statement: &str,
         params: P,
     ) -> Result<Vec<T>> {
-        let mut handler = crate::handler::TypedCollectHandler::<T>::new();
+        let mut handler = crate::handler::CollectHandler::<T>::new();
         self.exec(statement, params, &mut handler)?;
         Ok(handler.into_rows())
     }
@@ -485,8 +485,8 @@ impl Conn {
     }
 
     fn close_statement_inner(&mut self, name: &str) -> Result<()> {
-        let mut state_machine =
-            ExtendedQueryStateMachine::new(crate::state::extended::DropHandler::new());
+        let mut handler = DropHandler::new();
+        let mut state_machine = ExtendedQueryStateMachine::new(&mut handler);
 
         match state_machine.close_statement(name) {
             Action::WritePacket(data) => {
@@ -527,95 +527,23 @@ impl Drop for Conn {
     }
 }
 
-/// Wrapper to adapt external handlers to internal state machine.
-struct HandlerWrapper<'a, H> {
-    inner: &'a mut H,
-}
-
-impl<'a, H: TextHandler> TextHandler for HandlerWrapper<'a, H> {
-    fn columns(&mut self, desc: crate::protocol::backend::RowDescription<'_>) -> Result<()> {
-        self.inner.columns(desc)
-    }
-
-    fn row(&mut self, row: crate::protocol::backend::DataRow<'_>) -> Result<ControlFlow> {
-        self.inner.row(row)
-    }
-
-    fn command_complete(
-        &mut self,
-        complete: crate::protocol::backend::CommandComplete<'_>,
-    ) -> Result<()> {
-        self.inner.command_complete(complete)
-    }
-
-    fn empty_query(&mut self) -> Result<()> {
-        self.inner.empty_query()
-    }
-}
-
 /// Handler to capture a single value from SHOW query
 struct ShowVarHandler {
     value: Option<String>,
 }
 
 impl TextHandler for ShowVarHandler {
-    fn columns(&mut self, _desc: crate::protocol::backend::RowDescription<'_>) -> Result<()> {
-        Ok(())
-    }
-
-    fn row(&mut self, row: crate::protocol::backend::DataRow<'_>) -> Result<ControlFlow> {
-        if let Some(Some(bytes)) = row.iter().next() {
-            self.value = String::from_utf8(bytes.to_vec()).ok();
-        }
-        Ok(ControlFlow::Stop)
-    }
-}
-
-/// Wrapper for extended query handlers.
-struct ExtendedHandlerWrapper<'a, H> {
-    inner: &'a mut H,
-}
-
-impl<'a, H: BinaryHandler> BinaryHandler for ExtendedHandlerWrapper<'a, H> {
-    fn columns(&mut self, desc: crate::protocol::backend::RowDescription<'_>) -> Result<()> {
-        self.inner.columns(desc)
-    }
-
-    fn row(&mut self, row: crate::protocol::backend::DataRow<'_>) -> Result<ControlFlow> {
-        self.inner.row(row)
-    }
-
-    fn command_complete(
+    fn row(
         &mut self,
-        complete: crate::protocol::backend::CommandComplete<'_>,
+        _cols: crate::protocol::backend::RowDescription<'_>,
+        row: crate::protocol::backend::DataRow<'_>,
     ) -> Result<()> {
-        self.inner.command_complete(complete)
-    }
-}
-
-/// Handler that collects all rows for extended queries.
-struct BinaryCollectHandler {
-    rows: Vec<Vec<Option<Vec<u8>>>>,
-}
-
-impl BinaryCollectHandler {
-    fn new() -> Self {
-        Self { rows: Vec::new() }
-    }
-
-    fn take_rows(&mut self) -> Vec<Vec<Option<Vec<u8>>>> {
-        std::mem::take(&mut self.rows)
-    }
-}
-
-impl BinaryHandler for BinaryCollectHandler {
-    fn columns(&mut self, _desc: crate::protocol::backend::RowDescription<'_>) -> Result<()> {
+        if self.value.is_none() {
+            if let Some(Some(bytes)) = row.iter().next() {
+                self.value = String::from_utf8(bytes.to_vec()).ok();
+            }
+        }
         Ok(())
     }
-
-    fn row(&mut self, row: crate::protocol::backend::DataRow<'_>) -> Result<ControlFlow> {
-        let row_data: Vec<Option<Vec<u8>>> = row.iter().map(|v| v.map(|b| b.to_vec())).collect();
-        self.rows.push(row_data);
-        Ok(ControlFlow::Continue)
-    }
 }
+
