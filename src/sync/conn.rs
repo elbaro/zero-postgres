@@ -10,7 +10,8 @@ use crate::protocol::frontend::write_terminate;
 use crate::protocol::types::TransactionStatus;
 use crate::state::action::Action;
 use crate::state::connection::{ConnectionState, ConnectionStateMachine, SslAction};
-use crate::state::simple_query::{BufferSet, ControlFlow, QueryHandler, SimpleQueryStateMachine};
+use crate::state::extended::{BinaryHandler, ExtendedQueryStateMachine, PreparedStatement};
+use crate::state::simple_query::{BufferSet, ControlFlow, SimpleQueryStateMachine, TextHandler};
 
 use super::stream::Stream;
 
@@ -235,7 +236,7 @@ impl Conn {
     }
 
     /// Execute a simple query with a handler.
-    pub fn query<H: QueryHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
+    pub fn query<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
         let result = self.query_inner(sql, handler);
         if let Err(ref e) = result {
             if e.is_connection_broken() {
@@ -245,7 +246,7 @@ impl Conn {
         result
     }
 
-    fn query_inner<H: QueryHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
+    fn query_inner<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
         let mut state_machine = SimpleQueryStateMachine::new(HandlerWrapper { inner: handler });
 
         // Start query
@@ -299,12 +300,240 @@ impl Conn {
         Ok((handler.columns().map(|c| c.to_vec()), handler.take_rows()))
     }
 
+    /// Execute a simple query and collect typed rows.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let rows: Vec<(i32, String)> = conn.query_typed("SELECT id, name FROM users")?;
+    /// for (id, name) in rows {
+    ///     println!("{}: {}", id, name);
+    /// }
+    /// ```
+    pub fn query_typed<T: for<'a> crate::row::FromRow<'a>>(&mut self, sql: &str) -> Result<Vec<T>> {
+        let mut handler = crate::handler::TypedCollectHandler::<T>::new();
+        self.query(sql, &mut handler)?;
+        Ok(handler.into_rows())
+    }
+
+    /// Execute a simple query and return the first typed row.
+    pub fn query_first<T: for<'a> crate::row::FromRow<'a>>(
+        &mut self,
+        sql: &str,
+    ) -> Result<Option<T>> {
+        let mut handler = crate::handler::TypedFirstRowHandler::<T>::new();
+        self.query(sql, &mut handler)?;
+        Ok(handler.into_row())
+    }
+
     /// Close the connection gracefully.
     pub fn close(mut self) -> Result<()> {
         self.write_buffer.clear();
         write_terminate(&mut self.write_buffer);
         self.stream.write_all(&self.write_buffer)?;
         self.stream.flush()?;
+        Ok(())
+    }
+
+    // === Extended Query Protocol ===
+
+    /// Prepare a statement using the extended query protocol.
+    pub fn prepare(&mut self, name: &str, query: &str) -> Result<PreparedStatement> {
+        self.prepare_typed(name, query, &[])
+    }
+
+    /// Prepare a statement with explicit parameter types.
+    pub fn prepare_typed(
+        &mut self,
+        name: &str,
+        query: &str,
+        param_oids: &[u32],
+    ) -> Result<PreparedStatement> {
+        let result = self.prepare_inner(name, query, param_oids);
+        if let Err(ref e) = result {
+            if e.is_connection_broken() {
+                self.is_broken = true;
+            }
+        }
+        result
+    }
+
+    fn prepare_inner(
+        &mut self,
+        name: &str,
+        query: &str,
+        param_oids: &[u32],
+    ) -> Result<PreparedStatement> {
+        let mut state_machine =
+            ExtendedQueryStateMachine::new(crate::state::extended::DropHandler::new());
+
+        // Send Parse + Describe + Sync
+        match state_machine.prepare(name, query, param_oids) {
+            Action::WritePacket(data) => {
+                self.stream.write_all(data)?;
+                self.stream.flush()?;
+            }
+            _ => return Err(Error::Protocol("Unexpected prepare action".into())),
+        }
+
+        // Drive the state machine
+        loop {
+            read_message_into(&mut self.stream, &mut self.buffer_set)?;
+
+            match state_machine.step(&mut self.buffer_set)? {
+                Action::NeedPacket(_) => {}
+                Action::WritePacket(data) => {
+                    self.stream.write_all(data)?;
+                    self.stream.flush()?;
+                }
+                Action::AsyncMessage(_) => {}
+                Action::Finished => {
+                    self.transaction_status = state_machine.transaction_status();
+                    break;
+                }
+            }
+        }
+
+        state_machine
+            .take_prepared_statement()
+            .ok_or_else(|| Error::Protocol("No prepared statement".into()))
+    }
+
+    /// Execute a prepared statement with a handler.
+    pub fn execute<H: BinaryHandler>(
+        &mut self,
+        statement: &str,
+        params: &[Option<&[u8]>],
+        handler: &mut H,
+    ) -> Result<()> {
+        let result = self.execute_inner(statement, params, handler);
+        if let Err(ref e) = result {
+            if e.is_connection_broken() {
+                self.is_broken = true;
+            }
+        }
+        result
+    }
+
+    fn execute_inner<H: BinaryHandler>(
+        &mut self,
+        statement: &str,
+        params: &[Option<&[u8]>],
+        handler: &mut H,
+    ) -> Result<()> {
+        let mut state_machine =
+            ExtendedQueryStateMachine::new(ExtendedHandlerWrapper { inner: handler });
+
+        // Send Bind + Execute + Sync
+        match state_machine.execute_text(statement, params) {
+            Action::WritePacket(data) => {
+                self.stream.write_all(data)?;
+                self.stream.flush()?;
+            }
+            _ => return Err(Error::Protocol("Unexpected execute action".into())),
+        }
+
+        // Drive the state machine
+        loop {
+            read_message_into(&mut self.stream, &mut self.buffer_set)?;
+
+            match state_machine.step(&mut self.buffer_set)? {
+                Action::NeedPacket(_) => {}
+                Action::WritePacket(data) => {
+                    self.stream.write_all(data)?;
+                    self.stream.flush()?;
+                }
+                Action::AsyncMessage(_) => {}
+                Action::Finished => {
+                    self.transaction_status = state_machine.transaction_status();
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Execute a prepared statement and discard results.
+    pub fn execute_drop(
+        &mut self,
+        statement: &str,
+        params: &[Option<&[u8]>],
+    ) -> Result<Option<u64>> {
+        let mut handler = crate::state::extended::DropHandler::new();
+        self.execute(statement, params, &mut handler)?;
+        Ok(handler.rows_affected())
+    }
+
+    /// Execute a prepared statement and collect all rows.
+    pub fn execute_collect(
+        &mut self,
+        statement: &str,
+        params: &[Option<&[u8]>],
+    ) -> Result<Vec<Vec<Option<Vec<u8>>>>> {
+        let mut handler = BinaryCollectHandler::new();
+        self.execute(statement, params, &mut handler)?;
+        Ok(handler.take_rows())
+    }
+
+    /// Execute a prepared statement and collect typed rows.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// conn.prepare("stmt1", "SELECT id, name FROM users WHERE id = $1")?;
+    /// let rows: Vec<(i32, String)> = conn.execute_typed("stmt1", &[Some(b"42")])?;
+    /// ```
+    pub fn execute_typed<T: for<'a> crate::row::FromRow<'a>>(
+        &mut self,
+        statement: &str,
+        params: &[Option<&[u8]>],
+    ) -> Result<Vec<T>> {
+        let mut handler = crate::handler::TypedCollectHandler::<T>::new();
+        self.execute(statement, params, &mut handler)?;
+        Ok(handler.into_rows())
+    }
+
+    /// Close a prepared statement.
+    pub fn close_statement(&mut self, name: &str) -> Result<()> {
+        let result = self.close_statement_inner(name);
+        if let Err(ref e) = result {
+            if e.is_connection_broken() {
+                self.is_broken = true;
+            }
+        }
+        result
+    }
+
+    fn close_statement_inner(&mut self, name: &str) -> Result<()> {
+        let mut state_machine =
+            ExtendedQueryStateMachine::new(crate::state::extended::DropHandler::new());
+
+        match state_machine.close_statement(name) {
+            Action::WritePacket(data) => {
+                self.stream.write_all(data)?;
+                self.stream.flush()?;
+            }
+            _ => return Err(Error::Protocol("Unexpected close action".into())),
+        }
+
+        loop {
+            read_message_into(&mut self.stream, &mut self.buffer_set)?;
+
+            match state_machine.step(&mut self.buffer_set)? {
+                Action::NeedPacket(_) => {}
+                Action::WritePacket(data) => {
+                    self.stream.write_all(data)?;
+                    self.stream.flush()?;
+                }
+                Action::AsyncMessage(_) => {}
+                Action::Finished => {
+                    self.transaction_status = state_machine.transaction_status();
+                    break;
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -324,7 +553,7 @@ struct HandlerWrapper<'a, H> {
     inner: &'a mut H,
 }
 
-impl<'a, H: QueryHandler> QueryHandler for HandlerWrapper<'a, H> {
+impl<'a, H: TextHandler> TextHandler for HandlerWrapper<'a, H> {
     fn columns(&mut self, desc: crate::protocol::backend::RowDescription<'_>) -> Result<()> {
         self.inner.columns(desc)
     }
@@ -350,7 +579,7 @@ struct ShowVarHandler {
     value: Option<String>,
 }
 
-impl QueryHandler for ShowVarHandler {
+impl TextHandler for ShowVarHandler {
     fn columns(&mut self, _desc: crate::protocol::backend::RowDescription<'_>) -> Result<()> {
         Ok(())
     }
@@ -360,5 +589,54 @@ impl QueryHandler for ShowVarHandler {
             self.value = String::from_utf8(bytes.to_vec()).ok();
         }
         Ok(ControlFlow::Stop)
+    }
+}
+
+/// Wrapper for extended query handlers.
+struct ExtendedHandlerWrapper<'a, H> {
+    inner: &'a mut H,
+}
+
+impl<'a, H: BinaryHandler> BinaryHandler for ExtendedHandlerWrapper<'a, H> {
+    fn columns(&mut self, desc: crate::protocol::backend::RowDescription<'_>) -> Result<()> {
+        self.inner.columns(desc)
+    }
+
+    fn row(&mut self, row: crate::protocol::backend::DataRow<'_>) -> Result<ControlFlow> {
+        self.inner.row(row)
+    }
+
+    fn command_complete(
+        &mut self,
+        complete: crate::protocol::backend::CommandComplete<'_>,
+    ) -> Result<()> {
+        self.inner.command_complete(complete)
+    }
+}
+
+/// Handler that collects all rows for extended queries.
+struct BinaryCollectHandler {
+    rows: Vec<Vec<Option<Vec<u8>>>>,
+}
+
+impl BinaryCollectHandler {
+    fn new() -> Self {
+        Self { rows: Vec::new() }
+    }
+
+    fn take_rows(&mut self) -> Vec<Vec<Option<Vec<u8>>>> {
+        std::mem::take(&mut self.rows)
+    }
+}
+
+impl BinaryHandler for BinaryCollectHandler {
+    fn columns(&mut self, _desc: crate::protocol::backend::RowDescription<'_>) -> Result<()> {
+        Ok(())
+    }
+
+    fn row(&mut self, row: crate::protocol::backend::DataRow<'_>) -> Result<ControlFlow> {
+        let row_data: Vec<Option<Vec<u8>>> = row.iter().map(|v| v.map(|b| b.to_vec())).collect();
+        self.rows.push(row_data);
+        Ok(ControlFlow::Continue)
     }
 }

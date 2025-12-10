@@ -102,6 +102,10 @@ pub enum Error {
     /// Unsupported feature
     #[error("Unsupported: {0}")]
     Unsupported(String),
+
+    /// Value decode error
+    #[error("Decode error: {0}")]
+    Decode(String),
 }
 
 impl Error {

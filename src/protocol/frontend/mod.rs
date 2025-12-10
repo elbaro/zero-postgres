@@ -8,6 +8,8 @@ pub mod startup;
 
 pub use auth::{write_password, write_sasl_initial_response, write_sasl_response};
 pub use copy::{write_copy_data, write_copy_done, write_copy_fail};
+// Re-export shared copy types for convenience
+pub use super::copy::{CopyData, CopyDone};
 pub use extended::{
     write_bind, write_close_portal, write_close_statement, write_describe_portal,
     write_describe_statement, write_execute, write_flush, write_parse, write_sync,

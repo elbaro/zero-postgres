@@ -34,9 +34,12 @@
 //! ```
 
 pub mod error;
+pub mod handler;
 pub mod opts;
 pub mod protocol;
+pub mod row;
 pub mod state;
+pub mod value;
 
 #[cfg(feature = "sync")]
 pub mod sync;
@@ -45,6 +48,9 @@ pub mod sync;
 pub mod tokio;
 
 pub use error::{Error, ErrorFields, Result};
+pub use handler::{TypedCollectHandler, TypedFirstRowHandler};
 pub use opts::{Opts, SslMode};
 pub use protocol::types::{FormatCode, Oid, TransactionStatus};
-pub use state::simple_query::{ControlFlow, QueryHandler};
+pub use row::FromRow;
+pub use state::simple_query::{ControlFlow, TextHandler};
+pub use value::FromValue;

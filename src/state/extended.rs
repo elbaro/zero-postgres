@@ -2,13 +2,13 @@
 
 use crate::error::{Error, Result};
 use crate::protocol::backend::{
-    msg_type, BindComplete, CloseComplete, CommandComplete, DataRow, ErrorResponse, NoData,
-    ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
-    RowDescription,
+    BindComplete, CloseComplete, CommandComplete, DataRow, ErrorResponse, FieldDescriptionTail,
+    NoData, ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
+    RowDescription, msg_type,
 };
 use crate::protocol::frontend::{
-    write_bind, write_close_statement, write_describe_statement, write_execute,
-    write_parse, write_sync,
+    write_bind, write_close_statement, write_describe_statement, write_execute, write_parse,
+    write_sync,
 };
 use crate::protocol::types::{FormatCode, Oid, TransactionStatus};
 
@@ -16,7 +16,7 @@ use super::action::{Action, AsyncMessage};
 use super::simple_query::{BufferSet, ControlFlow};
 
 /// Handler for extended query results.
-pub trait ExtendedQueryHandler {
+pub trait BinaryHandler {
     /// Called when column descriptions are received.
     fn columns(&mut self, desc: RowDescription<'_>) -> Result<()>;
 
@@ -58,12 +58,7 @@ pub struct PreparedStatement {
 #[derive(Debug, Clone)]
 pub struct ColumnInfo {
     pub name: String,
-    pub table_oid: Oid,
-    pub column_id: i16,
-    pub type_oid: Oid,
-    pub type_size: i16,
-    pub type_modifier: i32,
-    pub format: FormatCode,
+    pub tail: FieldDescriptionTail,
 }
 
 /// Extended query protocol state machine.
@@ -76,7 +71,7 @@ pub struct ExtendedQueryStateMachine<H> {
     prepared_stmt: Option<PreparedStatement>,
 }
 
-impl<H: ExtendedQueryHandler> ExtendedQueryStateMachine<H> {
+impl<H: BinaryHandler> ExtendedQueryStateMachine<H> {
     /// Create a new extended query state machine.
     pub fn new(handler: H) -> Self {
         Self {
@@ -248,12 +243,7 @@ impl<H: ExtendedQueryHandler> ExtendedQueryStateMachine<H> {
                             .iter()
                             .map(|f| ColumnInfo {
                                 name: f.name.to_string(),
-                                table_oid: f.table_oid,
-                                column_id: f.column_id,
-                                type_oid: f.type_oid,
-                                type_size: f.type_size,
-                                type_modifier: f.type_modifier,
-                                format: f.format,
+                                tail: *f.tail,
                             })
                             .collect(),
                     );
@@ -376,8 +366,7 @@ impl<H: ExtendedQueryHandler> ExtendedQueryStateMachine<H> {
                 Ok(Action::AsyncMessage(AsyncMessage::Notice(notice.fields)))
             }
             msg_type::PARAMETER_STATUS => {
-                let param =
-                    crate::protocol::backend::auth::ParameterStatus::parse(msg.payload)?;
+                let param = crate::protocol::backend::auth::ParameterStatus::parse(msg.payload)?;
                 Ok(Action::AsyncMessage(AsyncMessage::ParameterChanged {
                     name: param.name.to_string(),
                     value: param.value.to_string(),
@@ -416,7 +405,7 @@ impl DropHandler {
     }
 }
 
-impl ExtendedQueryHandler for DropHandler {
+impl BinaryHandler for DropHandler {
     fn columns(&mut self, _desc: RowDescription<'_>) -> Result<()> {
         Ok(())
     }

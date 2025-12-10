@@ -2,8 +2,8 @@
 
 use crate::error::{Error, Result};
 use crate::protocol::backend::{
-    msg_type, CommandComplete, DataRow, EmptyQueryResponse, ErrorResponse, RawMessage,
-    ReadyForQuery, RowDescription,
+    CommandComplete, DataRow, EmptyQueryResponse, ErrorResponse, RawMessage, ReadyForQuery,
+    RowDescription, msg_type,
 };
 use crate::protocol::frontend::write_query;
 use crate::protocol::types::TransactionStatus;
@@ -20,7 +20,7 @@ pub enum ControlFlow {
 }
 
 /// Handler for simple query results.
-pub trait QueryHandler {
+pub trait TextHandler {
     /// Called when column descriptions are received.
     fn columns(&mut self, desc: RowDescription<'_>) -> Result<()>;
 
@@ -84,7 +84,7 @@ pub struct SimpleQueryStateMachine<H> {
     skip_rows: bool,
 }
 
-impl<H: QueryHandler> SimpleQueryStateMachine<H> {
+impl<H: TextHandler> SimpleQueryStateMachine<H> {
     /// Create a new simple query state machine.
     pub fn new(handler: H) -> Self {
         Self {
@@ -249,8 +249,7 @@ impl<H: QueryHandler> SimpleQueryStateMachine<H> {
                 Ok(Action::AsyncMessage(AsyncMessage::Notice(notice.fields)))
             }
             msg_type::PARAMETER_STATUS => {
-                let param =
-                    crate::protocol::backend::auth::ParameterStatus::parse(msg.payload)?;
+                let param = crate::protocol::backend::auth::ParameterStatus::parse(msg.payload)?;
                 Ok(Action::AsyncMessage(AsyncMessage::ParameterChanged {
                     name: param.name.to_string(),
                     value: param.value.to_string(),
@@ -308,7 +307,7 @@ impl CollectHandler {
     }
 }
 
-impl QueryHandler for CollectHandler {
+impl TextHandler for CollectHandler {
     fn columns(&mut self, desc: RowDescription<'_>) -> Result<()> {
         self.columns = Some(desc.fields().iter().map(|f| f.name.to_string()).collect());
         Ok(())
@@ -344,7 +343,7 @@ impl DropHandler {
     }
 }
 
-impl QueryHandler for DropHandler {
+impl TextHandler for DropHandler {
     fn columns(&mut self, _desc: RowDescription<'_>) -> Result<()> {
         Ok(())
     }

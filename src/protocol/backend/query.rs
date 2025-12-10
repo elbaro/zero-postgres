@@ -1,11 +1,13 @@
 //! Query-related backend messages.
 
+use std::mem::size_of;
+
 use zerocopy::{FromBytes, Immutable, KnownLayout};
+use zerocopy::byteorder::big_endian::{I16 as I16BE, I32 as I32BE, U16 as U16BE, U32 as U32BE};
 
 use crate::error::{Error, Result};
-use crate::protocol::codec::{read_cstr, read_i16, read_i32, read_u16, read_u32};
+use crate::protocol::codec::read_cstr;
 use crate::protocol::types::{FormatCode, Oid};
-use zerocopy::byteorder::big_endian::U16 as U16BE;
 
 /// RowDescription message header.
 #[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]
@@ -15,23 +17,63 @@ pub struct RowDescriptionHead {
     pub num_fields: U16BE,
 }
 
+/// Fixed-size tail of a field description (18 bytes).
+#[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]
+#[repr(C, packed)]
+pub struct FieldDescriptionTail {
+    /// Table OID (0 if not a table column)
+    pub table_oid: U32BE,
+    /// Column attribute number (0 if not a table column)
+    pub column_id: I16BE,
+    /// Data type OID
+    pub type_oid: U32BE,
+    /// Type size (-1 for variable, -2 for null-terminated)
+    pub type_size: I16BE,
+    /// Type modifier (type-specific)
+    pub type_modifier: I32BE,
+    /// Format code (0=text, 1=binary)
+    pub format: U16BE,
+}
+
 /// Field description within a RowDescription.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct FieldDescription<'a> {
     /// Field name
     pub name: &'a str,
+    /// Fixed-size metadata
+    pub tail: &'a FieldDescriptionTail,
+}
+
+impl FieldDescription<'_> {
     /// Table OID (0 if not a table column)
-    pub table_oid: Oid,
+    pub fn table_oid(&self) -> Oid {
+        self.tail.table_oid.get()
+    }
+
     /// Column attribute number (0 if not a table column)
-    pub column_id: i16,
+    pub fn column_id(&self) -> i16 {
+        self.tail.column_id.get()
+    }
+
     /// Data type OID
-    pub type_oid: Oid,
+    pub fn type_oid(&self) -> Oid {
+        self.tail.type_oid.get()
+    }
+
     /// Type size (-1 for variable, -2 for null-terminated)
-    pub type_size: i16,
+    pub fn type_size(&self) -> i16 {
+        self.tail.type_size.get()
+    }
+
     /// Type modifier (type-specific)
-    pub type_modifier: i32,
+    pub fn type_modifier(&self) -> i32 {
+        self.tail.type_modifier.get()
+    }
+
     /// Format code (0=text, 1=binary)
-    pub format: FormatCode,
+    pub fn format(&self) -> FormatCode {
+        FormatCode::from_u16(self.tail.format.get())
+    }
 }
 
 /// RowDescription message - describes the columns in a result set.
@@ -50,26 +92,16 @@ impl<'a> RowDescription<'a> {
         let mut fields = Vec::with_capacity(num_fields);
         let mut data = &payload[2..];
 
+        const TAIL_SIZE: usize = size_of::<FieldDescriptionTail>();
+
         for _ in 0..num_fields {
             let (name, rest) = read_cstr(data)?;
-            let (table_oid, rest) = read_u32(rest)?;
-            let (column_id, rest) = read_i16(rest)?;
-            let (type_oid, rest) = read_u32(rest)?;
-            let (type_size, rest) = read_i16(rest)?;
-            let (type_modifier, rest) = read_i32(rest)?;
-            let (format_code, rest) = read_u16(rest)?;
+            let tail = FieldDescriptionTail::ref_from_bytes(&rest[..TAIL_SIZE])
+                .map_err(|e| Error::Protocol(format!("FieldDescription tail: {e:?}")))?;
 
-            fields.push(FieldDescription {
-                name,
-                table_oid,
-                column_id,
-                type_oid,
-                type_size,
-                type_modifier,
-                format: FormatCode::from_u16(format_code),
-            });
+            fields.push(FieldDescription { name, tail });
 
-            data = rest;
+            data = &rest[TAIL_SIZE..];
         }
 
         Ok(Self { fields })

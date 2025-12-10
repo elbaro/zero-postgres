@@ -7,12 +7,16 @@ pub mod extended;
 pub mod query;
 
 pub use auth::{AuthenticationMessage, BackendKeyData, ParameterStatus, ReadyForQuery};
-pub use copy::{CopyData, CopyDone, CopyInResponse, CopyOutResponse};
+pub use copy::{CopyInResponse, CopyOutResponse};
+// Re-export shared copy types for convenience
+pub use super::copy::{CopyData, CopyDone};
 pub use error::{ErrorResponse, NoticeResponse};
 pub use extended::{
     BindComplete, CloseComplete, NoData, ParameterDescription, ParseComplete, PortalSuspended,
 };
-pub use query::{CommandComplete, DataRow, EmptyQueryResponse, RowDescription};
+pub use query::{
+    CommandComplete, DataRow, EmptyQueryResponse, FieldDescriptionTail, RowDescription,
+};
 
 /// Backend message type bytes.
 pub mod msg_type {
