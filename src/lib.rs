@@ -48,12 +48,10 @@ pub mod sync;
 pub mod tokio;
 
 pub use error::{Error, Result, ServerError};
-pub use handler::{
-    BinaryHandler, CollectHandler, DropHandler, FirstRowHandler, TextHandler,
-};
+pub use handler::{BinaryHandler, CollectHandler, DropHandler, FirstRowHandler, TextHandler};
 pub use opts::{Opts, SslMode};
 pub use protocol::types::{FormatCode, Oid, TransactionStatus};
 pub use row::FromRow;
 pub use state::extended::{ColumnInfo, PreparedStatement};
 pub use state::simple_query::BufferSet;
-pub use value::{FromWire, ToParams, ToWire};
+pub use value::{FromWireValue, ToParams, ToWireValue};

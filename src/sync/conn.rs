@@ -214,14 +214,6 @@ impl Conn {
         &self.server_params
     }
 
-    /// Get a specific server parameter.
-    pub fn get_param(&self, name: &str) -> Option<&str> {
-        self.server_params
-            .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, v)| v.as_str())
-    }
-
     /// Get the current transaction status.
     pub fn transaction_status(&self) -> TransactionStatus {
         self.transaction_status

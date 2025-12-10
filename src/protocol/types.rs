@@ -66,3 +66,20 @@ impl TransactionStatus {
     }
 }
 
+/// Well-known PostgreSQL type OIDs.
+pub mod oid {
+    use super::Oid;
+
+    pub const BOOL: Oid = 16;
+    pub const BYTEA: Oid = 17;
+    pub const NAME: Oid = 19;
+    pub const INT8: Oid = 20;
+    pub const INT2: Oid = 21;
+    pub const INT4: Oid = 23;
+    pub const TEXT: Oid = 25;
+    pub const FLOAT4: Oid = 700;
+    pub const FLOAT8: Oid = 701;
+    pub const VARCHAR: Oid = 1043;
+    pub const BPCHAR: Oid = 1042;
+}
+

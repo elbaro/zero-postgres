@@ -40,41 +40,29 @@ fn main() -> zero_postgres::Result<()> {
     // Query additional server info
     println!("=== Server Info (from queries) ===");
 
-    let (_, rows) = conn.query_collect("SELECT version()")?;
-    if let Some(row) = rows.first() {
-        if let Some(Some(version)) = row.first() {
-            println!("  Version: {}", String::from_utf8_lossy(version));
-        }
+    let rows: Vec<(String,)> = conn.query_collect("SELECT version()")?;
+    if let Some((version,)) = rows.first() {
+        println!("  Version: {}", version);
     }
 
-    let (_, rows) = conn.query_collect(
-        "SELECT current_database(), current_user, inet_server_addr(), inet_server_port()",
+    let rows: Vec<(String, String, Option<String>, Option<i32>)> = conn.query_collect(
+        "SELECT current_database(), current_user, host(inet_server_addr()), inet_server_port()",
     )?;
-    if let Some(row) = rows.first() {
-        let get = |i: usize| {
-            row.get(i)
-                .and_then(|v| v.as_ref())
-                .map(|b| String::from_utf8_lossy(b).into_owned())
-                .unwrap_or_else(|| "(null)".into())
-        };
-        println!("  Database: {}", get(0));
-        println!("  User: {}", get(1));
-        println!("  Server Address: {}", get(2));
-        println!("  Server Port: {}", get(3));
+    if let Some((db, user, addr, port)) = rows.first() {
+        println!("  Database: {}", db);
+        println!("  User: {}", user);
+        println!("  Server Address: {}", addr.as_deref().unwrap_or("(null)"));
+        println!("  Server Port: {}", port.map(|p| p.to_string()).unwrap_or("(null)".into()));
     }
 
-    let (_, rows) = conn.query_collect("SHOW server_encoding")?;
-    if let Some(row) = rows.first() {
-        if let Some(Some(enc)) = row.first() {
-            println!("  Server Encoding: {}", String::from_utf8_lossy(enc));
-        }
+    let rows: Vec<(String,)> = conn.query_collect("SHOW server_encoding")?;
+    if let Some((enc,)) = rows.first() {
+        println!("  Server Encoding: {}", enc);
     }
 
-    let (_, rows) = conn.query_collect("SELECT pg_postmaster_start_time()")?;
-    if let Some(row) = rows.first() {
-        if let Some(Some(time)) = row.first() {
-            println!("  Server Start Time: {}", String::from_utf8_lossy(time));
-        }
+    let rows: Vec<(String,)> = conn.query_collect("SELECT pg_postmaster_start_time()::text")?;
+    if let Some((time,)) = rows.first() {
+        println!("  Server Start Time: {}", time);
     }
 
     println!();
