@@ -13,4 +13,5 @@ A high-performance PostgreSQL client library for Rust.
 
 ## Status
 
-WIP
+- connection, simple query, extended query works.
+- wip: pool, transaction, pipelining, more type handling

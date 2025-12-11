@@ -68,6 +68,16 @@ pub struct Opts {
     ///
     /// Default: `true`
     pub prefer_unix_socket: bool,
+
+    /// Maximum number of idle connections in the pool.
+    ///
+    /// Default: `100`
+    pub pool_max_idle_conn: usize,
+
+    /// Maximum number of concurrent connections (None = unlimited).
+    ///
+    /// Default: `None`
+    pub pool_max_concurrency: Option<usize>,
 }
 
 impl Default for Opts {
@@ -83,6 +93,8 @@ impl Default for Opts {
             ssl_mode: SslMode::Prefer,
             params: Vec::new(),
             prefer_unix_socket: true,
+            pool_max_idle_conn: 100,
+            pool_max_concurrency: None,
         }
     }
 }
