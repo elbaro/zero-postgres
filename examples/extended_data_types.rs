@@ -61,11 +61,11 @@ fn main() -> zero_postgres::Result<()> {
     conn.exec_drop(
         "insert_row",
         (
-            true,                      // bool
-            42_i32,                    // int
-            i64::MAX,                  // bigint (max)
-            3.14159_f64,               // double
-            "hello world",             // text
+            true,                          // bool
+            42_i32,                        // int
+            i64::MAX,                      // bigint (max)
+            3.14159_f64,                   // double
+            "hello world",                 // text
             &[0xDE, 0xAD, 0xBE, 0xEF][..], // bytea
         ),
     )?;
@@ -75,12 +75,12 @@ fn main() -> zero_postgres::Result<()> {
     conn.exec_drop(
         "insert_row",
         (
-            None::<bool>,              // NULL bool
-            i32::MIN,                  // int (min)
-            None::<i64>,               // NULL bigint
-            f64::INFINITY,             // double infinity
-            "unicode: éñü",            // text with unicode
-            None::<&[u8]>,             // NULL bytea
+            None::<bool>,   // NULL bool
+            i32::MIN,       // int (min)
+            None::<i64>,    // NULL bigint
+            f64::INFINITY,  // double infinity
+            "unicode: éñü", // text with unicode
+            None::<&[u8]>,  // NULL bytea
         ),
     )?;
     println!("Inserted row 2 (with NULLs)");
@@ -89,12 +89,12 @@ fn main() -> zero_postgres::Result<()> {
     conn.exec_drop(
         "insert_row",
         (
-            false,                     // false
-            0_i32,                     // zero
-            i64::MIN,                  // bigint (min)
-            f64::NAN,                  // NaN
-            "",                        // empty string
-            &[][..],                   // empty bytea
+            false,    // false
+            0_i32,    // zero
+            i64::MIN, // bigint (min)
+            f64::NAN, // NaN
+            "",       // empty string
+            &[][..],  // empty bytea
         ),
     )?;
     println!("Inserted row 3 (edge cases)");

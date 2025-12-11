@@ -227,4 +227,3 @@ impl<'a, H: TextHandler> SimpleQueryStateMachine<'a, H> {
         }
     }
 }
-

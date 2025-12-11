@@ -57,7 +57,10 @@ impl TransactionStatus {
 
     /// Returns true if currently in a transaction (either active or failed).
     pub fn in_transaction(self) -> bool {
-        matches!(self, TransactionStatus::InTransaction | TransactionStatus::Failed)
+        matches!(
+            self,
+            TransactionStatus::InTransaction | TransactionStatus::Failed
+        )
     }
 
     /// Returns true if the transaction has failed.
@@ -297,4 +300,3 @@ pub mod oid {
     /// registered database
     pub const REGDATABASE: Oid = 8326;
 }
-

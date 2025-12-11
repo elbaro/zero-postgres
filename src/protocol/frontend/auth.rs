@@ -97,8 +97,10 @@ impl ScramClient {
         let nonce = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, nonce_bytes);
 
         // p=tls-server-end-point,,
-        let cb_data =
-            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, channel_binding_data);
+        let cb_data = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            channel_binding_data,
+        );
 
         Self {
             nonce,
@@ -181,8 +183,8 @@ impl ScramClient {
         let stored_key = Sha256::digest(&client_key);
 
         // channel-binding = base64(channel-binding-flag)
-        let channel_binding_b64 = base64::engine::general_purpose::STANDARD
-            .encode(self.channel_binding.as_bytes());
+        let channel_binding_b64 =
+            base64::engine::general_purpose::STANDARD.encode(self.channel_binding.as_bytes());
 
         // client-final-message-without-proof = c=<channel-binding>,r=<nonce>
         let client_final_without_proof = format!("c={},r={}", channel_binding_b64, combined_nonce);

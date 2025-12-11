@@ -72,7 +72,9 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let elapsed = iteration_start.elapsed();
-        let row = client.query_one("SELECT COUNT(*) FROM test_bench", &[]).await?;
+        let row = client
+            .query_one("SELECT COUNT(*) FROM test_bench", &[])
+            .await?;
         let count: i64 = row.get(0);
         println!(
             "Iteration {}: Inserted {} rows (took {:.2}ms)",

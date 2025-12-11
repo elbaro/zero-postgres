@@ -169,10 +169,8 @@ impl ConnectionStateMachine {
     }
 
     fn write_startup_message(&mut self) {
-        let mut params: Vec<(&str, &str)> = vec![
-            ("user", &self.options.user),
-            ("client_encoding", "UTF8"),
-        ];
+        let mut params: Vec<(&str, &str)> =
+            vec![("user", &self.options.user), ("client_encoding", "UTF8")];
 
         if let Some(ref db) = self.options.database {
             params.push(("database", db));

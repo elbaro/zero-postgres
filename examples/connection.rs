@@ -52,7 +52,10 @@ fn main() -> zero_postgres::Result<()> {
         println!("  Database: {}", db);
         println!("  User: {}", user);
         println!("  Server Address: {}", addr.as_deref().unwrap_or("(null)"));
-        println!("  Server Port: {}", port.map(|p| p.to_string()).unwrap_or("(null)".into()));
+        println!(
+            "  Server Port: {}",
+            port.map(|p| p.to_string()).unwrap_or("(null)".into())
+        );
     }
 
     let rows: Vec<(String,)> = conn.query_collect("SHOW server_encoding")?;

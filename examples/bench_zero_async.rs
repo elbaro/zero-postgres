@@ -45,7 +45,13 @@ fn main() -> zero_postgres::Result<()> {
         for (username, age, email, score, description) in rows.iter() {
             conn.exec_drop(
                 "insert_bench",
-                (username.as_str(), *age, email.as_str(), *score, description.as_str()),
+                (
+                    username.as_str(),
+                    *age,
+                    email.as_str(),
+                    *score,
+                    description.as_str(),
+                ),
             )?;
         }
 

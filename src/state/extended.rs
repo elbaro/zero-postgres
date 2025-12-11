@@ -389,4 +389,3 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
         }
     }
 }
-

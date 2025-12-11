@@ -538,4 +538,3 @@ impl TextHandler for ShowVarHandler {
         Ok(())
     }
 }
-
