@@ -3,10 +3,10 @@
 use crate::error::{Error, Result};
 use crate::opts::{Opts, SslMode};
 use crate::protocol::backend::{
-    AuthenticationMessage, BackendKeyData, ErrorResponse, ParameterStatus, RawMessage,
-    ReadyForQuery, msg_type,
+    msg_type, AuthenticationMessage, BackendKeyData, ErrorResponse, ParameterStatus, RawMessage,
+    ReadyForQuery,
 };
-use crate::protocol::frontend::auth::{ScramClient, md5_password};
+use crate::protocol::frontend::auth::{md5_password, ScramClient};
 use crate::protocol::frontend::{
     startup::write_ssl_request, write_password, write_sasl_initial_response, write_sasl_response,
     write_startup,
@@ -172,11 +172,11 @@ impl ConnectionStateMachine {
         let mut params: Vec<(&str, &str)> =
             vec![("user", &self.options.user), ("client_encoding", "UTF8")];
 
-        if let Some(ref db) = self.options.database {
+        if let Some(db) = &self.options.database {
             params.push(("database", db));
         }
 
-        if let Some(ref app) = self.options.application_name {
+        if let Some(app) = &self.options.application_name {
             params.push(("application_name", app));
         }
 

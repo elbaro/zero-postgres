@@ -253,7 +253,7 @@ impl Conn {
     /// Execute a simple query with a handler.
     pub async fn query<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
         let result = self.query_inner(sql, handler).await;
-        if let Err(ref e) = result
+        if let Err(e) = &result
             && e.is_connection_broken()
         {
             self.is_broken = true;
@@ -349,7 +349,7 @@ impl Conn {
         param_oids: &[u32],
     ) -> Result<PreparedStatement> {
         let result = self.prepare_inner(name, query, param_oids).await;
-        if let Err(ref e) = result
+        if let Err(e) = &result
             && e.is_connection_broken()
         {
             self.is_broken = true;
@@ -406,7 +406,7 @@ impl Conn {
         handler: &mut H,
     ) -> Result<()> {
         let result = self.exec_inner(statement, &params, handler).await;
-        if let Err(ref e) = result
+        if let Err(e) = &result
             && e.is_connection_broken()
         {
             self.is_broken = true;
@@ -477,7 +477,7 @@ impl Conn {
     /// Close a prepared statement.
     pub async fn close_statement(&mut self, name: &str) -> Result<()> {
         let result = self.close_statement_inner(name).await;
-        if let Err(ref e) = result
+        if let Err(e) = &result
             && e.is_connection_broken()
         {
             self.is_broken = true;

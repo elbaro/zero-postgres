@@ -86,16 +86,12 @@ impl ServerError {
 
     /// Cursor position in query string (1-based)
     pub fn position(&self) -> Option<u32> {
-        self.0
-            .get(&field_type::POSITION)
-            .and_then(|s| s.parse().ok())
+        self.0.get(&field_type::POSITION)?.parse().ok()
     }
 
     /// Position in internal query
     pub fn internal_position(&self) -> Option<u32> {
-        self.0
-            .get(&field_type::INTERNAL_POSITION)
-            .and_then(|s| s.parse().ok())
+        self.0.get(&field_type::INTERNAL_POSITION)?.parse().ok()
     }
 
     /// Failed internal command text
@@ -140,7 +136,7 @@ impl ServerError {
 
     /// Source line number
     pub fn line(&self) -> Option<u32> {
-        self.0.get(&field_type::LINE).and_then(|s| s.parse().ok())
+        self.0.get(&field_type::LINE)?.parse().ok()
     }
 
     /// Source routine name
