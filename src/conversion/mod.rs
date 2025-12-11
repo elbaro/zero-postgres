@@ -5,6 +5,7 @@
 
 mod bytes;
 mod primitives;
+mod row;
 mod string;
 
 #[cfg(feature = "with-chrono")]
@@ -18,6 +19,7 @@ mod uuid;
 
 use crate::error::{Error, Result};
 use crate::protocol::types::Oid;
+pub use row::FromRow;
 
 /// Trait for decoding PostgreSQL values into Rust types.
 ///

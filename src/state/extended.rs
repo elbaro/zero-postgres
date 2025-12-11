@@ -1,21 +1,21 @@
 //! Extended query protocol state machine.
 
+use crate::conversion::ToParams;
 use crate::error::{Error, Result};
 use crate::handler::BinaryHandler;
 use crate::protocol::backend::{
-    BindComplete, CloseComplete, CommandComplete, DataRow, ErrorResponse, FieldDescriptionTail,
-    NoData, ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
-    RowDescription, msg_type,
+    msg_type, BindComplete, CloseComplete, CommandComplete, DataRow, ErrorResponse, NoData,
+    ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
+    RowDescription,
 };
 use crate::protocol::frontend::{
     write_bind, write_close_statement, write_describe_portal, write_describe_statement,
     write_execute, write_parse, write_sync,
 };
-use crate::protocol::types::{FormatCode, Oid, TransactionStatus};
-use crate::types::ToParams;
+use crate::protocol::types::{Oid, TransactionStatus};
 
 use super::action::{Action, AsyncMessage};
-use super::simple_query::BufferSet;
+use crate::buffer_set::BufferSet;
 
 /// Extended query state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,46 +37,18 @@ pub struct PreparedStatement {
     pub name: String,
     /// Parameter type OIDs
     pub param_oids: Vec<Oid>,
-    /// Column descriptions (if the statement returns rows)
-    pub columns: Option<Vec<ColumnInfo>>,
+    /// Raw RowDescription payload (if the statement returns rows)
+    row_desc_payload: Option<Vec<u8>>,
 }
 
-/// Column information from RowDescription.
-#[derive(Debug, Clone)]
-pub struct ColumnInfo {
-    pub name: String,
-    pub tail: FieldDescriptionTail,
-}
-
-impl ColumnInfo {
-    /// Table OID (0 if not a table column)
-    pub fn table_oid(&self) -> Oid {
-        self.tail.table_oid.get()
-    }
-
-    /// Column attribute number (0 if not a table column)
-    pub fn column_id(&self) -> i16 {
-        self.tail.column_id.get()
-    }
-
-    /// Data type OID
-    pub fn type_oid(&self) -> Oid {
-        self.tail.type_oid.get()
-    }
-
-    /// Type size (-1 for variable, -2 for null-terminated)
-    pub fn type_size(&self) -> i16 {
-        self.tail.type_size.get()
-    }
-
-    /// Type modifier (type-specific)
-    pub fn type_modifier(&self) -> i32 {
-        self.tail.type_modifier.get()
-    }
-
-    /// Format code (0=text, 1=binary)
-    pub fn format(&self) -> FormatCode {
-        FormatCode::from_u16(self.tail.format.get())
+impl PreparedStatement {
+    /// Parse column descriptions from stored RowDescription payload.
+    ///
+    /// Returns `None` if the statement doesn't return rows.
+    pub fn parse_columns(&self) -> Option<Result<RowDescription<'_>>> {
+        self.row_desc_payload
+            .as_ref()
+            .map(|bytes| RowDescription::parse(bytes))
     }
 }
 
@@ -125,7 +97,7 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
         self.prepared_stmt = Some(PreparedStatement {
             name: name.to_string(),
             param_oids: Vec::new(),
-            columns: None,
+            row_desc_payload: None,
         });
         self.state = State::WaitingParse;
         Action::WritePacket(&self.write_buffer)
@@ -230,26 +202,17 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
 
     fn handle_row_desc<'buf>(&mut self, buffer_set: &'buf mut BufferSet) -> Result<Action<'buf>> {
         let type_byte = buffer_set.type_byte;
-        let payload = &buffer_set.read_buffer;
 
         match type_byte {
             msg_type::ROW_DESCRIPTION => {
-                let desc = RowDescription::parse(payload)?;
                 if let Some(ref mut stmt) = self.prepared_stmt {
-                    stmt.columns = Some(
-                        desc.fields()
-                            .iter()
-                            .map(|f| ColumnInfo {
-                                name: f.name.to_string(),
-                                tail: *f.tail,
-                            })
-                            .collect(),
-                    );
+                    stmt.row_desc_payload = Some(std::mem::take(&mut buffer_set.read_buffer));
                 }
                 self.state = State::WaitingReady;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
             msg_type::NO_DATA => {
+                let payload = &buffer_set.read_buffer;
                 NoData::parse(payload)?;
                 // Statement doesn't return rows
                 self.state = State::WaitingReady;

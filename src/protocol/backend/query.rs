@@ -9,14 +9,6 @@ use crate::error::{Error, Result};
 use crate::protocol::codec::read_cstr;
 use crate::protocol::types::{FormatCode, Oid};
 
-/// RowDescription message header.
-#[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]
-#[repr(C, packed)]
-pub struct RowDescriptionHead {
-    /// Number of fields in the row
-    pub num_fields: U16BE,
-}
-
 /// Fixed-size tail of a field description (18 bytes).
 #[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]
 #[repr(C, packed)]
@@ -85,10 +77,9 @@ pub struct RowDescription<'a> {
 impl<'a> RowDescription<'a> {
     /// Parse a RowDescription message from payload bytes.
     pub fn parse(payload: &'a [u8]) -> Result<Self> {
-        let head = RowDescriptionHead::ref_from_bytes(&payload[..2])
-            .map_err(|e| Error::Protocol(format!("RowDescription header: {e:?}")))?;
-
-        let num_fields = head.num_fields.get() as usize;
+        let num_fields = U16BE::ref_from_bytes(&payload[..2])
+            .map_err(|e| Error::Protocol(format!("RowDescription header: {e:?}")))?
+            .get() as usize;
         let mut fields = Vec::with_capacity(num_fields);
         let mut data = &payload[2..];
 

@@ -1,8 +1,8 @@
 //! Extended query protocol messages.
 
+use crate::conversion::ToParams;
 use crate::protocol::codec::MessageBuilder;
 use crate::protocol::types::{FormatCode, Oid};
-use crate::types::ToParams;
 
 /// Write a Parse message to create a prepared statement.
 ///

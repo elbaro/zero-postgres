@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 use crate::protocol::backend::query::{CommandComplete, DataRow, RowDescription};
-use crate::row::FromRow;
+use crate::conversion::FromRow;
 
 /// Handler for simple query results (text format).
 ///

@@ -125,7 +125,7 @@ pub mod oid {
     pub const INDEX_AM_HANDLER: Oid = 325;
     /// geometric point, format '(x,y)'
     pub const POINT: Oid = 600;
-    /// geometric line segment, format '[point1,point2]'
+    /// geometric line segment, format '\[point1,point2\]'
     pub const LSEG: Oid = 601;
     /// geometric path, format '(point1,...)'
     pub const PATH: Oid = 602;
@@ -133,7 +133,7 @@ pub mod oid {
     pub const BOX: Oid = 603;
     /// geometric polygon, format '(point1,...)'
     pub const POLYGON: Oid = 604;
-    /// geometric line, formats '{A,B,C}'/'[point1,point2]'
+    /// geometric line, formats '{A,B,C}'/'\[point1,point2\]'
     pub const LINE: Oid = 628;
     /// network IP address/netmask, network address
     pub const CIDR: Oid = 650;

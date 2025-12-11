@@ -14,7 +14,7 @@ use crate::protocol::frontend::{
 use crate::protocol::types::TransactionStatus;
 
 use super::action::{Action, AsyncMessage};
-use super::simple_query::BufferSet;
+use crate::buffer_set::BufferSet;
 
 /// Connection state during startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

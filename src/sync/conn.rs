@@ -3,6 +3,8 @@
 use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 
+use crate::buffer_set::BufferSet;
+use crate::conversion::ToParams;
 use crate::error::{Error, Result};
 use crate::handler::{BinaryHandler, DropHandler, TextHandler};
 use crate::opts::Opts;
@@ -12,8 +14,7 @@ use crate::protocol::types::TransactionStatus;
 use crate::state::action::Action;
 use crate::state::connection::{ConnectionState, ConnectionStateMachine, SslAction};
 use crate::state::extended::{ExtendedQueryStateMachine, PreparedStatement};
-use crate::state::simple_query::{BufferSet, SimpleQueryStateMachine};
-use crate::types::ToParams;
+use crate::state::simple_query::SimpleQueryStateMachine;
 
 use super::stream::Stream;
 
@@ -301,7 +302,7 @@ impl Conn {
     ///     println!("{}: {}", id, name);
     /// }
     /// ```
-    pub fn query_collect<T: for<'a> crate::row::FromRow<'a>>(
+    pub fn query_collect<T: for<'a> crate::conversion::FromRow<'a>>(
         &mut self,
         sql: &str,
     ) -> Result<Vec<T>> {
@@ -311,7 +312,7 @@ impl Conn {
     }
 
     /// Execute a simple query and return the first typed row.
-    pub fn query_first<T: for<'a> crate::row::FromRow<'a>>(
+    pub fn query_first<T: for<'a> crate::conversion::FromRow<'a>>(
         &mut self,
         sql: &str,
     ) -> Result<Option<T>> {
@@ -462,7 +463,7 @@ impl Conn {
     /// conn.prepare("stmt1", "SELECT id, name FROM users WHERE id = $1")?;
     /// let rows: Vec<(i32, String)> = conn.exec_collect("stmt1", (42,))?;
     /// ```
-    pub fn exec_collect<T: for<'a> crate::row::FromRow<'a>, P: ToParams>(
+    pub fn exec_collect<T: for<'a> crate::conversion::FromRow<'a>, P: ToParams>(
         &mut self,
         statement: &str,
         params: P,
@@ -529,7 +530,9 @@ impl Conn {
         F: FnOnce(&mut Conn, super::transaction::Transaction) -> Result<R>,
     {
         if self.in_transaction() {
-            return Err(Error::InvalidUsage("nested transactions are not supported".into()));
+            return Err(Error::InvalidUsage(
+                "nested transactions are not supported".into(),
+            ));
         }
 
         self.query_drop("BEGIN")?;

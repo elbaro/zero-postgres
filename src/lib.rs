@@ -32,13 +32,16 @@
 //! }
 //! ```
 
-pub mod error;
+// private
+mod buffer_set;
+mod error;
+mod opts;
+
+// pub
+pub mod conversion;
 pub mod handler;
-pub mod opts;
 pub mod protocol;
-pub mod row;
 pub mod state;
-pub mod types;
 
 #[cfg(feature = "sync")]
 pub mod sync;
@@ -46,11 +49,7 @@ pub mod sync;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
+pub use buffer_set::BufferSet;
 pub use error::{Error, Result, ServerError};
-pub use handler::{BinaryHandler, CollectHandler, DropHandler, FirstRowHandler, TextHandler};
 pub use opts::{Opts, SslMode};
-pub use protocol::types::{FormatCode, Oid, TransactionStatus};
-pub use row::FromRow;
-pub use state::extended::{ColumnInfo, PreparedStatement};
-pub use state::simple_query::BufferSet;
-pub use types::{FromWireValue, ToParams, ToWireValue};
+pub use state::extended::PreparedStatement;

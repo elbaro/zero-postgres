@@ -1,4 +1,4 @@
-//! Byte type implementations (&[u8], Vec<u8>).
+//! Byte type implementations (`&[u8]`, `Vec<u8>`).
 
 use crate::error::{Error, Result};
 use crate::protocol::types::{Oid, oid};
