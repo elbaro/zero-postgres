@@ -237,6 +237,12 @@ impl Conn {
         self.is_broken
     }
 
+    /// Ping the server with an empty query to check connection aliveness.
+    pub fn ping(&mut self) -> Result<()> {
+        self.query_drop("")?;
+        Ok(())
+    }
+
     /// Execute a simple query with a handler.
     pub fn query<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
         let result = self.query_inner(sql, handler);

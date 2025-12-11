@@ -36,9 +36,16 @@ impl Pool {
         } else {
             None
         };
-        let conn = match self.conns.pop() {
-            Some(c) => c,
-            None => Conn::new(self.opts.clone()).await?,
+        let conn = loop {
+            match self.conns.pop() {
+                Some(mut c) => {
+                    if c.ping().await.is_ok() {
+                        break c;
+                    }
+                    // Connection dead, try next one
+                }
+                None => break Conn::new(self.opts.clone()).await?,
+            }
         };
         Ok(PooledConn {
             conn: ManuallyDrop::new(conn),

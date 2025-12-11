@@ -32,9 +32,16 @@ impl Pool {
         if let Some(sem) = &self.semaphore {
             sem.acquire();
         }
-        let conn = match self.conns.pop() {
-            Some(c) => c,
-            None => Conn::new(self.opts.clone())?,
+        let conn = loop {
+            match self.conns.pop() {
+                Some(mut c) => {
+                    if c.ping().is_ok() {
+                        break c;
+                    }
+                    // Connection dead, try next one
+                }
+                None => break Conn::new(self.opts.clone())?,
+            }
         };
         Ok(PooledConn {
             conn: ManuallyDrop::new(conn),
