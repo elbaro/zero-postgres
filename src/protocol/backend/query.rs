@@ -2,8 +2,8 @@
 
 use std::mem::size_of;
 
-use zerocopy::{FromBytes, Immutable, KnownLayout};
 use zerocopy::byteorder::big_endian::{I16 as I16BE, I32 as I32BE, U16 as U16BE, U32 as U32BE};
+use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 use crate::error::{Error, Result};
 use crate::protocol::codec::read_cstr;
@@ -194,17 +194,9 @@ impl<'a> Iterator for DataRowIter<'a> {
     type Item = Option<&'a [u8]>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining.len() < 4 {
-            return None;
-        }
-
-        let len = i32::from_be_bytes([
-            self.remaining[0],
-            self.remaining[1],
-            self.remaining[2],
-            self.remaining[3],
-        ]);
-        self.remaining = &self.remaining[4..];
+        let len;
+        (len, self.remaining) = self.remaining.split_at_checked(4)?;
+        let len = i32::from_be_bytes([len[0], len[1], len[2], len[3]]);
 
         if len == -1 {
             // NULL value
@@ -214,8 +206,9 @@ impl<'a> Iterator for DataRowIter<'a> {
             if self.remaining.len() < len {
                 return None;
             }
-            let value = &self.remaining[..len];
-            self.remaining = &self.remaining[len..];
+
+            let value;
+            (value, self.remaining) = self.remaining.split_at_checked(len)?;
             Some(Some(value))
         }
     }

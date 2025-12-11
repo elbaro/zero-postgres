@@ -13,7 +13,7 @@ use crate::state::action::Action;
 use crate::state::connection::{ConnectionState, ConnectionStateMachine, SslAction};
 use crate::state::extended::{ExtendedQueryStateMachine, PreparedStatement};
 use crate::state::simple_query::{BufferSet, SimpleQueryStateMachine};
-use crate::value::ToParams;
+use crate::types::ToParams;
 
 use super::stream::Stream;
 

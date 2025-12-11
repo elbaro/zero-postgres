@@ -3,7 +3,7 @@
 use crate::error::{Error, Result};
 use crate::protocol::backend::query::{DataRow, FieldDescription};
 use crate::protocol::types::FormatCode;
-use crate::value::FromWireValue;
+use crate::types::FromWireValue;
 
 /// Trait for decoding a PostgreSQL row into a Rust type.
 pub trait FromRow<'a>: Sized {

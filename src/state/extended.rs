@@ -12,7 +12,7 @@ use crate::protocol::frontend::{
     write_execute, write_parse, write_sync,
 };
 use crate::protocol::types::{FormatCode, Oid, TransactionStatus};
-use crate::value::ToParams;
+use crate::types::ToParams;
 
 use super::action::{Action, AsyncMessage};
 use super::simple_query::BufferSet;

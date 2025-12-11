@@ -14,6 +14,10 @@ sync = []
 tokio = ["dep:tokio"]
 sync-tls = ["dep:native-tls"]
 tokio-tls = ["dep:native-tls", "dep:tokio-native-tls"]
+with-uuid = ["dep:uuid"]
+with-time = ["dep:time"]
+with-chrono = ["dep:chrono"]
+with-rust-decimal = ["dep:rust_decimal"]
 
 [dependencies]
 thiserror = "2"
@@ -36,6 +40,10 @@ tracing = { version = "0.1", features = ["release_max_level_warn"] }
 memchr = "2"
 simdutf8 = "0.1"
 url = "2"
+uuid = { version = "1", optional = true }
+time = { version = "0.3", features = ["macros", "parsing"], optional = true }
+chrono = { version = "0.4", optional = true, default-features = false, features = ["std", "clock"] }
+rust_decimal = { version = "1", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }

@@ -24,8 +24,7 @@
 //!
 //!     let mut conn = Conn::new(opts)?;
 //!
-//!     let (columns, rows) = conn.query_collect("SELECT 1 AS num")?;
-//!     println!("Columns: {:?}", columns);
+//!     let rows: Vec<(i32,)> = conn.query_collect("SELECT 1 AS num")?;
 //!     println!("Rows: {:?}", rows);
 //!
 //!     conn.close()?;
@@ -39,7 +38,7 @@ pub mod opts;
 pub mod protocol;
 pub mod row;
 pub mod state;
-pub mod value;
+pub mod types;
 
 #[cfg(feature = "sync")]
 pub mod sync;
@@ -54,4 +53,4 @@ pub use protocol::types::{FormatCode, Oid, TransactionStatus};
 pub use row::FromRow;
 pub use state::extended::{ColumnInfo, PreparedStatement};
 pub use state::simple_query::BufferSet;
-pub use value::{FromWireValue, ToParams, ToWireValue};
+pub use types::{FromWireValue, ToParams, ToWireValue};

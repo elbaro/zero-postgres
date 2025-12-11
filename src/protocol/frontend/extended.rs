@@ -2,7 +2,7 @@
 
 use crate::protocol::codec::MessageBuilder;
 use crate::protocol::types::{FormatCode, Oid};
-use crate::value::ToParams;
+use crate::types::ToParams;
 
 /// Write a Parse message to create a prepared statement.
 ///
