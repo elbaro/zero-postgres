@@ -37,5 +37,9 @@ memchr = "2"
 simdutf8 = "0.1"
 url = "2"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+tokio-postgres = "0.7"
+
 [lints.clippy]
 all = { level = "deny", priority = -1 }
