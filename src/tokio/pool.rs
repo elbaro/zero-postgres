@@ -32,7 +32,7 @@ impl Pool {
 
     pub async fn get(self: &Arc<Self>) -> Result<PooledConn> {
         let permit = if let Some(sem) = &self.semaphore {
-            Some(sem.clone().acquire_owned().await.unwrap())
+            Some(Arc::clone(sem).acquire_owned().await.unwrap())
         } else {
             None
         };

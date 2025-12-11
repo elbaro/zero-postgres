@@ -4,9 +4,9 @@ use crate::conversion::ToParams;
 use crate::error::{Error, Result};
 use crate::handler::BinaryHandler;
 use crate::protocol::backend::{
-    msg_type, BindComplete, CloseComplete, CommandComplete, DataRow, ErrorResponse, NoData,
+    BindComplete, CloseComplete, CommandComplete, DataRow, ErrorResponse, NoData,
     ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
-    RowDescription,
+    RowDescription, msg_type,
 };
 use crate::protocol::frontend::{
     write_bind, write_close_statement, write_describe_portal, write_describe_statement,

@@ -59,9 +59,10 @@ impl Stream {
                 .unwrap_or(false),
             #[cfg(feature = "tokio-tls")]
             Self::Tls(r) => r
-                .get_ref()
-                .get_ref()
-                .get_ref()
+                .get_ref() // &TlsStream<TcpStream> (tokio_native_tls)
+                .get_ref() // &native_tls::TlsStream<AllowStd<TcpStream>>
+                .get_ref() // &AllowStd<TcpStream>
+                .get_ref() // &TcpStream
                 .peer_addr()
                 .map(|addr| addr.ip().is_loopback())
                 .unwrap_or(false),

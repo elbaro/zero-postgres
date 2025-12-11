@@ -3,8 +3,8 @@
 //! Usage:
 //!   DATABASE_URL=postgres://user:pass@localhost/test cargo run --example bench_postgres
 
-use std::env;
 use postgres::NoTls;
+use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");

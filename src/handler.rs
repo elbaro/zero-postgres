@@ -1,8 +1,8 @@
 //! Typed result handlers.
 
+use crate::conversion::FromRow;
 use crate::error::Result;
 use crate::protocol::backend::query::{CommandComplete, DataRow, RowDescription};
-use crate::conversion::FromRow;
 
 /// Handler for simple query results (text format).
 ///
@@ -168,7 +168,7 @@ impl<T> FirstRowHandler<T> {
     }
 
     /// Get the first row if present.
-    pub fn row(&self) -> Option<&T> {
+    pub fn get(&self) -> Option<&T> {
         self.row.as_ref()
     }
 

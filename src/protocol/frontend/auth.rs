@@ -16,17 +16,21 @@ pub fn md5_password(username: &str, password: &str, salt: &[u8; 4]) -> String {
     use md5::{Digest, Md5};
 
     // First hash: md5(password + username)
-    let mut hasher = Md5::new();
-    hasher.update(password.as_bytes());
-    hasher.update(username.as_bytes());
-    let first_hash = hasher.finalize();
+    let first_hash = {
+        let mut hasher = Md5::new();
+        hasher.update(password.as_bytes());
+        hasher.update(username.as_bytes());
+        hasher.finalize()
+    };
     let first_hash_hex = format!("{:x}", first_hash);
 
     // Second hash: md5(first_hash_hex + salt)
-    let mut hasher = Md5::new();
-    hasher.update(first_hash_hex.as_bytes());
-    hasher.update(salt);
-    let second_hash = hasher.finalize();
+    let second_hash = {
+        let mut hasher = Md5::new();
+        hasher.update(first_hash_hex.as_bytes());
+        hasher.update(salt);
+        hasher.finalize()
+    };
 
     format!("md5{:x}", second_hash)
 }
@@ -174,13 +178,15 @@ impl ScramClient {
         self.salted_password = Some(salted_password.clone());
 
         // ClientKey = HMAC(SaltedPassword, "Client Key")
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&salted_password)
-            .map_err(|e| format!("HMAC error: {}", e))?;
-        mac.update(b"Client Key");
-        let client_key = mac.finalize().into_bytes();
+        let client_key = {
+            let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&salted_password)
+                .map_err(|e| format!("HMAC error: {}", e))?;
+            mac.update(b"Client Key");
+            mac.finalize().into_bytes()
+        };
 
         // StoredKey = H(ClientKey)
-        let stored_key = Sha256::digest(&client_key);
+        let stored_key = Sha256::digest(client_key);
 
         // channel-binding = base64(channel-binding-flag)
         let channel_binding_b64 =
@@ -199,10 +205,12 @@ impl ScramClient {
         self.auth_message = Some(auth_message.clone());
 
         // ClientSignature = HMAC(StoredKey, AuthMessage)
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&stored_key)
-            .map_err(|e| format!("HMAC error: {}", e))?;
-        mac.update(auth_message.as_bytes());
-        let client_signature = mac.finalize().into_bytes();
+        let client_signature = {
+            let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&stored_key)
+                .map_err(|e| format!("HMAC error: {}", e))?;
+            mac.update(auth_message.as_bytes());
+            mac.finalize().into_bytes()
+        };
 
         // ClientProof = ClientKey XOR ClientSignature
         let mut client_proof = [0u8; 32];
@@ -238,16 +246,20 @@ impl ScramClient {
         let auth_message = self.auth_message.as_ref().ok_or("Missing auth message")?;
 
         // ServerKey = HMAC(SaltedPassword, "Server Key")
-        let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(salted_password)
-            .map_err(|e| format!("HMAC error: {}", e))?;
-        mac.update(b"Server Key");
-        let server_key = mac.finalize().into_bytes();
+        let server_key = {
+            let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(salted_password)
+                .map_err(|e| format!("HMAC error: {}", e))?;
+            mac.update(b"Server Key");
+            mac.finalize().into_bytes()
+        };
 
         // ServerSignature = HMAC(ServerKey, AuthMessage)
-        let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(&server_key)
-            .map_err(|e| format!("HMAC error: {}", e))?;
-        mac.update(auth_message.as_bytes());
-        let expected_signature = mac.finalize().into_bytes();
+        let expected_signature = {
+            let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(&server_key)
+                .map_err(|e| format!("HMAC error: {}", e))?;
+            mac.update(auth_message.as_bytes());
+            mac.finalize().into_bytes()
+        };
 
         if server_signature.as_slice() != expected_signature.as_slice() {
             return Err("Server signature verification failed".to_string());

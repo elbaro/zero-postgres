@@ -118,19 +118,20 @@ impl TryFrom<&Url> for Opts {
             )));
         }
 
-        let mut opts = Opts::default();
-
-        opts.host = url.host_str().unwrap_or("localhost").to_string();
-        opts.port = url.port().unwrap_or(5432);
-        opts.user = url.username().to_string();
-        opts.password = url.password().map(|s| s.to_string());
-        opts.database = url.path().strip_prefix('/').and_then(|s| {
-            if s.is_empty() {
-                None
-            } else {
-                Some(s.to_string())
-            }
-        });
+        let mut opts = Opts {
+            host: url.host_str().unwrap_or("localhost").to_string(),
+            port: url.port().unwrap_or(5432),
+            user: url.username().to_string(),
+            password: url.password().map(|s| s.to_string()),
+            database: url.path().strip_prefix('/').and_then(|s| {
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_string())
+                }
+            }),
+            ..Opts::default()
+        };
 
         for (key, value) in url.query_pairs() {
             match key.as_ref() {

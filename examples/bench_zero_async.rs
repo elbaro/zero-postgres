@@ -60,7 +60,9 @@ async fn main() -> zero_postgres::Result<()> {
         }
 
         let elapsed = iteration_start.elapsed();
-        let count: Vec<(i64,)> = conn.query_collect("SELECT COUNT(*) FROM test_bench").await?;
+        let count: Vec<(i64,)> = conn
+            .query_collect("SELECT COUNT(*) FROM test_bench")
+            .await?;
         println!(
             "Iteration {}: Inserted {} rows (took {:.2}ms)",
             iteration,

@@ -233,7 +233,7 @@ impl ConnectionStateMachine {
             }
             AuthenticationMessage::Sasl { mechanisms } => {
                 // Check if SCRAM-SHA-256 is supported
-                if !mechanisms.iter().any(|m| *m == "SCRAM-SHA-256") {
+                if !mechanisms.contains(&"SCRAM-SHA-256") {
                     return Err(Error::Auth(format!(
                         "No supported SASL mechanism. Server offers: {:?}",
                         mechanisms

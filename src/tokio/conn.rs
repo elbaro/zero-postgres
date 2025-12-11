@@ -253,10 +253,10 @@ impl Conn {
     /// Execute a simple query with a handler.
     pub async fn query<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
         let result = self.query_inner(sql, handler).await;
-        if let Err(ref e) = result {
-            if e.is_connection_broken() {
-                self.is_broken = true;
-            }
+        if let Err(ref e) = result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
         }
         result
     }
@@ -349,10 +349,10 @@ impl Conn {
         param_oids: &[u32],
     ) -> Result<PreparedStatement> {
         let result = self.prepare_inner(name, query, param_oids).await;
-        if let Err(ref e) = result {
-            if e.is_connection_broken() {
-                self.is_broken = true;
-            }
+        if let Err(ref e) = result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
         }
         result
     }
@@ -406,10 +406,10 @@ impl Conn {
         handler: &mut H,
     ) -> Result<()> {
         let result = self.exec_inner(statement, &params, handler).await;
-        if let Err(ref e) = result {
-            if e.is_connection_broken() {
-                self.is_broken = true;
-            }
+        if let Err(ref e) = result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
         }
         result
     }
@@ -477,10 +477,10 @@ impl Conn {
     /// Close a prepared statement.
     pub async fn close_statement(&mut self, name: &str) -> Result<()> {
         let result = self.close_statement_inner(name).await;
-        if let Err(ref e) = result {
-            if e.is_connection_broken() {
-                self.is_broken = true;
-            }
+        if let Err(ref e) = result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
         }
         result
     }
@@ -571,10 +571,10 @@ impl TextHandler for ShowVarHandler {
         _cols: crate::protocol::backend::RowDescription<'_>,
         row: crate::protocol::backend::DataRow<'_>,
     ) -> Result<()> {
-        if self.value.is_none() {
-            if let Some(Some(bytes)) = row.iter().next() {
-                self.value = String::from_utf8(bytes.to_vec()).ok();
-            }
+        if self.value.is_none()
+            && let Some(Some(bytes)) = row.iter().next()
+        {
+            self.value = String::from_utf8(bytes.to_vec()).ok();
         }
         Ok(())
     }

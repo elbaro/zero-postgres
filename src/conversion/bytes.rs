@@ -66,11 +66,11 @@ impl ToWireValue for Vec<u8> {
 
 /// Decode hex string to bytes
 fn decode_hex(hex: &[u8]) -> Result<Vec<u8>> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Err(Error::Decode("invalid hex length".into()));
     }
 
-    let mut result = Vec::with_capacity(hex.len() / 2);
+    let mut result = Vec::with_capacity(hex.len() >> 1);
     for chunk in hex.chunks(2) {
         let high = hex_digit(chunk[0])?;
         let low = hex_digit(chunk[1])?;
