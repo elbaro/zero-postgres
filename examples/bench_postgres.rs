@@ -1,18 +1,22 @@
-//! Benchmark: zero-postgres async (tokio)
+//! Benchmark: postgres (sync)
 //!
 //! Usage:
-//!   DATABASE_URL=postgres://user:pass@localhost/test cargo run --example bench_zero_async
+//!   DATABASE_URL=postgres://user:pass@localhost/test cargo run --example bench_postgres
 
 use std::env;
-use zero_postgres::tokio::Conn;
+use postgres::NoTls;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> zero_postgres::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let mut conn = Conn::new(url.as_str()).await?;
+    // postgres crate expects postgres:// not pg://
+    let url = url
+        .strip_prefix("pg://")
+        .map(|s| format!("postgres://{}", s))
+        .unwrap_or(url);
+    let mut client = postgres::Client::connect(&url, NoTls)?;
 
     // Setup - use temp table (session-scoped, often memory-resident)
-    conn.query_drop(
+    client.execute(
         "CREATE TEMP TABLE test_bench (
             id SERIAL PRIMARY KEY,
             name VARCHAR(100),
@@ -21,14 +25,12 @@ async fn main() -> zero_postgres::Result<()> {
             score REAL,
             description VARCHAR(100)
         )",
-    )
-    .await?;
+        &[],
+    )?;
 
-    conn.prepare(
-        "insert_bench",
+    let stmt = client.prepare(
         "INSERT INTO test_bench (name, age, email, score, description) VALUES ($1, $2, $3, $4, $5)",
-    )
-    .await?;
+    )?;
 
     const N: usize = 10000;
     let mut rows = Vec::with_capacity(N);
@@ -46,32 +48,20 @@ async fn main() -> zero_postgres::Result<()> {
         let iteration_start = std::time::Instant::now();
 
         for (username, age, email, score, description) in rows.iter() {
-            conn.exec_drop(
-                "insert_bench",
-                (
-                    username.as_str(),
-                    *age,
-                    email.as_str(),
-                    *score,
-                    description.as_str(),
-                ),
-            )
-            .await?;
+            client.execute(&stmt, &[username, age, email, score, description])?;
         }
 
         let elapsed = iteration_start.elapsed();
-        let count: Vec<(i64,)> = conn.query_collect("SELECT COUNT(*) FROM test_bench").await?;
+        let row = client.query_one("SELECT COUNT(*) FROM test_bench", &[])?;
+        let count: i64 = row.get(0);
         println!(
             "Iteration {}: Inserted {} rows (took {:.2}ms)",
             iteration,
-            count[0].0,
+            count,
             elapsed.as_secs_f64() * 1000.0
         );
-        conn.query_drop("TRUNCATE TABLE test_bench").await?;
+        client.execute("TRUNCATE TABLE test_bench", &[])?;
     }
-
-    conn.close_statement("insert_bench").await?;
-    conn.close().await?;
 
     Ok(())
 }

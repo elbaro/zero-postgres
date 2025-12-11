@@ -50,6 +50,7 @@ rust_decimal = { version = "1", optional = true }
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }
 tokio-postgres = "0.7"
+postgres = "0.19"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

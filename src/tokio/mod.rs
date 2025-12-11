@@ -1,5 +1,10 @@
 //! Asynchronous PostgreSQL client using Tokio.
-//!
-//! This module provides an async version of the PostgreSQL client.
-//!
-//! TODO: Implement async connection
+
+mod conn;
+mod pool;
+mod stream;
+mod transaction;
+
+pub use conn::Conn;
+pub use pool::{Pool, PooledConn};
+pub use transaction::Transaction;
