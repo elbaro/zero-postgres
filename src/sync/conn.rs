@@ -209,6 +209,13 @@ impl Conn {
         self.backend_key.as_ref()
     }
 
+    /// Get the connection ID (backend process ID).
+    ///
+    /// Returns 0 if the backend key data is not available.
+    pub fn connection_id(&self) -> u32 {
+        self.backend_key.as_ref().map_or(0, |k| k.process_id())
+    }
+
     /// Get server parameters.
     pub fn server_params(&self) -> &[(String, String)] {
         &self.server_params
@@ -506,6 +513,42 @@ impl Conn {
         }
 
         Ok(())
+    }
+
+    /// Execute a closure within a transaction.
+    ///
+    /// If the closure returns `Ok`, the transaction is committed.
+    /// If the closure returns `Err` or the transaction is not explicitly
+    /// committed or rolled back, the transaction is rolled back.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::InvalidUsage` if called while already in a transaction.
+    pub fn run_transaction<F, R>(&mut self, f: F) -> Result<R>
+    where
+        F: FnOnce(&mut Conn, super::transaction::Transaction) -> Result<R>,
+    {
+        if self.in_transaction() {
+            return Err(Error::InvalidUsage("nested transactions are not supported".into()));
+        }
+
+        self.query_drop("BEGIN")?;
+
+        let tx = super::transaction::Transaction::new(self.connection_id());
+        let result = f(self, tx);
+
+        // If still in a transaction (not committed or rolled back), roll it back
+        if self.in_transaction() {
+            let rollback_result = self.query_drop("ROLLBACK");
+
+            // Return the first error (either from closure or rollback)
+            if let Err(e) = result {
+                return Err(e);
+            }
+            rollback_result?;
+        }
+
+        result
     }
 }
 

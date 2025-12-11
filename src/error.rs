@@ -212,6 +212,7 @@ pub enum Error {
     /// Value decode error
     #[error("Decode error: {0}")]
     Decode(String),
+
 }
 
 impl Error {
