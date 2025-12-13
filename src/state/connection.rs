@@ -3,10 +3,10 @@
 use crate::error::{Error, Result};
 use crate::opts::{Opts, SslMode};
 use crate::protocol::backend::{
-    msg_type, AuthenticationMessage, BackendKeyData, ErrorResponse, ParameterStatus, RawMessage,
-    ReadyForQuery,
+    AuthenticationMessage, BackendKeyData, ErrorResponse, ParameterStatus, RawMessage,
+    ReadyForQuery, msg_type,
 };
-use crate::protocol::frontend::auth::{md5_password, ScramClient};
+use crate::protocol::frontend::auth::{ScramClient, md5_password};
 use crate::protocol::frontend::{
     startup::write_ssl_request, write_password, write_sasl_initial_response, write_sasl_response,
     write_startup,

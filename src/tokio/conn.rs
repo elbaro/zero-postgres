@@ -105,7 +105,14 @@ impl Conn {
                 SslAction::StartHandshake => {
                     #[cfg(feature = "tokio-tls")]
                     {
-                        return Err(Error::Unsupported("TLS not fully implemented".into()));
+                        stream = stream.upgrade_to_tls(&options.host).await?;
+
+                        // After TLS handshake, send startup message
+                        let startup_data = state_machine.ssl_handshake_complete();
+                        if let Action::WritePacket(data) = startup_data {
+                            stream.write_all(data).await?;
+                            stream.flush().await?;
+                        }
                     }
                     #[cfg(not(feature = "tokio-tls"))]
                     {

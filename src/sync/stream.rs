@@ -21,6 +21,37 @@ impl Stream {
         Self::Unix(BufReader::new(stream))
     }
 
+    /// Upgrade a TCP stream to TLS.
+    ///
+    /// Returns an error if this is not a TCP stream or if the TLS handshake fails.
+    #[cfg(feature = "sync-tls")]
+    pub fn upgrade_to_tls(self, host: &str) -> Result<Self, crate::error::Error> {
+        match self {
+            Stream::Tcp(buf_reader) => {
+                let tcp_stream = buf_reader.into_inner();
+                let connector = native_tls::TlsConnector::new()?;
+                let tls_stream = connector.connect(host, tcp_stream).map_err(|e| {
+                    match e {
+                        native_tls::HandshakeError::Failure(e) => crate::error::Error::Tls(e),
+                        native_tls::HandshakeError::WouldBlock(_) => crate::error::Error::Io(
+                            std::io::Error::new(
+                                std::io::ErrorKind::WouldBlock,
+                                "TLS handshake would block",
+                            ),
+                        ),
+                    }
+                })?;
+                Ok(Stream::Tls(BufReader::new(tls_stream)))
+            }
+            Stream::Tls(_) => Err(crate::error::Error::InvalidUsage(
+                "Stream is already TLS".into(),
+            )),
+            Stream::Unix(_) => Err(crate::error::Error::InvalidUsage(
+                "Cannot upgrade Unix socket to TLS".into(),
+            )),
+        }
+    }
+
     pub fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
         match self {
             Stream::Tcp(r) => r.read_exact(buf),
