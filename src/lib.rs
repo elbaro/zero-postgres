@@ -13,7 +13,7 @@
 //! use zero_postgres::sync::Conn;
 //! use zero_postgres::Opts;
 //!
-//! fn main() -> zero_postgres::error::Result<()> {
+//! fn main() -> zero_postgres::Result<()> {
 //!     let opts = Opts {
 //!         host: "localhost".into(),
 //!         user: "postgres".into(),
@@ -52,6 +52,8 @@ pub mod tokio;
 
 pub use buffer_set::BufferSet;
 pub use error::{Error, Result, ServerError};
+pub use handler::AsyncMessageHandler;
 pub use opts::{Opts, SslMode};
+pub use state::action::AsyncMessage;
 pub use state::extended::PreparedStatement;
 pub use statement::IntoStatement;

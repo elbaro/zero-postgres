@@ -3,6 +3,7 @@
 use crate::conversion::FromRow;
 use crate::error::Result;
 use crate::protocol::backend::query::{CommandComplete, DataRow, RowDescription};
+use crate::state::action::AsyncMessage;
 
 /// Handler for simple query results (text format).
 ///
@@ -195,5 +196,50 @@ impl<T: for<'a> FromRow<'a>> BinaryHandler for FirstRowHandler<T> {
             self.row = Some(typed_row);
         }
         Ok(())
+    }
+}
+
+/// Handler for asynchronous messages from the server.
+///
+/// These messages can arrive at any time during query execution:
+/// - `Notification` - from LISTEN/NOTIFY
+/// - `Notice` - warnings and informational messages
+/// - `ParameterChanged` - server parameter updates
+///
+/// # Example
+///
+/// ```ignore
+/// use zero_postgres::{sync::Conn, AsyncMessage};
+///
+/// let mut conn = Conn::new(opts)?;
+///
+/// conn.set_async_message_handler(|msg: &AsyncMessage| {
+///     match msg {
+///         AsyncMessage::Notification { channel, payload, .. } => {
+///             println!("Notification on {}: {}", channel, payload);
+///         }
+///         AsyncMessage::Notice(err) => {
+///             println!("Notice: {:?}", err);
+///         }
+///         AsyncMessage::ParameterChanged { name, value } => {
+///             println!("Parameter {} changed to {}", name, value);
+///         }
+///     }
+/// });
+///
+/// // Subscribe to a channel
+/// conn.query_drop("LISTEN my_channel")?;
+///
+/// // Notifications will be delivered to the handler during any query
+/// conn.query_drop("")?; // empty query to poll for notifications
+/// ```
+pub trait AsyncMessageHandler: Send {
+    /// Handle an asynchronous message from the server.
+    fn handle(&mut self, msg: &AsyncMessage);
+}
+
+impl<F: FnMut(&AsyncMessage) + Send> AsyncMessageHandler for F {
+    fn handle(&mut self, msg: &AsyncMessage) {
+        self(msg)
     }
 }

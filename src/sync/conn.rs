@@ -6,7 +6,7 @@ use std::os::unix::net::UnixStream;
 use crate::buffer_set::BufferSet;
 use crate::conversion::ToParams;
 use crate::error::{Error, Result};
-use crate::handler::{BinaryHandler, DropHandler, TextHandler};
+use crate::handler::{AsyncMessageHandler, BinaryHandler, DropHandler, TextHandler};
 use crate::opts::Opts;
 use crate::protocol::backend::BackendKeyData;
 use crate::protocol::frontend::write_terminate;
@@ -55,6 +55,7 @@ pub struct Conn {
     pub(crate) transaction_status: TransactionStatus,
     pub(crate) is_broken: bool,
     stmt_counter: u64,
+    async_message_handler: Option<Box<dyn AsyncMessageHandler>>,
 }
 
 impl Conn {
@@ -159,6 +160,7 @@ impl Conn {
             transaction_status: state_machine.transaction_status(),
             is_broken: false,
             stmt_counter: 0,
+            async_message_handler: None,
         };
 
         // Upgrade to Unix socket if connected via TCP to loopback
@@ -245,6 +247,20 @@ impl Conn {
         self.is_broken
     }
 
+    /// Set the async message handler.
+    ///
+    /// The handler is called when the server sends asynchronous messages:
+    /// - `Notification` - from LISTEN/NOTIFY
+    /// - `Notice` - warnings and informational messages
+    /// - `ParameterChanged` - server parameter updates
+    pub fn set_async_message_handler<H: AsyncMessageHandler + 'static>(&mut self, handler: H) {
+        self.async_message_handler = Some(Box::new(handler));
+    }
+
+    /// Remove the async message handler.
+    pub fn clear_async_message_handler(&mut self) {
+        self.async_message_handler = None;
+    }
 
     /// Enter pipeline mode for batching multiple queries.
     ///
@@ -308,8 +324,10 @@ impl Conn {
                     self.stream.write_all(data)?;
                     self.stream.flush()?;
                 }
-                Action::AsyncMessage(_async_msg) => {
-                    // Handle async message
+                Action::AsyncMessage(ref async_msg) => {
+                    if let Some(ref mut h) = self.async_message_handler {
+                        h.handle(async_msg);
+                    }
                 }
                 Action::Finished => {
                     self.transaction_status = state_machine.transaction_status();
@@ -414,7 +432,11 @@ impl Conn {
                     self.stream.write_all(data)?;
                     self.stream.flush()?;
                 }
-                Action::AsyncMessage(_) => {}
+                Action::AsyncMessage(ref async_msg) => {
+                    if let Some(ref mut h) = self.async_message_handler {
+                        h.handle(async_msg);
+                    }
+                }
                 Action::Finished => {
                     self.transaction_status = state_machine.transaction_status();
                     break;
@@ -494,7 +516,11 @@ impl Conn {
                     self.stream.write_all(data)?;
                     self.stream.flush()?;
                 }
-                Action::AsyncMessage(_) => {}
+                Action::AsyncMessage(ref async_msg) => {
+                    if let Some(ref mut h) = self.async_message_handler {
+                        h.handle(async_msg);
+                    }
+                }
                 Action::Finished => {
                     self.transaction_status = state_machine.transaction_status();
                     break;
@@ -573,7 +599,11 @@ impl Conn {
                     self.stream.write_all(data)?;
                     self.stream.flush()?;
                 }
-                Action::AsyncMessage(_) => {}
+                Action::AsyncMessage(ref async_msg) => {
+                    if let Some(ref mut h) = self.async_message_handler {
+                        h.handle(async_msg);
+                    }
+                }
                 Action::Finished => {
                     self.transaction_status = state_machine.transaction_status();
                     break;
