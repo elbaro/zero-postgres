@@ -380,23 +380,24 @@ Int32(4)</code></pre>
 <div class="flow-diagram">Client                              Server
   │                                   │
   │─── Parse ────────────────────────>│
-  │<───────────────── ParseComplete ──│
+  │<───────────────── ParseComplete ──│  (or ErrorResponse)
   │                                   │
   │─── Bind ─────────────────────────>│
-  │<───────────────── BindComplete ───│
+  │<───────────────── BindComplete ───│  (or ErrorResponse)
   │                                   │
   │─── Describe (optional) ──────────>│
   │<───────────────── ParameterDesc ──│  (if statement)
-  │<───────────────── RowDescription ─│  (or NoData)
+  │<───────────────── RowDescription ─│  (or NoData, or ErrorResponse)
   │                                   │
   │─── Execute ──────────────────────>│
   │<───────────────── DataRow ────────│  (zero or more)
-  │<───────────────── CommandComplete │  (or PortalSuspended)
+  │<───────────────── CommandComplete │  (or EmptyQueryResponse,
+  │                                   │   ErrorResponse, PortalSuspended)
   │                                   │
   │─── Sync ─────────────────────────>│
   │<───────────────── ReadyForQuery ──│
   │                                   │</div>
-<p>On error at any step, server sends <strong>ErrorResponse</strong> and skips to <strong>Sync</strong>.</p>
+<p>On error at any step, server sends <strong>ErrorResponse</strong> and skips remaining commands until <strong>Sync</strong>.</p>
 
 <h3>Parse - Create Prepared Statement</h3>
 <pre><code>Byte1('P')
@@ -434,7 +435,13 @@ Int32(4)</code></pre>
 Int32            Length
 String           Portal name
 Int32            Maximum rows (0 = unlimited)</code></pre>
-<p><strong>Response</strong>: DataRow messages, then CommandComplete or PortalSuspended</p>
+<p><strong>Response</strong>: Zero or more DataRow messages, then exactly one of:</p>
+<ul>
+<li><strong>CommandComplete</strong> - execution completed successfully</li>
+<li><strong>EmptyQueryResponse</strong> - portal was created from an empty query string</li>
+<li><strong>ErrorResponse</strong> - error during execution</li>
+<li><strong>PortalSuspended</strong> - row limit reached, more rows available</li>
+</ul>
 <p><strong>PortalSuspended</strong> (if row limit reached):</p>
 <pre><code>Byte1('s')
 Int32(4)</code></pre>
@@ -444,8 +451,11 @@ Int32(4)</code></pre>
 Int32            Length
 Byte1            'S' for statement, 'P' for portal
 String           Statement or portal name</code></pre>
-<p><strong>For Statement</strong>: ParameterDescription then RowDescription (or NoData)<br>
-<strong>For Portal</strong>: RowDescription (or NoData)</p>
+<p><strong>Response</strong>:</p>
+<ul>
+<li><strong>For Statement</strong>: ParameterDescription then RowDescription (or NoData), or ErrorResponse</li>
+<li><strong>For Portal</strong>: RowDescription (or NoData), or ErrorResponse</li>
+</ul>
 
 <p><strong>ParameterDescription</strong>:</p>
 <pre><code>Byte1('t')
@@ -462,9 +472,56 @@ Int32(4)</code></pre>
 Int32            Length
 Byte1            'S' for statement, 'P' for portal
 String           Name</code></pre>
-<p><strong>Response</strong>: CloseComplete</p>
+<p><strong>Response</strong>: CloseComplete or ErrorResponse</p>
 <pre><code>Byte1('3')
 Int32(4)</code></pre>
+
+<h3>Portal and Statement Lifecycle</h3>
+
+<h4>Named Portals</h4>
+<p>Named portals are closed by:</p>
+<ul>
+<li><strong>COMMIT</strong> - explicit transaction commit</li>
+<li><strong>ROLLBACK</strong> - explicit transaction rollback</li>
+<li><strong>ERROR</strong> - any error in the transaction</li>
+<li><strong>Sync</strong> - ends implicit transaction</li>
+<li><strong>Close</strong> - explicit portal close message</li>
+<li><strong>Session end</strong> - connection termination</li>
+</ul>
+<p>Named portals are <strong>NOT</strong> closed by <strong>Flush</strong> (Flush only requests pending responses without ending the transaction).</p>
+
+<h4>Unnamed Portals</h4>
+<p>The unnamed portal (empty string) is closed by:</p>
+<ul>
+<li><strong>Sync</strong> - ends implicit transaction</li>
+<li><strong>ERROR</strong> - any error in the transaction</li>
+<li><strong>Bind to unnamed</strong> - new Bind replaces the previous unnamed portal</li>
+</ul>
+<p>The unnamed portal is <strong>NOT</strong> closed by <strong>Flush</strong>.</p>
+
+<h4>Statements</h4>
+<table>
+<tr><th>Type</th><th>Lifetime</th><th>How it's dropped</th></tr>
+<tr><td>Unnamed statement (empty string)</td><td>Until next Parse to unnamed</td><td>Automatic</td></tr>
+<tr><td>Named statement</td><td>Until explicit Close, or session end</td><td>Must send Close</td></tr>
+</table>
+
+<p><strong>Practical patterns:</strong></p>
+<pre><code># Unnamed portal (most common) - auto-cleanup
+Bind "" → Execute → Sync        # portal gone after Sync
+Bind "" → Execute → Bind "" ... # first portal replaced by second Bind
+
+# Named portal within transaction - destroyed on COMMIT/ROLLBACK
+BEGIN → Bind "p1" → Execute → COMMIT  # portal gone after COMMIT
+
+# Named portal with Flush - portal survives
+Bind "p1" → Flush → Execute → Flush   # portal still exists
+Bind "p1" → Execute → Sync            # portal gone after Sync
+
+# Named portal - explicit cleanup
+Bind "p1" → Execute (partial) → Execute (more) → Close "p1"</code></pre>
+
+<p>Named portals hold cursor state (current position, buffered rows) until closed. If client fetches partially and never closes, server memory is held until transaction ends.</p>
 
 <h3>Sync - End Extended Query</h3>
 <pre><code>Byte1('S')
@@ -480,13 +537,125 @@ Int32(4)</code></pre>
 <hr>
 
 <h2 id="pipelining">Pipelining</h2>
-<p>The extended protocol supports pipelining - sending multiple Parse/Bind/Execute sequences before any Sync.</p>
-<p><strong>Key behaviors:</strong></p>
+<p>Pipeline mode allows clients to send multiple queries without waiting for results of previous queries, improving performance by reducing network round-trip time. This is especially beneficial for high-latency connections with many small operations.</p>
+
+<p><strong>Important</strong>: Pipelining is a <em>client-side technique</em>, not a separate protocol feature. The server has no concept of "pipeline mode" - it simply processes extended query messages (Parse, Bind, Execute, Sync) as they arrive. The client achieves pipelining by sending multiple command sequences before waiting for responses. Any server supporting the v3 extended query protocol (PostgreSQL 7.4+) works with pipelined clients.</p>
+
+<h3>Pipeline Flow Overview</h3>
+<div class="flow-diagram">Client                              Server
+  │                                   │
+  │─── Parse ─────────────────────────>│
+  │─── Bind ──────────────────────────>│
+  │─── Execute ───────────────────────>│   Pipeline 1
+  │─── Parse ─────────────────────────>│
+  │─── Bind ──────────────────────────>│
+  │─── Execute ───────────────────────>│   Pipeline 2
+  │─── Parse ─────────────────────────>│
+  │─── Bind ──────────────────────────>│
+  │─── Execute ───────────────────────>│   Pipeline 3
+  │─── Sync ──────────────────────────>│   (marks implicit transaction end)
+  │                                   │
+  │      Server executes in order,     │
+  │      buffers results until Sync    │
+  │                                   │
+  │<──────────────── ParseComplete ────│
+  │<──────────────── BindComplete ─────│
+  │<──────────────── CommandComplete ──│   Response 1
+  │<──────────────── ParseComplete ────│
+  │<──────────────── BindComplete ─────│
+  │<──────────────── CommandComplete ──│   Response 2
+  │<──────────────── ParseComplete ────│
+  │<──────────────── BindComplete ─────│
+  │<──────────────── CommandComplete ──│   Response 3
+  │<──────────────── ReadyForQuery ────│
+  │                                   │</div>
+
+<h3>Key Behaviors</h3>
 <ul>
-<li>After an error, server skips commands until next Sync</li>
-<li>Sync causes implicit COMMIT (success) or ROLLBACK (failure)</li>
-<li>Omit Sync between dependent operations to keep them atomic</li>
-<li>Use Flush to get responses mid-pipeline without closing transaction</li>
+<li><strong>Batched Sending</strong>: Client queues multiple Parse/Bind/Execute sequences before sending</li>
+<li><strong>Immediate Execution</strong>: Server begins executing statements immediately upon receipt, not waiting for pipeline end</li>
+<li><strong>Result Buffering</strong>: Server buffers results until Sync or Flush message</li>
+<li><strong>Implicit Transactions</strong>: Each Sync marks the end of an implicit transaction; queries between Syncs are atomic</li>
+</ul>
+
+<h3>Messages Used in Pipelining</h3>
+<table>
+<tr><th>Message</th><th>Purpose</th></tr>
+<tr><td><code>Parse</code> (<code>P</code>)</td><td>Create prepared statement</td></tr>
+<tr><td><code>Bind</code> (<code>B</code>)</td><td>Create portal with parameters</td></tr>
+<tr><td><code>Describe</code> (<code>D</code>)</td><td>Get metadata (optional)</td></tr>
+<tr><td><code>Execute</code> (<code>E</code>)</td><td>Run portal</td></tr>
+<tr><td><code>Sync</code> (<code>S</code>)</td><td>End implicit transaction, request ReadyForQuery</td></tr>
+<tr><td><code>Flush</code> (<code>H</code>)</td><td>Request buffered results without ending transaction</td></tr>
+</table>
+
+<h3>Sync vs Flush</h3>
+<ul>
+<li><strong>Sync</strong>: Marks implicit transaction boundary. Causes COMMIT on success or ROLLBACK on failure. Server responds with ReadyForQuery.</li>
+<li><strong>Flush</strong>: Requests server to send buffered results immediately. Does NOT end the transaction or establish a synchronization point. No ReadyForQuery response.</li>
+</ul>
+
+<h3>Error Handling in Pipelines</h3>
+<div class="flow-diagram">Client                              Server
+  │                                   │
+  │─── Parse ─────────────────────────>│
+  │─── Bind ──────────────────────────>│
+  │─── Execute ───────────────────────>│   Query 1 (succeeds)
+  │─── Parse ─────────────────────────>│
+  │─── Bind ──────────────────────────>│
+  │─── Execute ───────────────────────>│   Query 2 (fails!)
+  │─── Parse ─────────────────────────>│
+  │─── Bind ──────────────────────────>│
+  │─── Execute ───────────────────────>│   Query 3 (skipped)
+  │─── Sync ──────────────────────────>│
+  │                                   │
+  │<──────────────── ParseComplete ────│
+  │<──────────────── BindComplete ─────│
+  │<──────────────── CommandComplete ──│   Response 1
+  │<──────────────── ParseComplete ────│
+  │<──────────────── BindComplete ─────│
+  │<──────────────── ErrorResponse ────│   Error at Query 2
+  │     (skipped commands)             │   Query 3 skipped
+  │<──────────────── ReadyForQuery ────│   'E' = failed transaction
+  │                                   │</div>
+
+<p><strong>Error recovery flow:</strong></p>
+<ol>
+<li>Server encounters error, aborts current implicit transaction</li>
+<li>Server skips all queued commands until next Sync</li>
+<li>Server sends ErrorResponse for the failed command</li>
+<li>Upon receiving Sync, server sends ReadyForQuery with status 'E' (failed transaction)</li>
+<li>Next Sync (or new commands after current Sync response) starts fresh implicit transaction</li>
+</ol>
+
+<h3>Transaction Semantics</h3>
+<table>
+<tr><th>Scenario</th><th>Behavior</th></tr>
+<tr><td>Implicit transaction (no BEGIN)</td><td>Operations between Syncs are atomic; error rolls back entire group</td></tr>
+<tr><td>Explicit transaction (BEGIN...COMMIT)</td><td>Session remains in aborted state if error before COMMIT</td></tr>
+<tr><td>Multiple explicit transactions</td><td>Committed transactions persist; current one aborts; subsequent ones skipped</td></tr>
+</table>
+<p><strong>Important</strong>: Client must not assume work is committed when sending COMMIT—only when receiving CommandComplete confirmation.</p>
+
+<h3>Performance Considerations</h3>
+<p><strong>When pipelining excels:</strong></p>
+<ul>
+<li>High network latency (e.g., 100 operations @ 300ms latency: 30s sequential → 0.3s pipelined)</li>
+<li>Many small INSERT/UPDATE/DELETE operations</li>
+<li>Operations that don't depend on previous results</li>
+</ul>
+<p><strong>When pipelining provides limited benefit:</strong></p>
+<ul>
+<li>Local server connections (negligible latency)</li>
+<li>Long-running queries (execution time dominates)</li>
+<li>Operations requiring previous results (need intermediate Sync, negating benefits)</li>
+</ul>
+
+<h3>Restrictions</h3>
+<ul>
+<li>Only extended query protocol (Parse/Bind/Execute) - simple Query not pipelined</li>
+<li>Each command must be a single SQL statement (no multi-statement strings)</li>
+<li>COPY operations not allowed in pipeline mode</li>
 </ul>
 
 <hr>
@@ -741,6 +910,7 @@ String[]         Unrecognized parameter names</code></pre>
 <li><a href="https://www.postgresql.org/docs/current/protocol-overview.html">Protocol Overview</a></li>
 <li><a href="https://www.postgresql.org/docs/current/protocol-flow.html">Message Flow</a></li>
 <li><a href="https://www.postgresql.org/docs/current/protocol-message-formats.html">Message Formats</a></li>
+<li><a href="https://www.postgresql.org/docs/current/libpq-pipeline-mode.html">Pipeline Mode</a></li>
 <li><a href="https://www.postgresql.org/docs/current/sasl-authentication.html">SASL Authentication</a></li>
 <li><a href="https://www.postgresql.org/docs/current/protocol-error-fields.html">Error Fields</a></li>
 <li>RFC 5802 (SCRAM)</li>

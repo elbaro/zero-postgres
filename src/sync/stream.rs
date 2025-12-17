@@ -96,4 +96,5 @@ impl Stream {
             Self::Unix(_) => false,
         }
     }
+
 }

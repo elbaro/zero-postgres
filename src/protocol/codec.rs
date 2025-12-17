@@ -159,6 +159,7 @@ pub fn write_cstr(out: &mut Vec<u8>, s: &str) {
     write_cstring(out, s.as_bytes());
 }
 
+
 /// Message builder helper that handles the length field.
 ///
 /// PostgreSQL message format:

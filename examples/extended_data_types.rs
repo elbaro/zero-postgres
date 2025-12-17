@@ -34,21 +34,19 @@ fn main() -> zero_postgres::Result<()> {
     println!("=== Preparing Statements ===\n");
 
     let insert_stmt = conn.prepare(
-        "insert_row",
         "INSERT INTO test_extended (col_bool, col_int, col_bigint, col_double, col_text, col_bytea)
          VALUES ($1, $2, $3, $4, $5, $6)",
     )?;
-    println!("Prepared insert statement: {:?}", insert_stmt.name);
+    println!("Prepared insert statement: {}", insert_stmt.wire_name());
     println!("  Parameter OIDs: {:?}", insert_stmt.param_oids);
 
     let select_stmt = conn.prepare(
-        "select_all",
         "SELECT id, col_bool, col_int, col_bigint, col_double, col_text FROM test_extended ORDER BY id",
     )?;
-    println!("Prepared select statement: {:?}", select_stmt.name);
-    if let Some(cols) = &select_stmt.columns {
+    println!("Prepared select statement: {}", select_stmt.wire_name());
+    if let Some(Ok(cols)) = select_stmt.parse_columns() {
         println!("  Result columns:");
-        for col in cols {
+        for col in cols.iter() {
             println!("    - {} (OID: {})", col.name, col.type_oid());
         }
     }
@@ -59,7 +57,7 @@ fn main() -> zero_postgres::Result<()> {
 
     // Row 1: All values
     conn.exec_drop(
-        "insert_row",
+        &insert_stmt,
         (
             true,                          // bool
             42_i32,                        // int
@@ -73,7 +71,7 @@ fn main() -> zero_postgres::Result<()> {
 
     // Row 2: With NULLs
     conn.exec_drop(
-        "insert_row",
+        &insert_stmt,
         (
             None::<bool>,   // NULL bool
             i32::MIN,       // int (min)
@@ -87,7 +85,7 @@ fn main() -> zero_postgres::Result<()> {
 
     // Row 3: Edge cases
     conn.exec_drop(
-        "insert_row",
+        &insert_stmt,
         (
             false,    // false
             0_i32,    // zero
@@ -110,7 +108,7 @@ fn main() -> zero_postgres::Result<()> {
         Option<i64>,
         Option<f64>,
         Option<String>,
-    )> = conn.exec_collect("select_all", ())?;
+    )> = conn.exec_collect(&select_stmt, ())?;
 
     println!("Retrieved {} rows:", rows.len());
     for (id, b, i, bi, d, t) in &rows {
@@ -124,31 +122,29 @@ fn main() -> zero_postgres::Result<()> {
     // === Prepare and execute with parameter ===
     println!("=== Parameterized Query ===\n");
 
-    conn.prepare(
-        "select_by_id",
-        "SELECT id, col_text FROM test_extended WHERE id = $1",
-    )?;
+    let select_by_id_stmt =
+        conn.prepare("SELECT id, col_text FROM test_extended WHERE id = $1")?;
 
-    let rows: Vec<(i32, Option<String>)> = conn.exec_collect("select_by_id", (1_i32,))?;
+    let rows: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (1_i32,))?;
     println!("Query with id=1: {:?}", rows);
 
-    let rows: Vec<(i32, Option<String>)> = conn.exec_collect("select_by_id", (2_i32,))?;
+    let rows: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (2_i32,))?;
     println!("Query with id=2: {:?}", rows);
 
-    let rows: Vec<(i32, Option<String>)> = conn.exec_collect("select_by_id", (999_i32,))?;
+    let rows: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (999_i32,))?;
     println!("Query with id=999 (not found): {:?}", rows);
     println!();
 
     // === Close statements ===
     println!("=== Closing Statements ===\n");
 
-    conn.close_statement("insert_row")?;
-    println!("Closed insert_row statement");
+    conn.close_statement(&insert_stmt)?;
+    println!("Closed insert statement");
 
-    conn.close_statement("select_all")?;
-    println!("Closed select_all statement");
+    conn.close_statement(&select_stmt)?;
+    println!("Closed select statement");
 
-    conn.close_statement("select_by_id")?;
+    conn.close_statement(&select_by_id_stmt)?;
     println!("Closed select_by_id statement");
     println!();
 

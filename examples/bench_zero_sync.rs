@@ -22,8 +22,7 @@ fn main() -> zero_postgres::Result<()> {
         )",
     )?;
 
-    conn.prepare(
-        "insert_bench",
+    let insert_stmt = conn.prepare(
         "INSERT INTO test_bench (name, age, email, score, description) VALUES ($1, $2, $3, $4, $5)",
     )?;
 
@@ -44,7 +43,7 @@ fn main() -> zero_postgres::Result<()> {
 
         for (username, age, email, score, description) in rows.iter() {
             conn.exec_drop(
-                "insert_bench",
+                &insert_stmt,
                 (
                     username.as_str(),
                     *age,
@@ -66,7 +65,7 @@ fn main() -> zero_postgres::Result<()> {
         conn.query_drop("TRUNCATE TABLE test_bench")?;
     }
 
-    conn.close_statement("insert_bench")?;
+    conn.close_statement(&insert_stmt)?;
     conn.close()?;
 
     Ok(())

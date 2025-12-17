@@ -4,8 +4,8 @@ use crate::conversion::ToParams;
 use crate::error::{Error, Result};
 use crate::handler::BinaryHandler;
 use crate::protocol::backend::{
-    BindComplete, CloseComplete, CommandComplete, DataRow, ErrorResponse, NoData,
-    ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
+    BindComplete, CloseComplete, CommandComplete, DataRow, EmptyQueryResponse, ErrorResponse,
+    NoData, ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
     RowDescription, msg_type,
 };
 use crate::protocol::frontend::{
@@ -33,8 +33,8 @@ enum State {
 /// Prepared statement information.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement {
-    /// Statement name
-    pub name: String,
+    /// Statement index (unique within connection)
+    pub idx: u64,
     /// Parameter type OIDs
     pub param_oids: Vec<Oid>,
     /// Raw RowDescription payload (if the statement returns rows)
@@ -42,6 +42,11 @@ pub struct PreparedStatement {
 }
 
 impl PreparedStatement {
+    /// Get the wire protocol statement name.
+    pub fn wire_name(&self) -> String {
+        format!("_zero_{}", self.idx)
+    }
+
     /// Parse column descriptions from stored RowDescription payload.
     ///
     /// Returns `None` if the statement doesn't return rows.
@@ -60,6 +65,8 @@ pub struct ExtendedQueryStateMachine<'a, H> {
     column_buffer: Vec<u8>,
     transaction_status: TransactionStatus,
     prepared_stmt: Option<PreparedStatement>,
+    /// True when executing raw SQL (Parse+Bind flow) vs prepared statement (Bind-only flow)
+    is_sql_execute: bool,
 }
 
 impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
@@ -72,6 +79,7 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
             column_buffer: Vec::new(),
             transaction_status: TransactionStatus::Idle,
             prepared_stmt: None,
+            is_sql_execute: false,
         }
     }
 
@@ -88,14 +96,15 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
     /// Prepare a statement.
     ///
     /// This sends Parse + Describe + Sync messages.
-    pub fn prepare(&mut self, name: &str, query: &str, param_oids: &[Oid]) -> Action<'_> {
+    pub fn prepare(&mut self, idx: u64, query: &str, param_oids: &[Oid]) -> Action<'_> {
+        let name = format!("_zero_{}", idx);
         self.write_buffer.clear();
-        write_parse(&mut self.write_buffer, name, query, param_oids);
-        write_describe_statement(&mut self.write_buffer, name);
+        write_parse(&mut self.write_buffer, &name, query, param_oids);
+        write_describe_statement(&mut self.write_buffer, &name);
         write_sync(&mut self.write_buffer);
 
         self.prepared_stmt = Some(PreparedStatement {
-            name: name.to_string(),
+            idx,
             param_oids: Vec::new(),
             row_desc_payload: None,
         });
@@ -106,12 +115,12 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
     /// Execute a prepared statement.
     ///
     /// This sends Bind + Describe + Execute + Sync messages.
-    pub fn execute<P: ToParams>(&mut self, statement: &str, params: &P) -> Action<'_> {
+    pub fn execute<P: ToParams>(&mut self, statement_name: &str, params: &P) -> Action<'_> {
         self.write_buffer.clear();
         write_bind(
             &mut self.write_buffer,
             "", // unnamed portal
-            statement,
+            statement_name,
             params,
             &[], // result formats (empty = use default)
         );
@@ -119,7 +128,30 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
         write_execute(&mut self.write_buffer, "", 0); // unnamed portal, unlimited rows
         write_sync(&mut self.write_buffer);
 
+        self.is_sql_execute = false;
         self.state = State::WaitingBind;
+        Action::WritePacket(&self.write_buffer)
+    }
+
+    /// Execute raw SQL (unnamed statement).
+    ///
+    /// This sends Parse + Bind + Describe + Execute + Sync messages.
+    pub fn execute_sql<P: ToParams>(&mut self, sql: &str, params: &P) -> Action<'_> {
+        self.write_buffer.clear();
+        write_parse(&mut self.write_buffer, "", sql, &[]); // unnamed statement
+        write_bind(
+            &mut self.write_buffer,
+            "", // unnamed portal
+            "", // unnamed statement
+            params,
+            &[], // result formats (empty = use default)
+        );
+        write_describe_portal(&mut self.write_buffer, ""); // get RowDescription
+        write_execute(&mut self.write_buffer, "", 0); // unnamed portal, unlimited rows
+        write_sync(&mut self.write_buffer);
+
+        self.is_sql_execute = true;
+        self.state = State::WaitingParse;
         Action::WritePacket(&self.write_buffer)
     }
 
@@ -178,7 +210,13 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
         }
 
         ParseComplete::parse(&buffer_set.read_buffer)?;
-        self.state = State::WaitingDescribe;
+        // For SQL execute, go directly to WaitingBind (skip describe flow)
+        // For prepare, go to WaitingDescribe to get ParameterDescription
+        self.state = if self.is_sql_execute {
+            State::WaitingBind
+        } else {
+            State::WaitingDescribe
+        };
         Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
     }
 
@@ -281,6 +319,12 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
                 self.state = State::WaitingReady;
                 Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
             }
+            msg_type::EMPTY_QUERY_RESPONSE => {
+                EmptyQueryResponse::parse(payload)?;
+                // Portal was created from an empty query string
+                self.state = State::WaitingReady;
+                Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
+            }
             msg_type::PORTAL_SUSPENDED => {
                 PortalSuspended::parse(payload)?;
                 // Row limit reached, need to Execute again to get more
@@ -350,5 +394,121 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
                 msg.type_byte as char
             ))),
         }
+    }
+}
+
+// === Bind Portal State Machine ===
+// Used by exec_iter to create a portal without executing it.
+
+use crate::protocol::frontend::write_flush;
+
+/// State for bind portal flow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BindState {
+    Initial,
+    WaitingParse,
+    WaitingBind,
+    Finished,
+}
+
+/// State machine for binding a portal (Parse + Bind, no Execute/Sync).
+///
+/// Used by `exec_iter` to create a portal that can be executed multiple times.
+pub struct BindStateMachine {
+    state: BindState,
+    write_buffer: Vec<u8>,
+    needs_parse: bool,
+}
+
+impl BindStateMachine {
+    /// Create a new bind portal state machine.
+    pub fn new() -> Self {
+        Self {
+            state: BindState::Initial,
+            write_buffer: Vec::new(),
+            needs_parse: false,
+        }
+    }
+
+    /// Bind a prepared statement to an unnamed portal.
+    ///
+    /// Sends Bind + Flush messages.
+    pub fn bind_prepared<P: ToParams>(
+        &mut self,
+        statement_name: &str,
+        params: &P,
+    ) -> Action<'_> {
+        self.write_buffer.clear();
+        write_bind(&mut self.write_buffer, "", statement_name, params, &[]);
+        write_flush(&mut self.write_buffer);
+
+        self.needs_parse = false;
+        self.state = BindState::WaitingBind;
+        Action::WritePacket(&self.write_buffer)
+    }
+
+    /// Parse raw SQL and bind to an unnamed portal.
+    ///
+    /// Sends Parse + Bind + Flush messages.
+    pub fn bind_sql<P: ToParams>(&mut self, sql: &str, params: &P) -> Action<'_> {
+        self.write_buffer.clear();
+        write_parse(&mut self.write_buffer, "", sql, &[]); // unnamed statement
+        write_bind(&mut self.write_buffer, "", "", params, &[]); // bind to unnamed portal
+        write_flush(&mut self.write_buffer);
+
+        self.needs_parse = true;
+        self.state = BindState::WaitingParse;
+        Action::WritePacket(&self.write_buffer)
+    }
+
+    /// Process a message from the server.
+    pub fn step(&mut self, buffer_set: &mut BufferSet) -> Result<bool> {
+        let type_byte = buffer_set.type_byte;
+
+        // Handle async messages
+        if RawMessage::is_async_type(type_byte) {
+            return Ok(false); // Not finished, continue
+        }
+
+        // Handle error response
+        if type_byte == msg_type::ERROR_RESPONSE {
+            let error = ErrorResponse::parse(&buffer_set.read_buffer)?;
+            return Err(error.into_error());
+        }
+
+        match self.state {
+            BindState::WaitingParse => {
+                if type_byte != msg_type::PARSE_COMPLETE {
+                    return Err(Error::Protocol(format!(
+                        "Expected ParseComplete, got '{}'",
+                        type_byte as char
+                    )));
+                }
+                ParseComplete::parse(&buffer_set.read_buffer)?;
+                self.state = BindState::WaitingBind;
+                Ok(false) // Continue to BindComplete
+            }
+            BindState::WaitingBind => {
+                if type_byte != msg_type::BIND_COMPLETE {
+                    return Err(Error::Protocol(format!(
+                        "Expected BindComplete, got '{}'",
+                        type_byte as char
+                    )));
+                }
+                BindComplete::parse(&buffer_set.read_buffer)?;
+                self.state = BindState::Finished;
+                Ok(true) // Finished
+            }
+            _ => Err(Error::Protocol(format!(
+                "Unexpected state {:?}",
+                self.state
+            ))),
+        }
+    }
+}
+
+impl Default for BindStateMachine {
+    fn default() -> Self {
+        Self::new()
     }
 }

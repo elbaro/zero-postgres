@@ -15,6 +15,7 @@ use crate::state::action::Action;
 use crate::state::connection::{ConnectionState, ConnectionStateMachine, SslAction};
 use crate::state::extended::{ExtendedQueryStateMachine, PreparedStatement};
 use crate::state::simple_query::SimpleQueryStateMachine;
+use crate::statement::IntoStatement;
 
 use super::stream::Stream;
 
@@ -55,6 +56,7 @@ pub struct Conn {
     server_params: Vec<(String, String)>,
     transaction_status: TransactionStatus,
     is_broken: bool,
+    stmt_counter: u64,
 }
 
 impl Conn {
@@ -158,6 +160,7 @@ impl Conn {
             server_params: state_machine.server_params().to_vec(),
             transaction_status: state_machine.transaction_status(),
             is_broken: false,
+            stmt_counter: 0,
         };
 
         // Upgrade to Unix socket if connected via TCP to loopback
@@ -344,18 +347,19 @@ impl Conn {
     // === Extended Query Protocol ===
 
     /// Prepare a statement using the extended query protocol.
-    pub async fn prepare(&mut self, name: &str, query: &str) -> Result<PreparedStatement> {
-        self.prepare_typed(name, query, &[]).await
+    pub async fn prepare(&mut self, query: &str) -> Result<PreparedStatement> {
+        self.prepare_typed(query, &[]).await
     }
 
     /// Prepare a statement with explicit parameter types.
     pub async fn prepare_typed(
         &mut self,
-        name: &str,
         query: &str,
         param_oids: &[u32],
     ) -> Result<PreparedStatement> {
-        let result = self.prepare_inner(name, query, param_oids).await;
+        self.stmt_counter += 1;
+        let idx = self.stmt_counter;
+        let result = self.prepare_inner(idx, query, param_oids).await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {
@@ -366,7 +370,7 @@ impl Conn {
 
     async fn prepare_inner(
         &mut self,
-        name: &str,
+        idx: u64,
         query: &str,
         param_oids: &[u32],
     ) -> Result<PreparedStatement> {
@@ -374,7 +378,7 @@ impl Conn {
         let mut state_machine = ExtendedQueryStateMachine::new(&mut handler);
 
         // Send Parse + Describe + Sync
-        match state_machine.prepare(name, query, param_oids) {
+        match state_machine.prepare(idx, query, param_oids) {
             Action::WritePacket(data) => {
                 self.stream.write_all(data).await?;
                 self.stream.flush().await?;
@@ -405,14 +409,18 @@ impl Conn {
             .ok_or_else(|| Error::Protocol("No prepared statement".into()))
     }
 
-    /// Execute a prepared statement with a handler.
-    pub async fn exec<P: ToParams, H: BinaryHandler>(
+    /// Execute a statement with a handler.
+    ///
+    /// The statement can be either:
+    /// - A `&PreparedStatement` returned from `prepare()`
+    /// - A raw SQL `&str` for one-shot execution
+    pub async fn exec<S: IntoStatement, P: ToParams, H: BinaryHandler>(
         &mut self,
-        statement: &str,
+        statement: S,
         params: P,
         handler: &mut H,
     ) -> Result<()> {
-        let result = self.exec_inner(statement, &params, handler).await;
+        let result = self.exec_inner(&statement, &params, handler).await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {
@@ -421,16 +429,25 @@ impl Conn {
         result
     }
 
-    async fn exec_inner<P: ToParams, H: BinaryHandler>(
+    async fn exec_inner<S: IntoStatement, P: ToParams, H: BinaryHandler>(
         &mut self,
-        statement: &str,
+        statement: &S,
         params: &P,
         handler: &mut H,
     ) -> Result<()> {
         let mut state_machine = ExtendedQueryStateMachine::new(handler);
 
-        // Send Bind + Describe + Execute + Sync
-        match state_machine.execute(statement, params) {
+        // Send appropriate messages based on statement type
+        let action = if statement.needs_parse() {
+            // Raw SQL - use execute_sql (Parse + Bind + Describe + Execute + Sync)
+            state_machine.execute_sql(statement.as_sql().unwrap(), params)
+        } else {
+            // Prepared statement - use execute (Bind + Describe + Execute + Sync)
+            let stmt = statement.as_prepared().unwrap();
+            state_machine.execute(&stmt.wire_name(), params)
+        };
+
+        match action {
             Action::WritePacket(data) => {
                 self.stream.write_all(data).await?;
                 self.stream.flush().await?;
@@ -459,10 +476,12 @@ impl Conn {
         Ok(())
     }
 
-    /// Execute a prepared statement and discard results.
-    pub async fn exec_drop<P: ToParams>(
+    /// Execute a statement and discard results.
+    ///
+    /// The statement can be either a `&PreparedStatement` or a raw SQL `&str`.
+    pub async fn exec_drop<S: IntoStatement, P: ToParams>(
         &mut self,
-        statement: &str,
+        statement: S,
         params: P,
     ) -> Result<Option<u64>> {
         let mut handler = DropHandler::new();
@@ -470,10 +489,12 @@ impl Conn {
         Ok(handler.rows_affected())
     }
 
-    /// Execute a prepared statement and collect typed rows.
-    pub async fn exec_collect<T: for<'a> crate::conversion::FromRow<'a>, P: ToParams>(
+    /// Execute a statement and collect typed rows.
+    ///
+    /// The statement can be either a `&PreparedStatement` or a raw SQL `&str`.
+    pub async fn exec_collect<T: for<'a> crate::conversion::FromRow<'a>, S: IntoStatement, P: ToParams>(
         &mut self,
-        statement: &str,
+        statement: S,
         params: P,
     ) -> Result<Vec<T>> {
         let mut handler = crate::handler::CollectHandler::<T>::new();
@@ -482,8 +503,8 @@ impl Conn {
     }
 
     /// Close a prepared statement.
-    pub async fn close_statement(&mut self, name: &str) -> Result<()> {
-        let result = self.close_statement_inner(name).await;
+    pub async fn close_statement(&mut self, stmt: &PreparedStatement) -> Result<()> {
+        let result = self.close_statement_inner(&stmt.wire_name()).await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {

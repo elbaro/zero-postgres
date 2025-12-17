@@ -187,3 +187,13 @@ impl<T: for<'a> FromRow<'a>> TextHandler for FirstRowHandler<T> {
         Ok(())
     }
 }
+
+impl<T: for<'a> FromRow<'a>> BinaryHandler for FirstRowHandler<T> {
+    fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
+        if self.row.is_none() {
+            let typed_row = T::from_row(cols.fields(), row)?;
+            self.row = Some(typed_row);
+        }
+        Ok(())
+    }
+}

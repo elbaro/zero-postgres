@@ -23,13 +23,13 @@ pub fn write_parse(buf: &mut Vec<u8>, name: &str, query: &str, param_oids: &[Oid
 /// Write a Bind message to create a portal from a prepared statement.
 ///
 /// - `portal`: Portal name (empty string for unnamed portal)
-/// - `statement`: Statement name
+/// - `statement_name`: Prepared statement name
 /// - `params`: Parameter values (tuple of ToValue types)
 /// - `result_formats`: Format codes for results
 pub fn write_bind<P: ToParams>(
     buf: &mut Vec<u8>,
     portal: &str,
-    statement: &str,
+    statement_name: &str,
     params: &P,
     result_formats: &[FormatCode],
 ) {
@@ -37,7 +37,7 @@ pub fn write_bind<P: ToParams>(
 
     // Portal and statement names
     msg.write_cstr(portal);
-    msg.write_cstr(statement);
+    msg.write_cstr(statement_name);
 
     // Parameter format codes - all binary (1)
     let param_count = params.param_count();

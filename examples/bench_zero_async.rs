@@ -24,11 +24,11 @@ async fn main() -> zero_postgres::Result<()> {
     )
     .await?;
 
-    conn.prepare(
-        "insert_bench",
-        "INSERT INTO test_bench (name, age, email, score, description) VALUES ($1, $2, $3, $4, $5)",
-    )
-    .await?;
+    let insert_stmt = conn
+        .prepare(
+            "INSERT INTO test_bench (name, age, email, score, description) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .await?;
 
     const N: usize = 10000;
     let mut rows = Vec::with_capacity(N);
@@ -47,7 +47,7 @@ async fn main() -> zero_postgres::Result<()> {
 
         for (username, age, email, score, description) in rows.iter() {
             conn.exec_drop(
-                "insert_bench",
+                &insert_stmt,
                 (
                     username.as_str(),
                     *age,
@@ -72,7 +72,7 @@ async fn main() -> zero_postgres::Result<()> {
         conn.query_drop("TRUNCATE TABLE test_bench").await?;
     }
 
-    conn.close_statement("insert_bench").await?;
+    conn.close_statement(&insert_stmt).await?;
     conn.close().await?;
 
     Ok(())

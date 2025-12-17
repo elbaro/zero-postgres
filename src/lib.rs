@@ -36,6 +36,7 @@
 mod buffer_set;
 mod error;
 mod opts;
+mod statement;
 
 // pub
 pub mod conversion;
@@ -53,3 +54,4 @@ pub use buffer_set::BufferSet;
 pub use error::{Error, Result, ServerError};
 pub use opts::{Opts, SslMode};
 pub use state::extended::PreparedStatement;
+pub use statement::IntoStatement;
