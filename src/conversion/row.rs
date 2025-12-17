@@ -30,6 +30,13 @@ fn decode_column<'a, T: FromWireValue<'a>>(
 
 // === Tuple implementations ===
 
+/// Implementation for empty tuple - used for statements that don't return rows
+impl FromRow<'_> for () {
+    fn from_row(_cols: &[FieldDescription], _row: DataRow<'_>) -> Result<Self> {
+        Ok(())
+    }
+}
+
 macro_rules! impl_from_row_tuple {
     ($count:literal: $($idx:tt => $T:ident),+) => {
         impl<'a, $($T: FromWireValue<'a>),+> FromRow<'a> for ($($T,)+) {

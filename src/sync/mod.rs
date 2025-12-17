@@ -8,7 +8,7 @@ mod transaction;
 mod unnamed_portal;
 
 pub use conn::Conn;
-pub use pipeline::Pipeline;
+pub use pipeline::{ExecResult, Harvest, Pipeline, QueuedExec, QueuedPortal, QueuedPrepare};
 pub use pool::{Pool, PooledConn};
 pub use transaction::Transaction;
 pub use unnamed_portal::UnnamedPortal;

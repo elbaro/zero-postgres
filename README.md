@@ -28,5 +28,4 @@ More tests and proper benchmarks will be added via pyro-postgres.
 
 ## Status
 
-- connection, simple query, extended query works.
-- wip: pipelining, more type handling, async notify msgs
+- todo: pipelining, more type handling

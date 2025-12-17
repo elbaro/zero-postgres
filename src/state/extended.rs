@@ -39,12 +39,33 @@ pub struct PreparedStatement {
     pub param_oids: Vec<Oid>,
     /// Raw RowDescription payload (if the statement returns rows)
     row_desc_payload: Option<Vec<u8>>,
+    /// Custom wire name (if set, used instead of default)
+    custom_wire_name: Option<String>,
 }
 
 impl PreparedStatement {
+    /// Create a new prepared statement with custom wire name.
+    pub fn new(
+        idx: u64,
+        param_oids: Vec<Oid>,
+        row_desc_payload: Option<Vec<u8>>,
+        wire_name: String,
+    ) -> Self {
+        Self {
+            idx,
+            param_oids,
+            row_desc_payload,
+            custom_wire_name: Some(wire_name),
+        }
+    }
+
     /// Get the wire protocol statement name.
     pub fn wire_name(&self) -> String {
-        format!("_zero_{}", self.idx)
+        if let Some(name) = &self.custom_wire_name {
+            name.clone()
+        } else {
+            format!("_zero_{}", self.idx)
+        }
     }
 
     /// Parse column descriptions from stored RowDescription payload.
@@ -107,6 +128,7 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
             idx,
             param_oids: Vec::new(),
             row_desc_payload: None,
+            custom_wire_name: None,
         });
         self.state = State::WaitingParse;
         Action::WritePacket(&self.write_buffer)

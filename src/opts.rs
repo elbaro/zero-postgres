@@ -1,5 +1,6 @@
 //! Connection options.
 
+use no_panic::no_panic;
 use url::Url;
 
 use crate::error::Error;
@@ -81,6 +82,7 @@ pub struct Opts {
 }
 
 impl Default for Opts {
+    #[no_panic]
     fn default() -> Self {
         Self {
             host: String::new(),
@@ -110,10 +112,13 @@ impl TryFrom<&Url> for Opts {
     /// - `sslmode`: disable, prefer, require
     /// - `application_name`: application name
     /// - `prefer_unix_socket`: true/True/1/yes/on or false/False/0/no/off
+    /// - `pool_max_idle_conn`: maximum idle connections (positive integer)
+    /// - `pool_max_concurrency`: maximum concurrent connections (positive integer)
+    #[no_panic]
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
-        if url.scheme() != "postgres" && url.scheme() != "pg" {
+        if !["postgres", "pg"].contains(&url.scheme()) {
             return Err(Error::InvalidUsage(format!(
-                "Invalid scheme: expected 'postgres' or 'pg', got '{}'",
+                "Invalid scheme: expected 'postgres://' or 'pg://', got '{}://'",
                 url.scheme()
             )));
         }
@@ -141,7 +146,10 @@ impl TryFrom<&Url> for Opts {
                         "prefer" => SslMode::Prefer,
                         "require" => SslMode::Require,
                         _ => {
-                            return Err(Error::InvalidUsage(format!("Invalid sslmode: {}", value)));
+                            return Err(Error::InvalidUsage(format!(
+                                "Invalid sslmode: expected one of ['disable', 'prefer', 'require'], got {}",
+                                value
+                            )));
                         }
                     };
                 }
@@ -160,6 +168,16 @@ impl TryFrom<&Url> for Opts {
                         }
                     };
                 }
+                "pool_max_idle_conn" => {
+                    opts.pool_max_idle_conn = value.parse().map_err(|_| {
+                        Error::InvalidUsage(format!("Invalid pool_max_idle_conn: {}", value))
+                    })?;
+                }
+                "pool_max_concurrency" => {
+                    opts.pool_max_concurrency = Some(value.parse().map_err(|_| {
+                        Error::InvalidUsage(format!("Invalid pool_max_concurrency: {}", value))
+                    })?);
+                }
                 _ => {
                     opts.params.push((key.to_string(), value.to_string()));
                 }
@@ -173,6 +191,7 @@ impl TryFrom<&Url> for Opts {
 impl TryFrom<&str> for Opts {
     type Error = Error;
 
+    #[no_panic]
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let url = Url::parse(s).map_err(|e| Error::InvalidUsage(format!("Invalid URL: {}", e)))?;
         Self::try_from(&url)
