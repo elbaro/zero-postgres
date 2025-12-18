@@ -7,27 +7,42 @@ use crate::error::ServerError;
 /// The caller should perform the requested I/O and then call the
 /// appropriate method to continue the state machine.
 #[derive(Debug)]
-pub enum Action<'buf> {
-    /// State machine needs to read a packet from the server.
+pub enum Action {
+    /// Write `buffer_set.write_buffer` to the server, then read a single byte.
+    ///
+    /// Used for SSL negotiation: write SSL request, then read response ('S' or 'N').
+    WriteAndReadByte,
+
+    /// Read a PostgreSQL message from the server.
     ///
     /// The caller should:
     /// 1. Read the message type byte (1 byte)
     /// 2. Read the length (4 bytes, big-endian i32)
-    /// 3. Read (length - 4) bytes of payload into the provided buffer
+    /// 3. Read (length - 4) bytes of payload into the buffer set
     /// 4. Call the state machine's `step()` method again
-    NeedPacket(&'buf mut Vec<u8>),
+    ReadMessage,
 
-    /// State machine needs to write a packet to the server.
+    /// Write `buffer_set.write_buffer` to the server.
     ///
-    /// The caller should write all the bytes to the socket and then
-    /// call the state machine's appropriate continue method.
-    WritePacket(&'buf [u8]),
+    /// The caller should write all bytes to the socket and flush,
+    /// then call `step()` again.
+    Write,
+
+    /// Write `buffer_set.write_buffer` to the server, then read a message.
+    ///
+    /// Used for query operations: write query, then read response.
+    WriteAndReadMessage,
+
+    /// Perform TLS handshake.
+    ///
+    /// After successful handshake, call `step()` again.
+    TlsHandshake,
 
     /// An asynchronous message was received.
     ///
-    /// The caller should handle this message and then call the
-    /// state machine's `step()` method again.
-    AsyncMessage(AsyncMessage),
+    /// The caller should handle the message, read the next message,
+    /// then call `step()` again.
+    HandleAsyncMessageAndReadMessage(AsyncMessage),
 
     /// The state machine has finished successfully.
     Finished,

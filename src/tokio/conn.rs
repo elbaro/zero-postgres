@@ -3,55 +3,28 @@
 use tokio::net::TcpStream;
 use tokio::net::UnixStream;
 
-use crate::buffer_set::BufferSet;
+use crate::buffer_pool::PooledBufferSet;
 use crate::conversion::ToParams;
 use crate::error::{Error, Result};
-use crate::handler::{AsyncMessageHandler, BinaryHandler, DropHandler, TextHandler};
+use crate::handler::{AsyncMessageHandler, BinaryHandler, DropHandler, FirstRowHandler, TextHandler};
 use crate::opts::Opts;
 use crate::protocol::backend::BackendKeyData;
 use crate::protocol::frontend::write_terminate;
 use crate::protocol::types::TransactionStatus;
 use crate::state::action::Action;
-use crate::state::connection::{ConnectionState, ConnectionStateMachine, SslAction};
+use crate::state::connection::ConnectionStateMachine;
 use crate::state::extended::{ExtendedQueryStateMachine, PreparedStatement};
 use crate::state::simple_query::SimpleQueryStateMachine;
+use crate::state::StateMachine;
 use crate::statement::IntoStatement;
 
 use super::stream::Stream;
 
-/// Read a message from the stream into the buffer set.
-async fn read_message_into(stream: &mut Stream, buffer_set: &mut BufferSet) -> Result<()> {
-    // Read type byte
-    let mut type_byte = [0u8; 1];
-    stream.read_exact(&mut type_byte).await?;
-    buffer_set.type_byte = type_byte[0];
-
-    // Read length (4 bytes, big-endian)
-    let mut length_bytes = [0u8; 4];
-    stream.read_exact(&mut length_bytes).await?;
-    let length = u32::from_be_bytes(length_bytes);
-
-    if length < 4 {
-        return Err(Error::Protocol(format!(
-            "Invalid message length: {}",
-            length
-        )));
-    }
-
-    // Read payload
-    let payload_len = (length - 4) as usize;
-    buffer_set.read_buffer.clear();
-    buffer_set.read_buffer.resize(payload_len, 0);
-    stream.read_exact(&mut buffer_set.read_buffer).await?;
-
-    Ok(())
-}
 
 /// Asynchronous PostgreSQL connection.
 pub struct Conn {
     stream: Stream,
-    buffer_set: BufferSet,
-    write_buffer: Vec<u8>,
+    buffer_set: PooledBufferSet,
     backend_key: Option<BackendKeyData>,
     server_params: Vec<(String, String)>,
     transaction_status: TransactionStatus,
@@ -84,38 +57,36 @@ impl Conn {
     }
 
     /// Connect using an existing stream.
+    #[allow(unused_mut)]
     pub async fn new_with_stream(mut stream: Stream, options: Opts) -> Result<Self> {
-        let mut buffer_set = BufferSet::new();
-
+        let mut buffer_set = options.buffer_pool.get_buffer_set();
         let mut state_machine = ConnectionStateMachine::new(options.clone());
 
-        // Start the connection process
-        match state_machine.start() {
-            Action::WritePacket(data) => {
-                stream.write_all(data).await?;
-                stream.flush().await?;
-            }
-            _ => return Err(Error::Protocol("Unexpected initial action".into())),
-        }
-
-        // Handle SSL negotiation or continue with startup
-        if state_machine.state() == ConnectionState::WaitingSslResponse {
-            // Read single byte SSL response
-            let mut ssl_response = [0u8; 1];
-            stream.read_exact(&mut ssl_response).await?;
-
-            match state_machine.process_ssl_response(ssl_response[0])? {
-                SslAction::StartHandshake => {
+        // Drive the connection state machine
+        loop {
+            match state_machine.step(&mut buffer_set)? {
+                Action::WriteAndReadByte => {
+                    stream.write_all(&buffer_set.write_buffer).await?;
+                    stream.flush().await?;
+                    let byte = stream.read_u8().await?;
+                    state_machine.set_ssl_response(byte);
+                }
+                Action::ReadMessage => {
+                    stream.read_message(&mut buffer_set).await?;
+                }
+                Action::Write => {
+                    stream.write_all(&buffer_set.write_buffer).await?;
+                    stream.flush().await?;
+                }
+                Action::WriteAndReadMessage => {
+                    stream.write_all(&buffer_set.write_buffer).await?;
+                    stream.flush().await?;
+                    stream.read_message(&mut buffer_set).await?;
+                }
+                Action::TlsHandshake => {
                     #[cfg(feature = "tokio-tls")]
                     {
                         stream = stream.upgrade_to_tls(&options.host).await?;
-
-                        // After TLS handshake, send startup message
-                        let startup_data = state_machine.ssl_handshake_complete();
-                        if let Action::WritePacket(data) = startup_data {
-                            stream.write_all(data).await?;
-                            stream.flush().await?;
-                        }
                     }
                     #[cfg(not(feature = "tokio-tls"))]
                     {
@@ -124,41 +95,19 @@ impl Conn {
                         ));
                     }
                 }
-                SslAction::SendStartup(data) => {
-                    stream.write_all(data).await?;
-                    stream.flush().await?;
+                Action::HandleAsyncMessageAndReadMessage(_) => {
+                    // Ignore async messages during startup, read next message
+                    stream.read_message(&mut buffer_set).await?;
                 }
-            }
-        }
-
-        // Drive the state machine to completion
-        loop {
-            // Read next message into buffer set
-            read_message_into(&mut stream, &mut buffer_set).await?;
-
-            match state_machine.step(&mut buffer_set)? {
-                Action::NeedPacket(_) => {
-                    // Continue reading
-                }
-                Action::WritePacket(data) => {
-                    stream.write_all(data).await?;
-                    stream.flush().await?;
-                }
-                Action::AsyncMessage(_) => {
-                    // Handler not set during startup
-                }
-                Action::Finished => {
-                    break;
-                }
+                Action::Finished => break,
             }
         }
 
         let conn = Self {
             stream,
             buffer_set,
-            write_buffer: Vec::with_capacity(8192),
             backend_key: state_machine.backend_key().copied(),
-            server_params: state_machine.server_params().to_vec(),
+            server_params: state_machine.take_server_params(),
             transaction_status: state_machine.transaction_status(),
             is_broken: false,
             stmt_counter: 0,
@@ -184,7 +133,7 @@ impl Conn {
         let opts = opts.clone();
         Box::pin(async move {
             // Query unix_socket_directories from server
-            let mut handler = ShowVarHandler { value: None };
+            let mut handler = FirstRowHandler::<(String,)>::new();
             if self
                 .query("SHOW unix_socket_directories", &mut handler)
                 .await
@@ -193,8 +142,8 @@ impl Conn {
                 return self;
             }
 
-            let socket_dir = match handler.value {
-                Some(dirs) => {
+            let socket_dir = match handler.into_row() {
+                Some((dirs,)) => {
                     // May contain multiple directories, use the first one
                     match dirs.split(',').next() {
                         Some(d) if !d.trim().is_empty() => d.trim().to_string(),
@@ -277,6 +226,44 @@ impl Conn {
         Ok(())
     }
 
+    /// Drive a state machine to completion.
+    async fn drive<S: StateMachine>(&mut self, state_machine: &mut S) -> Result<()> {
+        loop {
+            match state_machine.step(&mut self.buffer_set)? {
+                Action::WriteAndReadByte => {
+                    return Err(Error::Protocol("Unexpected WriteAndReadByte in query state machine".into()));
+                }
+                Action::ReadMessage => {
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Action::Write => {
+                    self.stream.write_all(&self.buffer_set.write_buffer).await?;
+                    self.stream.flush().await?;
+                }
+                Action::WriteAndReadMessage => {
+                    self.stream.write_all(&self.buffer_set.write_buffer).await?;
+                    self.stream.flush().await?;
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Action::TlsHandshake => {
+                    return Err(Error::Protocol("Unexpected TlsHandshake in query state machine".into()));
+                }
+                Action::HandleAsyncMessageAndReadMessage(ref async_msg) => {
+                    if let Some(ref mut h) = self.async_message_handler {
+                        h.handle(async_msg);
+                    }
+                    // Read next message after handling async message
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Action::Finished => {
+                    self.transaction_status = state_machine.transaction_status();
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Execute a simple query with a handler.
     pub async fn query<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
         let result = self.query_inner(sql, handler).await;
@@ -289,42 +276,8 @@ impl Conn {
     }
 
     async fn query_inner<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
-        let mut state_machine = SimpleQueryStateMachine::new(handler);
-
-        // Start query
-        match state_machine.start(sql) {
-            Action::WritePacket(data) => {
-                self.stream.write_all(data).await?;
-                self.stream.flush().await?;
-            }
-            _ => return Err(Error::Protocol("Unexpected start action".into())),
-        }
-
-        // Drive the state machine
-        loop {
-            read_message_into(&mut self.stream, &mut self.buffer_set).await?;
-
-            match state_machine.step(&mut self.buffer_set)? {
-                Action::NeedPacket(_) => {
-                    // Continue reading
-                }
-                Action::WritePacket(data) => {
-                    self.stream.write_all(data).await?;
-                    self.stream.flush().await?;
-                }
-                Action::AsyncMessage(ref async_msg) => {
-                    if let Some(ref mut h) = self.async_message_handler {
-                        h.handle(async_msg);
-                    }
-                }
-                Action::Finished => {
-                    self.transaction_status = state_machine.transaction_status();
-                    break;
-                }
-            }
-        }
-
-        Ok(())
+        let mut state_machine = SimpleQueryStateMachine::new(handler, sql);
+        self.drive(&mut state_machine).await
     }
 
     /// Execute a simple query and discard results.
@@ -356,9 +309,9 @@ impl Conn {
 
     /// Close the connection gracefully.
     pub async fn close(mut self) -> Result<()> {
-        self.write_buffer.clear();
-        write_terminate(&mut self.write_buffer);
-        self.stream.write_all(&self.write_buffer).await?;
+        self.buffer_set.write_buffer.clear();
+        write_terminate(&mut self.buffer_set.write_buffer);
+        self.stream.write_all(&self.buffer_set.write_buffer).await?;
         self.stream.flush().await?;
         Ok(())
     }
@@ -394,39 +347,8 @@ impl Conn {
         param_oids: &[u32],
     ) -> Result<PreparedStatement> {
         let mut handler = DropHandler::new();
-        let mut state_machine = ExtendedQueryStateMachine::new(&mut handler);
-
-        // Send Parse + Describe + Sync
-        match state_machine.prepare(idx, query, param_oids) {
-            Action::WritePacket(data) => {
-                self.stream.write_all(data).await?;
-                self.stream.flush().await?;
-            }
-            _ => return Err(Error::Protocol("Unexpected prepare action".into())),
-        }
-
-        // Drive the state machine
-        loop {
-            read_message_into(&mut self.stream, &mut self.buffer_set).await?;
-
-            match state_machine.step(&mut self.buffer_set)? {
-                Action::NeedPacket(_) => {}
-                Action::WritePacket(data) => {
-                    self.stream.write_all(data).await?;
-                    self.stream.flush().await?;
-                }
-                Action::AsyncMessage(ref async_msg) => {
-                    if let Some(ref mut h) = self.async_message_handler {
-                        h.handle(async_msg);
-                    }
-                }
-                Action::Finished => {
-                    self.transaction_status = state_machine.transaction_status();
-                    break;
-                }
-            }
-        }
-
+        let mut state_machine = ExtendedQueryStateMachine::prepare(&mut handler, &mut self.buffer_set, idx, query, param_oids);
+        self.drive(&mut state_machine).await?;
         state_machine
             .take_prepared_statement()
             .ok_or_else(|| Error::Protocol("No prepared statement".into()))
@@ -458,49 +380,14 @@ impl Conn {
         params: &P,
         handler: &mut H,
     ) -> Result<()> {
-        let mut state_machine = ExtendedQueryStateMachine::new(handler);
-
-        // Send appropriate messages based on statement type
-        let action = if statement.needs_parse() {
-            // Raw SQL - use execute_sql (Parse + Bind + Describe + Execute + Sync)
-            state_machine.execute_sql(statement.as_sql().unwrap(), params)
+        let mut state_machine = if statement.needs_parse() {
+            ExtendedQueryStateMachine::execute_sql(handler, &mut self.buffer_set, statement.as_sql().unwrap(), params)
         } else {
-            // Prepared statement - use execute (Bind + Describe + Execute + Sync)
             let stmt = statement.as_prepared().unwrap();
-            state_machine.execute(&stmt.wire_name(), params)
+            ExtendedQueryStateMachine::execute(handler, &mut self.buffer_set, &stmt.wire_name(), params)
         };
 
-        match action {
-            Action::WritePacket(data) => {
-                self.stream.write_all(data).await?;
-                self.stream.flush().await?;
-            }
-            _ => return Err(Error::Protocol("Unexpected execute action".into())),
-        }
-
-        // Drive the state machine
-        loop {
-            read_message_into(&mut self.stream, &mut self.buffer_set).await?;
-
-            match state_machine.step(&mut self.buffer_set)? {
-                Action::NeedPacket(_) => {}
-                Action::WritePacket(data) => {
-                    self.stream.write_all(data).await?;
-                    self.stream.flush().await?;
-                }
-                Action::AsyncMessage(ref async_msg) => {
-                    if let Some(ref mut h) = self.async_message_handler {
-                        h.handle(async_msg);
-                    }
-                }
-                Action::Finished => {
-                    self.transaction_status = state_machine.transaction_status();
-                    break;
-                }
-            }
-        }
-
-        Ok(())
+        self.drive(&mut state_machine).await
     }
 
     /// Execute a statement and discard results.
@@ -542,38 +429,8 @@ impl Conn {
 
     async fn close_statement_inner(&mut self, name: &str) -> Result<()> {
         let mut handler = DropHandler::new();
-        let mut state_machine = ExtendedQueryStateMachine::new(&mut handler);
-
-        match state_machine.close_statement(name) {
-            Action::WritePacket(data) => {
-                self.stream.write_all(data).await?;
-                self.stream.flush().await?;
-            }
-            _ => return Err(Error::Protocol("Unexpected close action".into())),
-        }
-
-        loop {
-            read_message_into(&mut self.stream, &mut self.buffer_set).await?;
-
-            match state_machine.step(&mut self.buffer_set)? {
-                Action::NeedPacket(_) => {}
-                Action::WritePacket(data) => {
-                    self.stream.write_all(data).await?;
-                    self.stream.flush().await?;
-                }
-                Action::AsyncMessage(ref async_msg) => {
-                    if let Some(ref mut h) = self.async_message_handler {
-                        h.handle(async_msg);
-                    }
-                }
-                Action::Finished => {
-                    self.transaction_status = state_machine.transaction_status();
-                    break;
-                }
-            }
-        }
-
-        Ok(())
+        let mut state_machine = ExtendedQueryStateMachine::close_statement(&mut handler, &mut self.buffer_set, name);
+        self.drive(&mut state_machine).await
     }
 
     /// Execute a closure within a transaction.
@@ -619,22 +476,3 @@ impl Conn {
     }
 }
 
-/// Handler to capture a single value from SHOW query
-struct ShowVarHandler {
-    value: Option<String>,
-}
-
-impl TextHandler for ShowVarHandler {
-    fn row(
-        &mut self,
-        _cols: crate::protocol::backend::RowDescription<'_>,
-        row: crate::protocol::backend::DataRow<'_>,
-    ) -> Result<()> {
-        if self.value.is_none()
-            && let Some(Some(bytes)) = row.iter().next()
-        {
-            self.value = String::from_utf8(bytes.to_vec()).ok();
-        }
-        Ok(())
-    }
-}

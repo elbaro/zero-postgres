@@ -13,51 +13,50 @@ use crate::protocol::frontend::{
 };
 use crate::protocol::types::TransactionStatus;
 
+use super::StateMachine;
 use super::action::{Action, AsyncMessage};
 use crate::buffer_set::BufferSet;
 
 /// Connection state during startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConnectionState {
+enum State {
     Initial,
     WaitingSslResponse,
-    SslHandshake,
+    WaitingTlsHandshake,
+    WaitingAuthRead,
     WaitingAuth,
+    SaslInProgressRead,
     SaslInProgress,
+    WaitingAuthResultRead,
     WaitingAuthResult,
     WaitingReady,
-    Ready,
-    Failed,
+    Finished,
 }
 
 /// Connection startup state machine.
 pub struct ConnectionStateMachine {
-    state: ConnectionState,
+    state: State,
     options: Opts,
     backend_key: Option<BackendKeyData>,
     server_params: Vec<(String, String)>,
     transaction_status: TransactionStatus,
     scram_client: Option<ScramClient>,
-    write_buffer: Vec<u8>,
+    /// SSL response byte, set by driver after ReadByte
+    ssl_response: u8,
 }
 
 impl ConnectionStateMachine {
     /// Create a new connection state machine.
     pub fn new(options: Opts) -> Self {
         Self {
-            state: ConnectionState::Initial,
+            state: State::Initial,
             options,
             backend_key: None,
             server_params: Vec::new(),
             transaction_status: TransactionStatus::Idle,
             scram_client: None,
-            write_buffer: Vec::new(),
+            ssl_response: 0,
         }
-    }
-
-    /// Get the current connection state.
-    pub fn state(&self) -> ConnectionState {
-        self.state
     }
 
     /// Get the backend key data (for cancellation).
@@ -65,110 +64,76 @@ impl ConnectionStateMachine {
         self.backend_key.as_ref()
     }
 
-    /// Get server parameters.
-    pub fn server_params(&self) -> &[(String, String)] {
-        &self.server_params
+    /// Take server parameters.
+    pub fn take_server_params(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.server_params)
     }
 
-    /// Get the current transaction status.
-    pub fn transaction_status(&self) -> TransactionStatus {
-        self.transaction_status
+    /// Set the SSL response byte (called by driver after ReadByte).
+    pub fn set_ssl_response(&mut self, response: u8) {
+        self.ssl_response = response;
     }
 
-    /// Start the connection process.
-    ///
-    /// Returns the initial action to perform.
-    pub fn start(&mut self) -> Action<'_> {
-        self.write_buffer.clear();
+    fn handle_initial(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
+        buffer_set.write_buffer.clear();
 
-        match self.options.ssl_mode {
-            SslMode::Disable => {
-                // Send startup message directly
-                self.write_startup_message();
-                self.state = ConnectionState::WaitingAuth;
-                Action::WritePacket(&self.write_buffer)
+        let client_supports_tls = cfg!(any(feature = "sync-tls", feature = "tokio-tls"));
+
+        let send_ssl_request = match self.options.ssl_mode {
+            SslMode::Disable => false,
+            SslMode::Prefer => client_supports_tls,
+            SslMode::Require if !client_supports_tls => {
+                return Err(Error::Unsupported(
+                    "SSL required but TLS feature not enabled".into(),
+                ));
             }
-            SslMode::Prefer | SslMode::Require => {
-                // Send SSL request first
-                write_ssl_request(&mut self.write_buffer);
-                self.state = ConnectionState::WaitingSslResponse;
-                Action::WritePacket(&self.write_buffer)
-            }
+            SslMode::Require => true,
+        };
+
+        if send_ssl_request {
+            write_ssl_request(&mut buffer_set.write_buffer);
+            self.state = State::WaitingSslResponse;
+            Ok(Action::WriteAndReadByte)
+        } else {
+            self.write_startup_message(&mut buffer_set.write_buffer);
+            self.state = State::WaitingAuthRead;
+            Ok(Action::Write)
         }
     }
 
-    /// Process SSL response byte ('S' or 'N').
-    pub fn process_ssl_response(&mut self, response: u8) -> Result<SslAction<'_>> {
-        match response {
+    fn handle_ssl_response(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
+        match self.ssl_response {
             b'S' => {
-                self.state = ConnectionState::SslHandshake;
-                Ok(SslAction::StartHandshake)
+                self.state = State::WaitingTlsHandshake;
+                Ok(Action::TlsHandshake)
             }
             b'N' => {
                 if self.options.ssl_mode == SslMode::Require {
-                    self.state = ConnectionState::Failed;
                     return Err(Error::Auth(
                         "SSL required but not supported by server".into(),
                     ));
                 }
-
                 // SSL not supported, continue with plain connection
-                self.write_buffer.clear();
-                self.write_startup_message();
-                self.state = ConnectionState::WaitingAuth;
-                Ok(SslAction::SendStartup(self.write_buffer.as_slice()))
+                buffer_set.write_buffer.clear();
+                self.write_startup_message(&mut buffer_set.write_buffer);
+                self.state = State::WaitingAuthRead;
+                Ok(Action::Write)
             }
-            _ => {
-                self.state = ConnectionState::Failed;
-                Err(Error::Protocol(format!(
-                    "Unexpected SSL response: {}",
-                    response
-                )))
-            }
-        }
-    }
-
-    /// Called after SSL handshake completes.
-    pub fn ssl_handshake_complete(&mut self) -> Action<'_> {
-        self.write_buffer.clear();
-        self.write_startup_message();
-        self.state = ConnectionState::WaitingAuth;
-        Action::WritePacket(&self.write_buffer)
-    }
-
-    /// Process a message from the server.
-    ///
-    /// The caller should fill buffer_set.read_buffer with the message payload
-    /// and set buffer_set.type_byte to the message type.
-    pub fn step<'buf>(&'buf mut self, buffer_set: &'buf mut BufferSet) -> Result<Action<'buf>> {
-        let type_byte = buffer_set.type_byte;
-
-        // Handle async messages that can arrive at any time
-        if RawMessage::is_async_type(type_byte) {
-            let msg = RawMessage::new(type_byte, &buffer_set.read_buffer);
-            return self.handle_async_message(&msg);
-        }
-
-        // Handle error response
-        if type_byte == msg_type::ERROR_RESPONSE {
-            let error = ErrorResponse::parse(&buffer_set.read_buffer)?;
-            self.state = ConnectionState::Failed;
-            return Err(error.into_error());
-        }
-
-        match self.state {
-            ConnectionState::WaitingAuth => self.handle_auth_message(buffer_set),
-            ConnectionState::SaslInProgress => self.handle_sasl_message(buffer_set),
-            ConnectionState::WaitingAuthResult => self.handle_auth_result(buffer_set),
-            ConnectionState::WaitingReady => self.handle_ready_message(buffer_set),
             _ => Err(Error::Protocol(format!(
-                "Unexpected message in state {:?}",
-                self.state
+                "Unexpected SSL response: {}",
+                self.ssl_response
             ))),
         }
     }
 
-    fn write_startup_message(&mut self) {
+    fn handle_tls_handshake_complete(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
+        buffer_set.write_buffer.clear();
+        self.write_startup_message(&mut buffer_set.write_buffer);
+        self.state = State::WaitingAuthRead;
+        Ok(Action::Write)
+    }
+
+    fn write_startup_message(&self, write_buffer: &mut Vec<u8>) {
         let mut params: Vec<(&str, &str)> =
             vec![("user", &self.options.user), ("client_encoding", "UTF8")];
 
@@ -184,13 +149,10 @@ impl ConnectionStateMachine {
             params.push((name, value));
         }
 
-        write_startup(&mut self.write_buffer, &params);
+        write_startup(write_buffer, &params);
     }
 
-    fn handle_auth_message<'buf>(
-        &'buf mut self,
-        buffer_set: &'buf mut BufferSet,
-    ) -> Result<Action<'buf>> {
+    fn handle_auth_message(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
         if type_byte != msg_type::AUTHENTICATION {
             return Err(Error::Protocol(format!(
@@ -203,8 +165,8 @@ impl ConnectionStateMachine {
 
         match auth {
             AuthenticationMessage::Ok => {
-                self.state = ConnectionState::WaitingReady;
-                Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
+                self.state = State::WaitingReady;
+                Ok(Action::ReadMessage)
             }
             AuthenticationMessage::CleartextPassword => {
                 let password = self
@@ -213,10 +175,10 @@ impl ConnectionStateMachine {
                     .as_ref()
                     .ok_or_else(|| Error::Auth("Password required but not provided".into()))?;
 
-                self.write_buffer.clear();
-                write_password(&mut self.write_buffer, password);
-                self.state = ConnectionState::WaitingAuthResult;
-                Ok(Action::WritePacket(&self.write_buffer))
+                buffer_set.write_buffer.clear();
+                write_password(&mut buffer_set.write_buffer, password);
+                self.state = State::WaitingAuthResultRead;
+                Ok(Action::Write)
             }
             AuthenticationMessage::Md5Password { salt } => {
                 let password = self
@@ -226,10 +188,10 @@ impl ConnectionStateMachine {
                     .ok_or_else(|| Error::Auth("Password required but not provided".into()))?;
 
                 let hashed = md5_password(&self.options.user, password, &salt);
-                self.write_buffer.clear();
-                write_password(&mut self.write_buffer, &hashed);
-                self.state = ConnectionState::WaitingAuthResult;
-                Ok(Action::WritePacket(&self.write_buffer))
+                buffer_set.write_buffer.clear();
+                write_password(&mut buffer_set.write_buffer, &hashed);
+                self.state = State::WaitingAuthResultRead;
+                Ok(Action::Write)
             }
             AuthenticationMessage::Sasl { mechanisms } => {
                 // Check if SCRAM-SHA-256 is supported
@@ -249,16 +211,16 @@ impl ConnectionStateMachine {
                 let scram = ScramClient::new(password);
                 let client_first = scram.client_first_message();
 
-                self.write_buffer.clear();
+                buffer_set.write_buffer.clear();
                 write_sasl_initial_response(
-                    &mut self.write_buffer,
+                    &mut buffer_set.write_buffer,
                     "SCRAM-SHA-256",
                     client_first.as_bytes(),
                 );
 
                 self.scram_client = Some(scram);
-                self.state = ConnectionState::SaslInProgress;
-                Ok(Action::WritePacket(&self.write_buffer))
+                self.state = State::SaslInProgressRead;
+                Ok(Action::Write)
             }
             _ => Err(Error::Unsupported(format!(
                 "Unsupported authentication method: {:?}",
@@ -267,10 +229,7 @@ impl ConnectionStateMachine {
         }
     }
 
-    fn handle_sasl_message<'buf>(
-        &'buf mut self,
-        buffer_set: &'buf mut BufferSet,
-    ) -> Result<Action<'buf>> {
+    fn handle_sasl_message(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
         if type_byte != msg_type::AUTHENTICATION {
             return Err(Error::Protocol(format!(
@@ -295,9 +254,10 @@ impl ConnectionStateMachine {
                     .process_server_first(server_first)
                     .map_err(Error::Auth)?;
 
-                self.write_buffer.clear();
-                write_sasl_response(&mut self.write_buffer, client_final.as_bytes());
-                Ok(Action::WritePacket(&self.write_buffer))
+                buffer_set.write_buffer.clear();
+                write_sasl_response(&mut buffer_set.write_buffer, client_final.as_bytes());
+                self.state = State::SaslInProgressRead;
+                Ok(Action::Write)
             }
             AuthenticationMessage::SaslFinal { data } => {
                 let scram = self
@@ -312,8 +272,8 @@ impl ConnectionStateMachine {
                     .verify_server_final(server_final)
                     .map_err(Error::Auth)?;
 
-                self.state = ConnectionState::WaitingAuthResult;
-                Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
+                self.state = State::WaitingAuthResult;
+                Ok(Action::ReadMessage)
             }
             _ => Err(Error::Protocol(format!(
                 "Unexpected SASL message: {:?}",
@@ -322,10 +282,7 @@ impl ConnectionStateMachine {
         }
     }
 
-    fn handle_auth_result<'buf>(
-        &mut self,
-        buffer_set: &'buf mut BufferSet,
-    ) -> Result<Action<'buf>> {
+    fn handle_auth_result(&mut self, buffer_set: &BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
         if type_byte != msg_type::AUTHENTICATION {
             return Err(Error::Protocol(format!(
@@ -338,17 +295,14 @@ impl ConnectionStateMachine {
 
         match auth {
             AuthenticationMessage::Ok => {
-                self.state = ConnectionState::WaitingReady;
-                Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
+                self.state = State::WaitingReady;
+                Ok(Action::ReadMessage)
             }
             _ => Err(Error::Auth(format!("Unexpected auth result: {:?}", auth))),
         }
     }
 
-    fn handle_ready_message<'buf>(
-        &mut self,
-        buffer_set: &'buf mut BufferSet,
-    ) -> Result<Action<'buf>> {
+    fn handle_ready_message(&mut self, buffer_set: &BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
         let payload = &buffer_set.read_buffer;
 
@@ -356,18 +310,18 @@ impl ConnectionStateMachine {
             msg_type::BACKEND_KEY_DATA => {
                 let key = BackendKeyData::parse(payload)?;
                 self.backend_key = Some(*key);
-                Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
+                Ok(Action::ReadMessage)
             }
             msg_type::PARAMETER_STATUS => {
                 let param = ParameterStatus::parse(payload)?;
                 self.server_params
                     .push((param.name.to_string(), param.value.to_string()));
-                Ok(Action::NeedPacket(&mut buffer_set.read_buffer))
+                Ok(Action::ReadMessage)
             }
             msg_type::READY_FOR_QUERY => {
                 let ready = ReadyForQuery::parse(payload)?;
                 self.transaction_status = ready.transaction_status().unwrap_or_default();
-                self.state = ConnectionState::Ready;
+                self.state = State::Finished;
                 Ok(Action::Finished)
             }
             _ => Err(Error::Protocol(format!(
@@ -377,22 +331,15 @@ impl ConnectionStateMachine {
         }
     }
 
-    fn handle_async_message(&mut self, msg: &RawMessage<'_>) -> Result<Action<'_>> {
+    fn handle_async_message(&self, msg: &RawMessage<'_>) -> Result<Action> {
         match msg.type_byte {
             msg_type::NOTICE_RESPONSE => {
                 let notice = crate::protocol::backend::NoticeResponse::parse(msg.payload)?;
-                Ok(Action::AsyncMessage(AsyncMessage::Notice(notice.0)))
+                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::Notice(notice.0)))
             }
             msg_type::PARAMETER_STATUS => {
                 let param = ParameterStatus::parse(msg.payload)?;
-                // Update our cached value
-                if let Some(entry) = self.server_params.iter_mut().find(|(n, _)| n == param.name) {
-                    entry.1 = param.value.to_string();
-                } else {
-                    self.server_params
-                        .push((param.name.to_string(), param.value.to_string()));
-                }
-                Ok(Action::AsyncMessage(AsyncMessage::ParameterChanged {
+                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::ParameterChanged {
                     name: param.name.to_string(),
                     value: param.value.to_string(),
                 }))
@@ -400,7 +347,7 @@ impl ConnectionStateMachine {
             msg_type::NOTIFICATION_RESPONSE => {
                 let notification =
                     crate::protocol::backend::auth::NotificationResponse::parse(msg.payload)?;
-                Ok(Action::AsyncMessage(AsyncMessage::Notification {
+                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::Notification {
                     pid: notification.pid,
                     channel: notification.channel.to_string(),
                     payload: notification.payload.to_string(),
@@ -414,11 +361,58 @@ impl ConnectionStateMachine {
     }
 }
 
-/// SSL negotiation action.
-#[derive(Debug)]
-pub enum SslAction<'a> {
-    /// Start TLS handshake
-    StartHandshake,
-    /// Send startup message (SSL not supported)
-    SendStartup(&'a [u8]),
+impl StateMachine for ConnectionStateMachine {
+    fn step(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
+        // Handle states that don't need to read buffer_set
+        match self.state {
+            State::Initial => return self.handle_initial(buffer_set),
+            State::WaitingSslResponse => return self.handle_ssl_response(buffer_set),
+            State::WaitingTlsHandshake => return self.handle_tls_handshake_complete(buffer_set),
+            State::WaitingAuthRead => {
+                self.state = State::WaitingAuth;
+                return Ok(Action::ReadMessage);
+            }
+            State::SaslInProgressRead => {
+                self.state = State::SaslInProgress;
+                return Ok(Action::ReadMessage);
+            }
+            State::WaitingAuthResultRead => {
+                self.state = State::WaitingAuthResult;
+                return Ok(Action::ReadMessage);
+            }
+            _ => {}
+        }
+
+        let type_byte = buffer_set.type_byte;
+
+        // Handle async messages that can arrive at any time
+        // Note: PARAMETER_STATUS during WaitingReady is part of normal startup, not async
+        if RawMessage::is_async_type(type_byte)
+            && !(self.state == State::WaitingReady && type_byte == msg_type::PARAMETER_STATUS)
+        {
+            let msg = RawMessage::new(type_byte, &buffer_set.read_buffer);
+            return self.handle_async_message(&msg);
+        }
+
+        // Handle error response
+        if type_byte == msg_type::ERROR_RESPONSE {
+            let error = ErrorResponse::parse(&buffer_set.read_buffer)?;
+            return Err(error.into_error());
+        }
+
+        match self.state {
+            State::WaitingAuth => self.handle_auth_message(buffer_set),
+            State::SaslInProgress => self.handle_sasl_message(buffer_set),
+            State::WaitingAuthResult => self.handle_auth_result(buffer_set),
+            State::WaitingReady => self.handle_ready_message(buffer_set),
+            _ => Err(Error::Protocol(format!(
+                "Unexpected state {:?}",
+                self.state
+            ))),
+        }
+    }
+
+    fn transaction_status(&self) -> TransactionStatus {
+        self.transaction_status
+    }
 }

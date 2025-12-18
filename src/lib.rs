@@ -33,6 +33,7 @@
 //! ```
 
 // private
+mod buffer_pool;
 mod buffer_set;
 mod error;
 mod opts;
@@ -50,6 +51,7 @@ pub mod sync;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
+pub use buffer_pool::BufferPool;
 pub use buffer_set::BufferSet;
 pub use error::{Error, Result, ServerError};
 pub use handler::AsyncMessageHandler;

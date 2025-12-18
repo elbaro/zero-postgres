@@ -1,8 +1,10 @@
 //! Connection options.
 
-use no_panic::no_panic;
+use std::sync::Arc;
+
 use url::Url;
 
+use crate::buffer_pool::{BufferPool, GLOBAL_BUFFER_POOL};
 use crate::error::Error;
 
 /// SSL connection mode.
@@ -79,10 +81,14 @@ pub struct Opts {
     ///
     /// Default: `None`
     pub pool_max_concurrency: Option<usize>,
+
+    /// Buffer pool for reusing buffers across connections.
+    ///
+    /// Default: `GLOBAL_BUFFER_POOL`
+    pub buffer_pool: Arc<BufferPool>,
 }
 
 impl Default for Opts {
-    #[no_panic]
     fn default() -> Self {
         Self {
             host: String::new(),
@@ -97,6 +103,7 @@ impl Default for Opts {
             prefer_unix_socket: true,
             pool_max_idle_conn: 100,
             pool_max_concurrency: None,
+            buffer_pool: Arc::clone(&GLOBAL_BUFFER_POOL),
         }
     }
 }
@@ -114,7 +121,6 @@ impl TryFrom<&Url> for Opts {
     /// - `prefer_unix_socket`: true/True/1/yes/on or false/False/0/no/off
     /// - `pool_max_idle_conn`: maximum idle connections (positive integer)
     /// - `pool_max_concurrency`: maximum concurrent connections (positive integer)
-    #[no_panic]
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
         if !["postgres", "pg"].contains(&url.scheme()) {
             return Err(Error::InvalidUsage(format!(
@@ -191,7 +197,6 @@ impl TryFrom<&Url> for Opts {
 impl TryFrom<&str> for Opts {
     type Error = Error;
 
-    #[no_panic]
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let url = Url::parse(s).map_err(|e| Error::InvalidUsage(format!("Invalid URL: {}", e)))?;
         Self::try_from(&url)

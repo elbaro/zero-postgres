@@ -70,7 +70,7 @@ use crate::protocol::frontend::{
 use crate::protocol::types::Oid;
 use crate::state::extended::PreparedStatement;
 
-use super::conn::{read_message_into, Conn};
+use super::conn::Conn;
 
 /// What response sequence to expect for a queued operation.
 #[derive(Debug, Clone, Copy)]
@@ -173,10 +173,10 @@ impl<'a> Pipeline<'a> {
     }
 
     fn prepare_inner(&mut self, stmt_name: &str, sql: &str) -> Result<()> {
-        self.conn.write_buffer.clear();
-        write_parse(&mut self.conn.write_buffer, stmt_name, sql, &[]);
-        write_describe_statement(&mut self.conn.write_buffer, stmt_name);
-        self.conn.stream.write_all(&self.conn.write_buffer)?;
+        self.conn.buffer_set.write_buffer.clear();
+        write_parse(&mut self.conn.buffer_set.write_buffer, stmt_name, sql, &[]);
+        write_describe_statement(&mut self.conn.buffer_set.write_buffer, stmt_name);
+        self.conn.stream.write_all(&self.conn.buffer_set.write_buffer)?;
         self.needs_flush = true;
         Ok(())
     }
@@ -212,15 +212,15 @@ impl<'a> Pipeline<'a> {
         stmt_name: &str,
         params: &P,
     ) -> Result<()> {
-        self.conn.write_buffer.clear();
+        self.conn.buffer_set.write_buffer.clear();
         write_bind(
-            &mut self.conn.write_buffer,
+            &mut self.conn.buffer_set.write_buffer,
             portal_name,
             stmt_name,
             params,
             &[],
         );
-        self.conn.stream.write_all(&self.conn.write_buffer)?;
+        self.conn.stream.write_all(&self.conn.buffer_set.write_buffer)?;
         self.needs_flush = true;
         Ok(())
     }
@@ -262,13 +262,13 @@ impl<'a> Pipeline<'a> {
         max_rows: u32,
         first_execute: bool,
     ) -> Result<()> {
-        self.conn.write_buffer.clear();
+        self.conn.buffer_set.write_buffer.clear();
         // On first execute, we need to Describe the portal to get RowDescription
         if first_execute {
-            write_describe_portal(&mut self.conn.write_buffer, portal_name);
+            write_describe_portal(&mut self.conn.buffer_set.write_buffer, portal_name);
         }
-        write_execute(&mut self.conn.write_buffer, portal_name, max_rows);
-        self.conn.stream.write_all(&self.conn.write_buffer)?;
+        write_execute(&mut self.conn.buffer_set.write_buffer, portal_name, max_rows);
+        self.conn.stream.write_all(&self.conn.buffer_set.write_buffer)?;
         self.needs_flush = true;
         Ok(())
     }
@@ -302,11 +302,11 @@ impl<'a> Pipeline<'a> {
     }
 
     fn exec_inner<P: ToParams>(&mut self, stmt_name: &str, params: &P) -> Result<()> {
-        self.conn.write_buffer.clear();
-        write_bind(&mut self.conn.write_buffer, "", stmt_name, params, &[]);
-        write_describe_portal(&mut self.conn.write_buffer, ""); // Get RowDescription
-        write_execute(&mut self.conn.write_buffer, "", 0);
-        self.conn.stream.write_all(&self.conn.write_buffer)?;
+        self.conn.buffer_set.write_buffer.clear();
+        write_bind(&mut self.conn.buffer_set.write_buffer, "", stmt_name, params, &[]);
+        write_describe_portal(&mut self.conn.buffer_set.write_buffer, ""); // Get RowDescription
+        write_execute(&mut self.conn.buffer_set.write_buffer, "", 0);
+        self.conn.stream.write_all(&self.conn.buffer_set.write_buffer)?;
         self.needs_flush = true;
         Ok(())
     }
@@ -317,9 +317,9 @@ impl<'a> Pipeline<'a> {
     /// a transaction boundary. Called automatically by harvest methods when needed.
     pub fn flush(&mut self) -> Result<()> {
         if self.needs_flush {
-            self.conn.write_buffer.clear();
-            write_flush(&mut self.conn.write_buffer);
-            self.conn.stream.write_all(&self.conn.write_buffer)?;
+            self.conn.buffer_set.write_buffer.clear();
+            write_flush(&mut self.conn.buffer_set.write_buffer);
+            self.conn.stream.write_all(&self.conn.buffer_set.write_buffer)?;
             self.conn.stream.flush()?;
             self.needs_flush = false;
         }
@@ -342,9 +342,9 @@ impl<'a> Pipeline<'a> {
     }
 
     fn sync_inner(&mut self) -> Result<()> {
-        self.conn.write_buffer.clear();
-        write_sync(&mut self.conn.write_buffer);
-        self.conn.stream.write_all(&self.conn.write_buffer)?;
+        self.conn.buffer_set.write_buffer.clear();
+        write_sync(&mut self.conn.buffer_set.write_buffer);
+        self.conn.stream.write_all(&self.conn.buffer_set.write_buffer)?;
         self.conn.stream.flush()?;
         self.needs_flush = false;
         Ok(())
@@ -354,7 +354,7 @@ impl<'a> Pipeline<'a> {
     fn finish(&mut self) -> Result<()> {
         // Wait for ReadyForQuery
         loop {
-            read_message_into(&mut self.conn.stream, &mut self.conn.buffer_set)?;
+            self.conn.stream.read_message(&mut self.conn.buffer_set)?;
             let type_byte = self.conn.buffer_set.type_byte;
 
             // Handle async messages
@@ -646,7 +646,7 @@ impl<'a> Pipeline<'a> {
     /// Read the next message, skipping async messages and handling errors.
     fn read_next_message(&mut self) -> Result<()> {
         loop {
-            read_message_into(&mut self.conn.stream, &mut self.conn.buffer_set)?;
+            self.conn.stream.read_message(&mut self.conn.buffer_set)?;
             let type_byte = self.conn.buffer_set.type_byte;
 
             // Handle async messages

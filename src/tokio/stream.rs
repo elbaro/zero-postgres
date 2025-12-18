@@ -46,7 +46,32 @@ impl Stream {
         }
     }
 
-    pub async fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
+    pub async fn read_u8(&mut self) -> std::io::Result<u8> {
+        match self {
+            Stream::Tcp(r) => r.read_u8().await,
+            #[cfg(feature = "tokio-tls")]
+            Stream::Tls(r) => r.read_u8().await,
+            Stream::Unix(r) => r.read_u8().await,
+        }
+    }
+
+    /// Read a PostgreSQL message into the buffer set.
+    pub async fn read_message(&mut self, buffer_set: &mut crate::buffer_set::BufferSet) -> std::io::Result<()> {
+        buffer_set.type_byte = self.read_u8().await?;
+
+        let mut length_bytes = [0u8; 4];
+        self.read_exact(&mut length_bytes).await?;
+        let length = u32::from_be_bytes(length_bytes) as usize;
+
+        let payload_len = length.saturating_sub(4);
+        buffer_set.read_buffer.clear();
+        buffer_set.read_buffer.resize(payload_len, 0);
+        self.read_exact(&mut buffer_set.read_buffer).await?;
+
+        Ok(())
+    }
+
+    async fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
         match self {
             Stream::Tcp(r) => r.read_exact(buf).await.map(|_| ()),
             #[cfg(feature = "tokio-tls")]
