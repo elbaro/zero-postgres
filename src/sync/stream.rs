@@ -65,7 +65,10 @@ impl Stream {
     }
 
     /// Read a PostgreSQL message into the buffer set.
-    pub fn read_message(&mut self, buffer_set: &mut crate::buffer_set::BufferSet) -> std::io::Result<()> {
+    pub fn read_message(
+        &mut self,
+        buffer_set: &mut crate::buffer_set::BufferSet,
+    ) -> std::io::Result<()> {
         buffer_set.type_byte = self.read_u8()?;
 
         let mut length_bytes = [0u8; 4];

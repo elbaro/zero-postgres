@@ -23,7 +23,8 @@ fn main() -> zero_postgres::Result<()> {
 
     // Query 1: Check SSL status
     println!("=== SSL Status ===");
-    let rows: Vec<(bool,)> = conn.query_collect("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")?;
+    let rows: Vec<(bool,)> =
+        conn.query_collect("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")?;
     if let Some((ssl_enabled,)) = rows.first() {
         println!("  SSL enabled: {}", ssl_enabled);
     }

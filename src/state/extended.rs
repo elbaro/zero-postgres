@@ -14,8 +14,8 @@ use crate::protocol::frontend::{
 };
 use crate::protocol::types::{Oid, TransactionStatus};
 
-use super::action::{Action, AsyncMessage};
 use super::StateMachine;
+use super::action::{Action, AsyncMessage};
 use crate::buffer_set::BufferSet;
 
 /// Extended query state.
@@ -147,7 +147,13 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
         params: &P,
     ) -> Self {
         buffer_set.write_buffer.clear();
-        write_bind(&mut buffer_set.write_buffer, "", statement_name, params, &[]);
+        write_bind(
+            &mut buffer_set.write_buffer,
+            "",
+            statement_name,
+            params,
+            &[],
+        );
         write_describe_portal(&mut buffer_set.write_buffer, "");
         write_execute(&mut buffer_set.write_buffer, "", 0);
         write_sync(&mut buffer_set.write_buffer);
@@ -278,7 +284,9 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
             msg_type::ROW_DESCRIPTION => {
                 // Store column buffer for later use in row callbacks
                 buffer_set.column_buffer.clear();
-                buffer_set.column_buffer.extend_from_slice(&buffer_set.read_buffer);
+                buffer_set
+                    .column_buffer
+                    .extend_from_slice(&buffer_set.read_buffer);
                 let cols = RowDescription::parse(&buffer_set.column_buffer)?;
                 self.handler.result_start(cols)?;
                 self.state = State::ProcessingRows;
@@ -373,23 +381,29 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
         match msg.type_byte {
             msg_type::NOTICE_RESPONSE => {
                 let notice = crate::protocol::backend::NoticeResponse::parse(msg.payload)?;
-                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::Notice(notice.0)))
+                Ok(Action::HandleAsyncMessageAndReadMessage(
+                    AsyncMessage::Notice(notice.0),
+                ))
             }
             msg_type::PARAMETER_STATUS => {
                 let param = crate::protocol::backend::auth::ParameterStatus::parse(msg.payload)?;
-                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::ParameterChanged {
-                    name: param.name.to_string(),
-                    value: param.value.to_string(),
-                }))
+                Ok(Action::HandleAsyncMessageAndReadMessage(
+                    AsyncMessage::ParameterChanged {
+                        name: param.name.to_string(),
+                        value: param.value.to_string(),
+                    },
+                ))
             }
             msg_type::NOTIFICATION_RESPONSE => {
                 let notification =
                     crate::protocol::backend::auth::NotificationResponse::parse(msg.payload)?;
-                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::Notification {
-                    pid: notification.pid,
-                    channel: notification.channel.to_string(),
-                    payload: notification.payload.to_string(),
-                }))
+                Ok(Action::HandleAsyncMessageAndReadMessage(
+                    AsyncMessage::Notification {
+                        pid: notification.pid,
+                        channel: notification.channel.to_string(),
+                        payload: notification.payload.to_string(),
+                    },
+                ))
             }
             _ => Err(Error::Protocol(format!(
                 "Unknown async message type: '{}'",
@@ -474,9 +488,19 @@ impl BindStateMachine {
     /// Bind a prepared statement to an unnamed portal.
     ///
     /// Writes Bind + Flush to `buffer_set.write_buffer`.
-    pub fn bind_prepared<P: ToParams>(buffer_set: &mut BufferSet, statement_name: &str, params: &P) -> Self {
+    pub fn bind_prepared<P: ToParams>(
+        buffer_set: &mut BufferSet,
+        statement_name: &str,
+        params: &P,
+    ) -> Self {
         buffer_set.write_buffer.clear();
-        write_bind(&mut buffer_set.write_buffer, "", statement_name, params, &[]);
+        write_bind(
+            &mut buffer_set.write_buffer,
+            "",
+            statement_name,
+            params,
+            &[],
+        );
         write_flush(&mut buffer_set.write_buffer);
 
         Self {

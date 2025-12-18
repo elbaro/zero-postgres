@@ -31,10 +31,12 @@ impl Stream {
         match self {
             Stream::Tcp(buf_reader) => {
                 let tcp_stream = buf_reader.into_inner();
-                let connector = tokio_native_tls::TlsConnector::from(native_tls::TlsConnector::new()?);
-                let tls_stream = connector.connect(host, tcp_stream).await.map_err(|e| {
-                    crate::error::Error::Tls(e.into())
-                })?;
+                let connector =
+                    tokio_native_tls::TlsConnector::from(native_tls::TlsConnector::new()?);
+                let tls_stream = connector
+                    .connect(host, tcp_stream)
+                    .await
+                    .map_err(|e| crate::error::Error::Tls(e.into()))?;
                 Ok(Stream::Tls(BufReader::new(tls_stream)))
             }
             Stream::Tls(_) => Err(crate::error::Error::InvalidUsage(
@@ -56,7 +58,10 @@ impl Stream {
     }
 
     /// Read a PostgreSQL message into the buffer set.
-    pub async fn read_message(&mut self, buffer_set: &mut crate::buffer_set::BufferSet) -> std::io::Result<()> {
+    pub async fn read_message(
+        &mut self,
+        buffer_set: &mut crate::buffer_set::BufferSet,
+    ) -> std::io::Result<()> {
         buffer_set.type_byte = self.read_u8().await?;
 
         let mut length_bytes = [0u8; 4];

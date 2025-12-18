@@ -122,8 +122,7 @@ fn main() -> zero_postgres::Result<()> {
     // === Prepare and execute with parameter ===
     println!("=== Parameterized Query ===\n");
 
-    let select_by_id_stmt =
-        conn.prepare("SELECT id, col_text FROM test_extended WHERE id = $1")?;
+    let select_by_id_stmt = conn.prepare("SELECT id, col_text FROM test_extended WHERE id = $1")?;
 
     let rows: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (1_i32,))?;
     println!("Query with id=1: {:?}", rows);

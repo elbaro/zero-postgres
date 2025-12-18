@@ -21,9 +21,7 @@ fn get_conn() -> Conn {
 fn test_exec_iter_basic() {
     let mut conn = get_conn();
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, 5) as n")
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, 5) as n").unwrap();
 
     let total: i32 = conn
         .exec_iter(&stmt, (), |portal| {
@@ -42,9 +40,7 @@ fn test_exec_iter_basic() {
 fn test_exec_iter_batched() {
     let mut conn = get_conn();
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, 10) as n")
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, 10) as n").unwrap();
 
     let mut all_rows: Vec<i32> = Vec::new();
     let batch_count: i32 = conn
@@ -91,9 +87,7 @@ fn test_exec_iter_empty_result() {
 fn test_exec_iter_with_params() {
     let mut conn = get_conn();
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, $1) as n")
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, $1) as n").unwrap();
 
     let total: i32 = conn
         .exec_iter(&stmt, (5i32,), |portal| {

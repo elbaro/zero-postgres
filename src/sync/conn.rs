@@ -6,21 +6,22 @@ use std::os::unix::net::UnixStream;
 use crate::buffer_pool::PooledBufferSet;
 use crate::conversion::ToParams;
 use crate::error::{Error, Result};
-use crate::handler::{AsyncMessageHandler, BinaryHandler, DropHandler, FirstRowHandler, TextHandler};
+use crate::handler::{
+    AsyncMessageHandler, BinaryHandler, DropHandler, FirstRowHandler, TextHandler,
+};
 use crate::opts::Opts;
 use crate::protocol::backend::BackendKeyData;
 use crate::protocol::frontend::write_terminate;
 use crate::protocol::types::TransactionStatus;
+use crate::state::StateMachine;
 use crate::state::action::Action;
 use crate::state::connection::ConnectionStateMachine;
 use crate::state::extended::{BindStateMachine, ExtendedQueryStateMachine, PreparedStatement};
 use crate::state::simple_query::SimpleQueryStateMachine;
-use crate::state::StateMachine;
 use crate::statement::IntoStatement;
 
 use super::stream::Stream;
 use super::unnamed_portal::UnnamedPortal;
-
 
 /// Synchronous PostgreSQL connection.
 pub struct Conn {
@@ -107,7 +108,7 @@ impl Conn {
         let conn = Self {
             stream,
             buffer_set,
-            backend_key: state_machine.backend_key().copied(),
+            backend_key: state_machine.backend_key().cloned(),
             server_params: state_machine.take_server_params(),
             transaction_status: state_machine.transaction_status(),
             is_broken: false,
@@ -246,7 +247,9 @@ impl Conn {
         loop {
             match state_machine.step(&mut self.buffer_set)? {
                 Action::WriteAndReadByte => {
-                    return Err(Error::Protocol("Unexpected WriteAndReadByte in query state machine".into()));
+                    return Err(Error::Protocol(
+                        "Unexpected WriteAndReadByte in query state machine".into(),
+                    ));
                 }
                 Action::ReadMessage => {
                     self.stream.read_message(&mut self.buffer_set)?;
@@ -261,7 +264,9 @@ impl Conn {
                     self.stream.read_message(&mut self.buffer_set)?;
                 }
                 Action::TlsHandshake => {
-                    return Err(Error::Protocol("Unexpected TlsHandshake in query state machine".into()));
+                    return Err(Error::Protocol(
+                        "Unexpected TlsHandshake in query state machine".into(),
+                    ));
                 }
                 Action::HandleAsyncMessageAndReadMessage(ref async_msg) => {
                     if let Some(ref mut h) = self.async_message_handler {
@@ -367,7 +372,13 @@ impl Conn {
         param_oids: &[u32],
     ) -> Result<PreparedStatement> {
         let mut handler = DropHandler::new();
-        let mut state_machine = ExtendedQueryStateMachine::prepare(&mut handler, &mut self.buffer_set, idx, query, param_oids);
+        let mut state_machine = ExtendedQueryStateMachine::prepare(
+            &mut handler,
+            &mut self.buffer_set,
+            idx,
+            query,
+            param_oids,
+        );
         self.drive(&mut state_machine)?;
         state_machine
             .take_prepared_statement()
@@ -412,10 +423,20 @@ impl Conn {
         handler: &mut H,
     ) -> Result<()> {
         let mut state_machine = if statement.needs_parse() {
-            ExtendedQueryStateMachine::execute_sql(handler, &mut self.buffer_set, statement.as_sql().unwrap(), params)
+            ExtendedQueryStateMachine::execute_sql(
+                handler,
+                &mut self.buffer_set,
+                statement.as_sql().unwrap(),
+                params,
+            )
         } else {
             let stmt = statement.as_prepared().unwrap();
-            ExtendedQueryStateMachine::execute(handler, &mut self.buffer_set, &stmt.wire_name(), params)
+            ExtendedQueryStateMachine::execute(
+                handler,
+                &mut self.buffer_set,
+                &stmt.wire_name(),
+                params,
+            )
         };
 
         self.drive(&mut state_machine)
@@ -447,7 +468,11 @@ impl Conn {
     /// // Or with raw SQL:
     /// let rows: Vec<(i32, String)> = conn.exec_collect("SELECT id, name FROM users", ())?;
     /// ```
-    pub fn exec_collect<T: for<'a> crate::conversion::FromRow<'a>, S: IntoStatement, P: ToParams>(
+    pub fn exec_collect<
+        T: for<'a> crate::conversion::FromRow<'a>,
+        S: IntoStatement,
+        P: ToParams,
+    >(
         &mut self,
         statement: S,
         params: P,
@@ -470,7 +495,8 @@ impl Conn {
 
     fn close_statement_inner(&mut self, name: &str) -> Result<()> {
         let mut handler = DropHandler::new();
-        let mut state_machine = ExtendedQueryStateMachine::close_statement(&mut handler, &mut self.buffer_set, name);
+        let mut state_machine =
+            ExtendedQueryStateMachine::close_statement(&mut handler, &mut self.buffer_set, name);
         self.drive(&mut state_machine)
     }
 
@@ -546,11 +572,17 @@ impl Conn {
         statement_name: &str,
         params: &P,
     ) -> Result<()> {
-        use crate::protocol::backend::{msg_type, BindComplete, ErrorResponse, RawMessage};
+        use crate::protocol::backend::{BindComplete, ErrorResponse, RawMessage, msg_type};
         use crate::protocol::frontend::{write_bind, write_flush};
 
         self.buffer_set.write_buffer.clear();
-        write_bind(&mut self.buffer_set.write_buffer, portal, statement_name, params, &[]);
+        write_bind(
+            &mut self.buffer_set.write_buffer,
+            portal,
+            statement_name,
+            params,
+            &[],
+        );
         write_flush(&mut self.buffer_set.write_buffer);
 
         self.stream.write_all(&self.buffer_set.write_buffer)?;
@@ -617,8 +649,8 @@ impl Conn {
         handler: &mut H,
     ) -> Result<bool> {
         use crate::protocol::backend::{
-            msg_type, CommandComplete, DataRow, ErrorResponse, NoData, PortalSuspended,
-            RawMessage, RowDescription,
+            CommandComplete, DataRow, ErrorResponse, NoData, PortalSuspended, RawMessage,
+            RowDescription, msg_type,
         };
         use crate::protocol::frontend::{write_describe_portal, write_execute, write_flush};
 
@@ -695,7 +727,7 @@ impl Conn {
     }
 
     fn lowlevel_sync_inner(&mut self) -> Result<()> {
-        use crate::protocol::backend::{msg_type, ErrorResponse, RawMessage, ReadyForQuery};
+        use crate::protocol::backend::{ErrorResponse, RawMessage, ReadyForQuery, msg_type};
         use crate::protocol::frontend::write_sync;
 
         self.buffer_set.write_buffer.clear();
@@ -864,7 +896,7 @@ impl Conn {
     }
 
     fn lowlevel_close_portal_inner(&mut self, portal: &str) -> Result<()> {
-        use crate::protocol::backend::{msg_type, CloseComplete, ErrorResponse, RawMessage};
+        use crate::protocol::backend::{CloseComplete, ErrorResponse, RawMessage, msg_type};
         use crate::protocol::frontend::{write_close_portal, write_flush};
 
         self.buffer_set.write_buffer.clear();
@@ -911,4 +943,3 @@ impl Drop for Conn {
         let _ = self.stream.flush();
     }
 }
-

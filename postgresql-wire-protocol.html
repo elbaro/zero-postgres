@@ -71,7 +71,7 @@
 </head>
 <body>
 
-<h1>PostgreSQL 18 Wire Protocol Reference</h1>
+<h1>PostgreSQL Wire Protocol Reference</h1>
 <p>A complete reference for implementing a PostgreSQL client library without libpq.</p>
 
 <div class="toc">
@@ -96,7 +96,7 @@
 
 <h2 id="overview">Protocol Overview</h2>
 <ul>
-<li><strong>Version</strong>: 3.2 (PostgreSQL 18), backward compatible with 3.0 (PostgreSQL 7.4+)</li>
+<li><strong>Version</strong>: 3.2 (PostgreSQL 17+)</li>
 <li><strong>Transport</strong>: TCP/IP or Unix domain sockets</li>
 <li><strong>Default Port</strong>: 5432</li>
 <li><strong>Byte Order</strong>: Network byte order (big-endian) for all integers</li>
@@ -229,14 +229,14 @@ Byte1(0)         Terminator</code></pre>
 <pre><code>Byte1('K')
 Int32            Length
 Int32            Process ID
-Byte[n]          Secret key (4-256 bytes, typically 4)</code></pre>
+Byte[n]          Secret key (4-256 bytes)</code></pre>
 
 <p><strong>2. ParameterStatus</strong> (multiple) - Server configuration:</p>
 <pre><code>Byte1('S')
 Int32            Length
 String           Parameter name
 String           Parameter value</code></pre>
-<p>Common parameters: <code>server_version</code>, <code>server_encoding</code>, <code>client_encoding</code>, <code>DateStyle</code>, <code>TimeZone</code>, <code>integer_datetimes</code>, <code>search_path</code> (new in 3.2)</p>
+<p>Common parameters: <code>server_version</code>, <code>server_encoding</code>, <code>client_encoding</code>, <code>DateStyle</code>, <code>TimeZone</code>, <code>integer_datetimes</code>, <code>search_path</code></p>
 
 <p><strong>3. ReadyForQuery</strong> - Connection ready:</p>
 <pre><code>Byte1('Z')
@@ -801,7 +801,7 @@ String           New value</code></pre>
 <p>To cancel a running query, open a <strong>new connection</strong> and send:</p>
 
 <h3>CancelRequest (no type byte)</h3>
-<pre><code>Int32            Length
+<pre><code>Int32            Length (12 + secret key length)
 Int32(80877102)  Cancel request code
 Int32            Backend PID (from BackendKeyData)
 Byte[n]          Secret key (from BackendKeyData)</code></pre>
@@ -906,7 +906,7 @@ String[]         Unrecognized parameter names</code></pre>
 
 <h2 id="refs">References</h2>
 <ul>
-<li><a href="https://www.postgresql.org/docs/current/protocol.html">PostgreSQL 18 Protocol Documentation</a></li>
+<li><a href="https://www.postgresql.org/docs/current/protocol.html">PostgreSQL Protocol Documentation</a></li>
 <li><a href="https://www.postgresql.org/docs/current/protocol-overview.html">Protocol Overview</a></li>
 <li><a href="https://www.postgresql.org/docs/current/protocol-flow.html">Message Flow</a></li>
 <li><a href="https://www.postgresql.org/docs/current/protocol-message-formats.html">Message Formats</a></li>

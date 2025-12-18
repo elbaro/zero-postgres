@@ -157,8 +157,10 @@ fn test_pipeline_portal_incremental() {
     // Create a table with multiple rows
     conn.query_drop("DROP TABLE IF EXISTS _pipeline_portal_test")
         .unwrap();
-    conn.query_drop("CREATE TEMP TABLE _pipeline_portal_test AS SELECT generate_series(1, 10) as n")
-        .unwrap();
+    conn.query_drop(
+        "CREATE TEMP TABLE _pipeline_portal_test AS SELECT generate_series(1, 10) as n",
+    )
+    .unwrap();
 
     let mut p = conn.pipeline();
 

@@ -10,8 +10,8 @@ use crate::protocol::backend::{
 use crate::protocol::frontend::write_query;
 use crate::protocol::types::TransactionStatus;
 
-use super::action::{Action, AsyncMessage};
 use super::StateMachine;
+use super::action::{Action, AsyncMessage};
 
 /// Simple query state machine state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,23 +131,29 @@ impl<'a, 'q, H: TextHandler> SimpleQueryStateMachine<'a, 'q, H> {
         match msg.type_byte {
             msg_type::NOTICE_RESPONSE => {
                 let notice = crate::protocol::backend::NoticeResponse::parse(msg.payload)?;
-                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::Notice(notice.0)))
+                Ok(Action::HandleAsyncMessageAndReadMessage(
+                    AsyncMessage::Notice(notice.0),
+                ))
             }
             msg_type::PARAMETER_STATUS => {
                 let param = crate::protocol::backend::auth::ParameterStatus::parse(msg.payload)?;
-                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::ParameterChanged {
-                    name: param.name.to_string(),
-                    value: param.value.to_string(),
-                }))
+                Ok(Action::HandleAsyncMessageAndReadMessage(
+                    AsyncMessage::ParameterChanged {
+                        name: param.name.to_string(),
+                        value: param.value.to_string(),
+                    },
+                ))
             }
             msg_type::NOTIFICATION_RESPONSE => {
                 let notification =
                     crate::protocol::backend::auth::NotificationResponse::parse(msg.payload)?;
-                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::Notification {
-                    pid: notification.pid,
-                    channel: notification.channel.to_string(),
-                    payload: notification.payload.to_string(),
-                }))
+                Ok(Action::HandleAsyncMessageAndReadMessage(
+                    AsyncMessage::Notification {
+                        pid: notification.pid,
+                        channel: notification.channel.to_string(),
+                        payload: notification.payload.to_string(),
+                    },
+                ))
             }
             _ => Err(Error::Protocol(format!(
                 "Unknown async message type: '{}'",

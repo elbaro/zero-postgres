@@ -43,7 +43,7 @@ pub fn write_gssenc_request(buf: &mut Vec<u8>) {
 /// Required: "user" - database username
 /// Optional: "database", "options", "replication", "client_encoding", etc.
 pub fn write_startup(buf: &mut Vec<u8>, params: &[(&str, &str)]) {
-    write_startup_with_version(buf, PROTOCOL_VERSION_3_0, params);
+    write_startup_with_version(buf, PROTOCOL_VERSION_3_2, params);
 }
 
 /// Write a StartupMessage with a specific protocol version.
@@ -65,11 +65,13 @@ pub fn write_startup_with_version(buf: &mut Vec<u8>, version: i32, params: &[(&s
 ///
 /// This is sent on a NEW connection to cancel a query running on another connection.
 /// The server closes the connection immediately with no response.
-pub fn write_cancel_request(buf: &mut Vec<u8>, pid: u32, secret_key: u32) {
+///
+/// In protocol 3.2, the secret key is variable-length (4-256 bytes).
+pub fn write_cancel_request(buf: &mut Vec<u8>, pid: u32, secret_key: &[u8]) {
     let mut msg = MessageBuilder::new_startup(buf);
     msg.write_i32(CANCEL_REQUEST_CODE);
     msg.write_i32(pid as i32);
-    msg.write_i32(secret_key as i32);
+    msg.write_bytes(secret_key);
     msg.finish();
 }
 
@@ -106,7 +108,7 @@ mod tests {
 
         // Check protocol version
         let version = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
-        assert_eq!(version, PROTOCOL_VERSION_3_0);
+        assert_eq!(version, PROTOCOL_VERSION_3_2);
     }
 
     #[test]

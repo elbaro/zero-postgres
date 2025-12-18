@@ -3,8 +3,8 @@
 use crate::error::{Error, Result};
 use crate::opts::{Opts, SslMode};
 use crate::protocol::backend::{
-    AuthenticationMessage, BackendKeyData, ErrorResponse, ParameterStatus, RawMessage,
-    ReadyForQuery, msg_type,
+    AuthenticationMessage, BackendKeyData, ErrorResponse, NegotiateProtocolVersion, ParameterStatus,
+    RawMessage, ReadyForQuery, msg_type,
 };
 use crate::protocol::frontend::auth::{ScramClient, md5_password};
 use crate::protocol::frontend::{
@@ -154,6 +154,18 @@ impl ConnectionStateMachine {
 
     fn handle_auth_message(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
+
+        // Handle NegotiateProtocolVersion - server doesn't support our protocol version
+        if type_byte == msg_type::NEGOTIATE_PROTOCOL_VERSION {
+            let negotiate = NegotiateProtocolVersion::parse(&buffer_set.read_buffer)?;
+            // Server sends the newest minor version it supports (0 for 3.0, 1 for 3.1, etc.)
+            return Err(Error::Protocol(format!(
+                "Server does not support protocol 3.2 (requires PostgreSQL 17+). \
+                 Server supports protocol 3.{}. Unrecognized options: {:?}",
+                negotiate.newest_minor_version, negotiate.unrecognized_options
+            )));
+        }
+
         if type_byte != msg_type::AUTHENTICATION {
             return Err(Error::Protocol(format!(
                 "Expected Authentication message, got '{}'",
@@ -309,7 +321,7 @@ impl ConnectionStateMachine {
         match type_byte {
             msg_type::BACKEND_KEY_DATA => {
                 let key = BackendKeyData::parse(payload)?;
-                self.backend_key = Some(*key);
+                self.backend_key = Some(key);
                 Ok(Action::ReadMessage)
             }
             msg_type::PARAMETER_STATUS => {
@@ -335,23 +347,29 @@ impl ConnectionStateMachine {
         match msg.type_byte {
             msg_type::NOTICE_RESPONSE => {
                 let notice = crate::protocol::backend::NoticeResponse::parse(msg.payload)?;
-                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::Notice(notice.0)))
+                Ok(Action::HandleAsyncMessageAndReadMessage(
+                    AsyncMessage::Notice(notice.0),
+                ))
             }
             msg_type::PARAMETER_STATUS => {
                 let param = ParameterStatus::parse(msg.payload)?;
-                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::ParameterChanged {
-                    name: param.name.to_string(),
-                    value: param.value.to_string(),
-                }))
+                Ok(Action::HandleAsyncMessageAndReadMessage(
+                    AsyncMessage::ParameterChanged {
+                        name: param.name.to_string(),
+                        value: param.value.to_string(),
+                    },
+                ))
             }
             msg_type::NOTIFICATION_RESPONSE => {
                 let notification =
                     crate::protocol::backend::auth::NotificationResponse::parse(msg.payload)?;
-                Ok(Action::HandleAsyncMessageAndReadMessage(AsyncMessage::Notification {
-                    pid: notification.pid,
-                    channel: notification.channel.to_string(),
-                    payload: notification.payload.to_string(),
-                }))
+                Ok(Action::HandleAsyncMessageAndReadMessage(
+                    AsyncMessage::Notification {
+                        pid: notification.pid,
+                        channel: notification.channel.to_string(),
+                        payload: notification.payload.to_string(),
+                    },
+                ))
             }
             _ => Err(Error::Protocol(format!(
                 "Unknown async message type: '{}'",

@@ -5,7 +5,6 @@ use zerocopy::{FromBytes, Immutable, KnownLayout};
 use crate::error::{Error, Result};
 use crate::protocol::codec::{read_cstr, read_i32, read_u32};
 use crate::protocol::types::TransactionStatus;
-use zerocopy::byteorder::big_endian::U32 as U32BE;
 
 /// Authentication method constants.
 pub mod auth_type {
@@ -87,29 +86,43 @@ impl<'a> AuthenticationMessage<'a> {
 }
 
 /// BackendKeyData message - contains process ID and secret key for cancellation.
-#[derive(Debug, Clone, Copy, FromBytes, KnownLayout, Immutable)]
-#[repr(C, packed)]
+///
+/// In protocol 3.2, the secret key is variable-length (4-256 bytes).
+#[derive(Debug, Clone)]
 pub struct BackendKeyData {
     /// Process ID of the backend
-    pub pid: U32BE,
-    /// Secret key for cancellation
-    pub secret_key: U32BE,
+    pid: u32,
+    /// Secret key for cancellation (variable length in protocol 3.2)
+    secret_key: Vec<u8>,
 }
 
 impl BackendKeyData {
     /// Parse a BackendKeyData message from payload bytes.
-    pub fn parse(payload: &[u8]) -> Result<&Self> {
-        Self::ref_from_bytes(payload).map_err(|e| Error::Protocol(format!("BackendKeyData: {e:?}")))
+    pub fn parse(payload: &[u8]) -> Result<Self> {
+        if payload.len() < 4 {
+            return Err(Error::Protocol("BackendKeyData: payload too short".into()));
+        }
+        let (pid, rest) = read_u32(payload)?;
+        if rest.len() < 4 || rest.len() > 256 {
+            return Err(Error::Protocol(format!(
+                "BackendKeyData: invalid secret key length {}",
+                rest.len()
+            )));
+        }
+        Ok(Self {
+            pid,
+            secret_key: rest.to_vec(),
+        })
     }
 
     /// Get the process ID.
     pub fn process_id(&self) -> u32 {
-        self.pid.get()
+        self.pid
     }
 
-    /// Get the secret key.
-    pub fn secret(&self) -> u32 {
-        self.secret_key.get()
+    /// Get the secret key bytes.
+    pub fn secret_key(&self) -> &[u8] {
+        &self.secret_key
     }
 }
 

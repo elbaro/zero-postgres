@@ -19,7 +19,7 @@ fn main() -> zero_postgres::Result<()> {
     if let Some(key) = conn.backend_key() {
         println!("=== Backend Process ===");
         println!("  Process ID: {}", key.process_id());
-        println!("  Secret Key: {}", key.secret());
+        println!("  Secret Key: {:?}", key.secret_key());
         println!();
     }
 

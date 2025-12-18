@@ -6,7 +6,10 @@ pub mod error;
 pub mod extended;
 pub mod query;
 
-pub use auth::{AuthenticationMessage, BackendKeyData, ParameterStatus, ReadyForQuery};
+pub use auth::{
+    AuthenticationMessage, BackendKeyData, NegotiateProtocolVersion, NotificationResponse,
+    ParameterStatus, ReadyForQuery,
+};
 pub use copy::{CopyInResponse, CopyOutResponse};
 // Re-export shared copy types for convenience
 pub use super::copy::{CopyData, CopyDone};

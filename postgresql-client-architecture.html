@@ -176,23 +176,52 @@
 │   │   ├── <span class="file">extended.rs</span>     <span class="comment"># ParseComplete, BindComplete, CloseComplete, etc.</span>
 │   │   └── <span class="file">copy.rs</span>         <span class="comment"># CopyInResponse, CopyOutResponse, CopyData, CopyDone</span>
 │   │
-│   ├── <span class="file">types.rs</span>            <span class="comment"># FormatCode, TransactionStatus, Oid</span>
+│   ├── <span class="file">copy.rs</span>             <span class="comment"># Shared COPY types</span>
+│   ├── <span class="file">types.rs</span>            <span class="comment"># FormatCode, TransactionStatus, Oid, well-known OIDs</span>
 │   └── <span class="file">codec.rs</span>            <span class="comment"># Int16/Int32/String encoding/decoding</span>
 │
 ├── <span class="dir">state/</span>                  <span class="comment"># Sans-I/O state machines</span>
+│   ├── <span class="file">mod.rs</span>              <span class="comment"># StateMachine trait</span>
 │   ├── <span class="file">connection.rs</span>       <span class="comment"># Startup + Authentication</span>
 │   ├── <span class="file">simple_query.rs</span>     <span class="comment"># Simple query protocol</span>
-│   ├── <span class="file">extended.rs</span>         <span class="comment"># Extended query protocol</span>
-│   ├── <span class="file">copy.rs</span>             <span class="comment"># COPY protocol</span>
-│   └── <span class="file">action.rs</span>           <span class="comment"># Action enum for I/O requests</span>
+│   ├── <span class="file">extended.rs</span>         <span class="comment"># Extended query protocol + PreparedStatement</span>
+│   └── <span class="file">action.rs</span>           <span class="comment"># Action enum, AsyncMessage</span>
+│
+├── <span class="dir">conversion/</span>             <span class="comment"># Type conversion</span>
+│   ├── <span class="file">mod.rs</span>              <span class="comment"># FromRow, ToParams traits</span>
+│   ├── <span class="file">primitives.rs</span>       <span class="comment"># i32, i64, f64, bool, etc.</span>
+│   ├── <span class="file">string.rs</span>           <span class="comment"># String, &amp;str</span>
+│   ├── <span class="file">bytes.rs</span>            <span class="comment"># Vec&lt;u8&gt;, &amp;[u8]</span>
+│   ├── <span class="file">time.rs</span>             <span class="comment"># time crate types (feature-gated)</span>
+│   ├── <span class="file">chrono.rs</span>           <span class="comment"># chrono types (feature-gated)</span>
+│   ├── <span class="file">uuid.rs</span>             <span class="comment"># UUID (feature-gated)</span>
+│   ├── <span class="file">decimal.rs</span>          <span class="comment"># rust_decimal (feature-gated)</span>
+│   └── <span class="file">row.rs</span>              <span class="comment"># Row parsing utilities</span>
 │
 ├── <span class="dir">sync/</span>                   <span class="comment"># Synchronous API</span>
-│   ├── <span class="file">conn.rs</span>             <span class="comment"># Connection</span>
-│   └── <span class="file">pool.rs</span>             <span class="comment"># Connection pool (optional)</span>
+│   ├── <span class="file">mod.rs</span>
+│   ├── <span class="file">conn.rs</span>             <span class="comment"># Conn - main connection type</span>
+│   ├── <span class="file">stream.rs</span>           <span class="comment"># Stream (TCP/Unix/TLS)</span>
+│   ├── <span class="file">pool.rs</span>             <span class="comment"># Connection pool</span>
+│   ├── <span class="file">transaction.rs</span>      <span class="comment"># Transaction handle</span>
+│   ├── <span class="file">unnamed_portal.rs</span>   <span class="comment"># Cursor-style iteration</span>
+│   └── <span class="dir">pipeline/</span>           <span class="comment"># Pipelining support</span>
+│       ├── <span class="file">mod.rs</span>          <span class="comment"># Pipeline struct</span>
+│       └── <span class="file">handles.rs</span>      <span class="comment"># QueuedPrepare, QueuedPortal, QueuedExec</span>
 │
 ├── <span class="dir">tokio/</span>                  <span class="comment"># Async API (feature-gated)</span>
-│   └── <span class="file">conn.rs</span>
+│   ├── <span class="file">mod.rs</span>
+│   ├── <span class="file">conn.rs</span>
+│   ├── <span class="file">stream.rs</span>
+│   ├── <span class="file">pool.rs</span>
+│   └── <span class="file">transaction.rs</span>
 │
+├── <span class="file">buffer_pool.rs</span>          <span class="comment"># Global buffer pool</span>
+├── <span class="file">buffer_set.rs</span>           <span class="comment"># Per-connection buffers</span>
+├── <span class="file">handler.rs</span>              <span class="comment"># TextHandler, BinaryHandler, AsyncMessageHandler</span>
+├── <span class="file">statement.rs</span>            <span class="comment"># IntoStatement trait</span>
+├── <span class="file">opts.rs</span>                 <span class="comment"># Connection options</span>
+├── <span class="file">error.rs</span>                <span class="comment"># Error types</span>
 └── <span class="file">lib.rs</span></pre>
 
     <h2>Message Design</h2>
@@ -231,11 +260,10 @@
     <span class="keyword">pub</span> status: <span class="type">u8</span>,  <span class="comment">// 'I', 'T', or 'E'</span>
 }
 
-<span class="macro">#[derive(FromBytes, KnownLayout, Immutable)]</span>
-<span class="macro">#[repr(C, packed)]</span>
+<span class="comment">/// BackendKeyData - variable-length secret key in protocol 3.2</span>
 <span class="keyword">pub struct</span> <span class="type">BackendKeyData</span> {
-    <span class="keyword">pub</span> pid: <span class="type">U32BE</span>,
-    <span class="keyword">pub</span> secret_key: <span class="type">U32BE</span>,
+    pid: <span class="type">u32</span>,
+    secret_key: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,  <span class="comment">// 4-256 bytes</span>
 }</code></pre>
 
     <p>For messages with <code>String</code> or <code>Bytes[n]</code> at start/end, split into Head/Tail:</p>
@@ -328,69 +356,138 @@
     <span class="comment">// ...</span>
 }</code></pre>
 
-    <h2>Handler Trait</h2>
-    <pre><code><span class="keyword">pub trait</span> <span class="type">QueryHandler</span> {
-    <span class="keyword">fn</span> <span class="function">columns</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, desc: <span class="type">RowDescription</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;(), <span class="type">Error</span>&gt;;
-    <span class="keyword">fn</span> <span class="function">row</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, row: <span class="type">DataRow</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;<span class="type">ControlFlow</span>, <span class="type">Error</span>&gt;;
+    <h2>Handler Traits</h2>
+    <p>Separate traits for text (simple query) and binary (extended query) handlers:</p>
+    <pre><code><span class="comment">/// Handler for simple query results (text format).</span>
+<span class="keyword">pub trait</span> <span class="type">TextHandler</span> {
+    <span class="comment">/// Called when a result set begins.</span>
+    <span class="keyword">fn</span> <span class="function">result_start</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, cols: <span class="type">RowDescription</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;()&gt; { <span class="type">Ok</span>(()) }
+
+    <span class="comment">/// Called for each data row.</span>
+    <span class="keyword">fn</span> <span class="function">row</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, cols: <span class="type">RowDescription</span>&lt;<span class="lifetime">'_</span>&gt;, row: <span class="type">DataRow</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;()&gt;;
+
+    <span class="comment">/// Called when a result set ends.</span>
+    <span class="keyword">fn</span> <span class="function">result_end</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, complete: <span class="type">CommandComplete</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;()&gt; { <span class="type">Ok</span>(()) }
 }
 
-<span class="keyword">pub enum</span> <span class="type">ControlFlow</span> {
-    Continue,
-    Stop,
+<span class="comment">/// Handler for extended query results (binary format).</span>
+<span class="keyword">pub trait</span> <span class="type">BinaryHandler</span> {
+    <span class="keyword">fn</span> <span class="function">result_start</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, cols: <span class="type">RowDescription</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;()&gt; { <span class="type">Ok</span>(()) }
+    <span class="keyword">fn</span> <span class="function">row</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, cols: <span class="type">RowDescription</span>&lt;<span class="lifetime">'_</span>&gt;, row: <span class="type">DataRow</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;()&gt;;
+    <span class="keyword">fn</span> <span class="function">result_end</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, complete: <span class="type">CommandComplete</span>&lt;<span class="lifetime">'_</span>&gt;) -&gt; <span class="type">Result</span>&lt;()&gt; { <span class="type">Ok</span>(()) }
 }</code></pre>
+
+    <h3>Built-in Handlers</h3>
+    <pre><code><span class="comment">/// Discards all results, captures rows_affected.</span>
+<span class="keyword">pub struct</span> <span class="type">DropHandler</span>;
+
+<span class="comment">/// Collects typed rows via FromRow trait.</span>
+<span class="keyword">pub struct</span> <span class="type">CollectHandler</span>&lt;T: <span class="type">FromRow</span>&gt;;
+
+<span class="comment">/// Captures only the first row.</span>
+<span class="keyword">pub struct</span> <span class="type">FirstRowHandler</span>&lt;T: <span class="type">FromRow</span>&gt;;</code></pre>
+
+    <h3>FromRow Trait</h3>
+    <pre><code><span class="comment">/// Convert a database row to a typed value.</span>
+<span class="keyword">pub trait</span> <span class="type">FromRow</span>&lt;<span class="lifetime">'a</span>&gt;: <span class="type">Sized</span> {
+    <span class="keyword">fn</span> <span class="function">from_row</span>(fields: <span class="type">RowDescriptionFields</span>&lt;<span class="lifetime">'a</span>&gt;, row: <span class="type">DataRow</span>&lt;<span class="lifetime">'a</span>&gt;) -&gt; <span class="type">Result</span>&lt;<span class="type">Self</span>&gt;;
+}
+
+<span class="comment">// Implemented for tuples: (T1,), (T1, T2), ... (T1, ..., T12)</span>
+<span class="keyword">impl</span>&lt;<span class="lifetime">'a</span>, T1: <span class="type">FromSql</span>&lt;<span class="lifetime">'a</span>&gt;&gt; <span class="type">FromRow</span>&lt;<span class="lifetime">'a</span>&gt; <span class="keyword">for</span> (T1,) { ... }
+<span class="keyword">impl</span>&lt;<span class="lifetime">'a</span>, T1, T2&gt; <span class="type">FromRow</span>&lt;<span class="lifetime">'a</span>&gt; <span class="keyword">for</span> (T1, T2) <span class="keyword">where</span> T1: <span class="type">FromSql</span>&lt;<span class="lifetime">'a</span>&gt;, T2: <span class="type">FromSql</span>&lt;<span class="lifetime">'a</span>&gt; { ... }
+<span class="comment">// ...</span></code></pre>
 
     <h2>Async Message Handling</h2>
     <p>Async messages (NotificationResponse, NoticeResponse, ParameterStatus) can arrive at any time.</p>
 
     <h3>State Machine Action</h3>
-    <pre><code><span class="keyword">pub enum</span> <span class="type">Action</span>&lt;<span class="lifetime">'buf</span>&gt; {
-    NeedPacket(&amp;<span class="lifetime">'buf</span> <span class="keyword">mut</span> <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;),
-    WritePacket(&amp;<span class="lifetime">'buf</span> [<span class="type">u8</span>]),
-    AsyncMessage(<span class="type">AsyncMessage</span>),
+    <pre><code><span class="comment">/// Action requested by a state machine.</span>
+<span class="keyword">pub enum</span> <span class="type">Action</span> {
+    <span class="comment">/// Write SSL request, then read single byte response ('S' or 'N').</span>
+    WriteAndReadByte,
+
+    <span class="comment">/// Read a PostgreSQL message (type byte + length + payload).</span>
+    ReadMessage,
+
+    <span class="comment">/// Write `buffer_set.write_buffer` to the server.</span>
+    Write,
+
+    <span class="comment">/// Write then read a message (common for queries).</span>
+    WriteAndReadMessage,
+
+    <span class="comment">/// Perform TLS handshake after SSL negotiation.</span>
+    TlsHandshake,
+
+    <span class="comment">/// Handle async message, then read next message.</span>
+    HandleAsyncMessageAndReadMessage(<span class="type">AsyncMessage</span>),
+
+    <span class="comment">/// State machine has completed.</span>
     Finished,
 }
 
 <span class="keyword">pub enum</span> <span class="type">AsyncMessage</span> {
-    Notification { pid: <span class="type">i32</span>, channel: <span class="type">String</span>, payload: <span class="type">String</span> },
-    Notice(<span class="type">NoticeFields</span>),
+    Notification { pid: <span class="type">u32</span>, channel: <span class="type">String</span>, payload: <span class="type">String</span> },
+    Notice(<span class="type">ServerError</span>),
     ParameterChanged { name: <span class="type">String</span>, value: <span class="type">String</span> },
 }</code></pre>
 
     <h3>Sync API: Callback Handler</h3>
-    <pre><code><span class="keyword">pub trait</span> <span class="type">AsyncHandler</span> {
-    <span class="keyword">fn</span> <span class="function">notification</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, pid: <span class="type">i32</span>, channel: &amp;<span class="type">str</span>, payload: &amp;<span class="type">str</span>) {}
-    <span class="keyword">fn</span> <span class="function">notice</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, notice: &amp;<span class="type">NoticeFields</span>) {}
-    <span class="keyword">fn</span> <span class="function">parameter_changed</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, name: &amp;<span class="type">str</span>, value: &amp;<span class="type">str</span>) {}
+    <pre><code><span class="comment">/// Handler for asynchronous messages from the server.</span>
+<span class="keyword">pub trait</span> <span class="type">AsyncMessageHandler</span>: <span class="type">Send</span> {
+    <span class="keyword">fn</span> <span class="function">handle</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, msg: &amp;<span class="type">AsyncMessage</span>);
 }
 
-<span class="keyword">pub struct</span> <span class="type">Connection</span>&lt;H: <span class="type">AsyncHandler</span>&gt; {
-    stream: <span class="type">TcpStream</span>,
-    async_handler: H,
-    <span class="comment">// ...</span>
-}</code></pre>
-
-    <h3>Async API: Channel</h3>
-    <pre><code><span class="keyword">pub struct</span> <span class="type">AsyncConnection</span> {
-    stream: <span class="type">TcpStream</span>,
-    notifications_tx: mpsc::<span class="type">UnboundedSender</span>&lt;<span class="type">Notification</span>&gt;,
+<span class="comment">// Closures implement AsyncMessageHandler automatically</span>
+<span class="keyword">impl</span>&lt;F: <span class="type">FnMut</span>(&amp;<span class="type">AsyncMessage</span>) + <span class="type">Send</span>&gt; <span class="type">AsyncMessageHandler</span> <span class="keyword">for</span> F {
+    <span class="keyword">fn</span> <span class="function">handle</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, msg: &amp;<span class="type">AsyncMessage</span>) { <span class="keyword">self</span>(msg) }
 }
 
-<span class="keyword">impl</span> <span class="type">AsyncConnection</span> {
-    <span class="keyword">pub fn</span> <span class="function">subscribe</span>(&amp;<span class="keyword">self</span>) -&gt; mpsc::<span class="type">UnboundedReceiver</span>&lt;<span class="type">Notification</span>&gt;;
-}</code></pre>
+<span class="comment">// Usage</span>
+<span class="keyword">let mut</span> conn = <span class="type">Conn</span>::<span class="function">new</span>(opts)?;
+conn.<span class="function">set_async_message_handler</span>(|msg: &amp;<span class="type">AsyncMessage</span>| {
+    <span class="keyword">match</span> msg {
+        <span class="type">AsyncMessage</span>::Notification { channel, payload, .. } =&gt; {
+            <span class="macro">println!</span>(<span class="string">"Notification on {}: {}"</span>, channel, payload);
+        }
+        <span class="type">AsyncMessage</span>::Notice(err) =&gt; {
+            <span class="macro">println!</span>(<span class="string">"Notice: {:?}"</span>, err);
+        }
+        <span class="type">AsyncMessage</span>::ParameterChanged { name, value } =&gt; {
+            <span class="macro">println!</span>(<span class="string">"Parameter {} = {}"</span>, name, value);
+        }
+    }
+});</code></pre>
 
     <h2>Buffer Management</h2>
-    <p>Keep zero-mysql's BufferSet pattern to avoid Arc overhead:</p>
+
+    <h3>BufferSet</h3>
+    <p>Per-connection buffers for reading, writing, and column metadata:</p>
     <pre><code><span class="keyword">pub struct</span> <span class="type">BufferSet</span> {
-    read_buffer: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,
-    write_buffer: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,
-    <span class="comment">// Reusable scratch buffers</span>
+    <span class="keyword">pub</span> read_buffer: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,     <span class="comment">// Message payload (without type byte)</span>
+    <span class="keyword">pub</span> write_buffer: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,    <span class="comment">// Outgoing messages</span>
+    <span class="keyword">pub</span> column_buffer: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,   <span class="comment">// Cached RowDescription for row iteration</span>
+    <span class="keyword">pub</span> type_byte: <span class="type">u8</span>,            <span class="comment">// Last message type byte received</span>
+}</code></pre>
+
+    <h3>BufferPool</h3>
+    <p>Global pool for reusing BufferSets across connections:</p>
+    <pre><code><span class="comment">/// Global buffer pool (thread-safe).</span>
+<span class="keyword">pub static</span> GLOBAL_BUFFER_POOL: <span class="type">LazyLock</span>&lt;<span class="type">Arc</span>&lt;<span class="type">BufferPool</span>&gt;&gt;;
+
+<span class="keyword">pub struct</span> <span class="type">BufferPool</span> {
+    buffer_sets: <span class="type">ArrayQueue</span>&lt;<span class="type">BufferSet</span>&gt;,
 }
 
-<span class="keyword">impl</span> <span class="type">BufferSet</span> {
-    <span class="keyword">pub fn</span> <span class="function">read_buffer</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;;
-    <span class="keyword">pub fn</span> <span class="function">write_buffer</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;;
-    <span class="keyword">pub fn</span> <span class="function">reset</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>);
+<span class="keyword">impl</span> <span class="type">BufferPool</span> {
+    <span class="keyword">pub fn</span> <span class="function">get_buffer_set</span>(<span class="keyword">self</span>: &amp;<span class="type">Arc</span>&lt;<span class="type">Self</span>&gt;) -&gt; <span class="type">PooledBufferSet</span>;
+    <span class="keyword">pub fn</span> <span class="function">return_buffer_set</span>(&amp;<span class="keyword">self</span>, buffer_set: <span class="type">BufferSet</span>);
+}
+
+<span class="comment">/// RAII wrapper that returns BufferSet to pool on drop.</span>
+<span class="keyword">pub struct</span> <span class="type">PooledBufferSet</span> {
+    pool: <span class="type">Arc</span>&lt;<span class="type">BufferPool</span>&gt;,
+    inner: <span class="type">ManuallyDrop</span>&lt;<span class="type">BufferSet</span>&gt;,
 }</code></pre>
 
     <h2>Transaction Status Tracking</h2>
@@ -408,19 +505,77 @@
 }</code></pre>
 
     <h2>Pipelining Support</h2>
-    <p>PostgreSQL's extended protocol supports pipelining natively:</p>
-    <pre><code><span class="keyword">pub struct</span> <span class="type">Pipeline</span>&lt;<span class="lifetime">'conn</span>&gt; {
-    conn: &amp;<span class="lifetime">'conn</span> <span class="keyword">mut</span> <span class="type">Connection</span>,
-    pending: <span class="type">Vec</span>&lt;<span class="type">PipelineCommand</span>&gt;,
+    <p>PostgreSQL's extended protocol supports pipelining natively. The implementation uses typed handles for compile-time safety:</p>
+
+    <h3>Handle Types</h3>
+    <pre><code><span class="comment">/// Handle for a queued prepare operation.</span>
+<span class="keyword">pub struct</span> <span class="type">QueuedPrepare</span> { seq: <span class="type">usize</span>, stmt_name: <span class="type">String</span> }
+
+<span class="comment">/// Handle for a queued bind (named portal) operation.</span>
+<span class="keyword">pub struct</span> <span class="type">QueuedPortal</span> { seq: <span class="type">usize</span>, portal_name: <span class="type">String</span>, ... }
+
+<span class="comment">/// Handle for a queued execute operation with typed rows.</span>
+<span class="keyword">pub struct</span> <span class="type">QueuedExec</span>&lt;T&gt; { seq: <span class="type">usize</span>, ... }
+
+<span class="comment">/// Result of harvesting an execute operation.</span>
+<span class="keyword">pub struct</span> <span class="type">ExecResult</span>&lt;T&gt; {
+    <span class="keyword">pub</span> rows: <span class="type">Vec</span>&lt;T&gt;,
+    <span class="keyword">pub</span> suspended: <span class="type">bool</span>,  <span class="comment">// true if more rows available (PortalSuspended)</span>
+}</code></pre>
+
+    <h3>Pipeline API</h3>
+    <pre><code><span class="keyword">pub struct</span> <span class="type">Pipeline</span>&lt;<span class="lifetime">'a</span>&gt; {
+    conn: &amp;<span class="lifetime">'a</span> <span class="keyword">mut</span> <span class="type">Conn</span>,
+    <span class="comment">// ...</span>
 }
 
-<span class="keyword">impl</span>&lt;<span class="lifetime">'conn</span>&gt; <span class="type">Pipeline</span>&lt;<span class="lifetime">'conn</span>&gt; {
-    <span class="keyword">pub fn</span> <span class="function">query</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, sql: &amp;<span class="type">str</span>) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Self</span>;
-    <span class="keyword">pub fn</span> <span class="function">prepare</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, name: &amp;<span class="type">str</span>, sql: &amp;<span class="type">str</span>) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Self</span>;
-    <span class="keyword">pub fn</span> <span class="function">execute</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, stmt: &amp;<span class="type">str</span>, params: &amp;[&amp;<span class="keyword">dyn</span> <span class="type">ToSql</span>]) -&gt; &amp;<span class="keyword">mut</span> <span class="type">Self</span>;
+<span class="keyword">impl</span>&lt;<span class="lifetime">'a</span>&gt; <span class="type">Pipeline</span>&lt;<span class="lifetime">'a</span>&gt; {
+    <span class="comment">// Queue operations - write messages immediately, don't wait for response</span>
+    <span class="keyword">pub fn</span> <span class="function">prepare</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, sql: &amp;<span class="type">str</span>) -&gt; <span class="type">Result</span>&lt;<span class="type">QueuedPrepare</span>&gt;;
+    <span class="keyword">pub fn</span> <span class="function">bind</span>&lt;P: <span class="type">ToParams</span>&gt;(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, stmt: &amp;<span class="type">QueuedPrepare</span>, params: P) -&gt; <span class="type">Result</span>&lt;<span class="type">QueuedPortal</span>&gt;;
+    <span class="keyword">pub fn</span> <span class="function">execute</span>&lt;T&gt;(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, portal: &amp;<span class="type">QueuedPortal</span>, max_rows: <span class="type">u32</span>) -&gt; <span class="type">Result</span>&lt;<span class="type">QueuedExec</span>&lt;T&gt;&gt;;
+    <span class="keyword">pub fn</span> <span class="function">exec</span>&lt;T, P&gt;(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, stmt: &amp;<span class="type">QueuedPrepare</span>, params: P) -&gt; <span class="type">Result</span>&lt;<span class="type">QueuedExec</span>&lt;T&gt;&gt;;
 
-    <span class="comment">/// Send all commands and iterate results</span>
-    <span class="keyword">pub fn</span> <span class="function">run</span>(<span class="keyword">self</span>) -&gt; <span class="type">PipelineResults</span>&lt;<span class="lifetime">'conn</span>&gt;;
+    <span class="comment">// Sync ends implicit transaction</span>
+    <span class="keyword">pub fn</span> <span class="function">sync</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>) -&gt; <span class="type">Result</span>&lt;()&gt;;
+
+    <span class="comment">// Harvest results in order</span>
+    <span class="keyword">pub fn</span> <span class="function">harvest</span>&lt;H: <span class="type">Harvest</span>&gt;(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, handle: H) -&gt; <span class="type">Result</span>&lt;H::<span class="type">Output</span>&gt;;
+}</code></pre>
+
+    <h3>Example Usage</h3>
+    <pre><code><span class="keyword">let mut</span> p = conn.<span class="function">pipeline</span>();
+
+<span class="comment">// Queue operations - these write to socket immediately</span>
+<span class="keyword">let</span> prep = p.<span class="function">prepare</span>(<span class="string">"SELECT id, name FROM users WHERE active = $1"</span>)?;
+<span class="keyword">let</span> q1 = p.<span class="function">exec</span>::&lt;(i32, <span class="type">String</span>), _&gt;(&amp;prep, (<span class="keyword">true</span>,))?;
+<span class="keyword">let</span> q2 = p.<span class="function">exec</span>::&lt;(i32, <span class="type">String</span>), _&gt;(&amp;prep, (<span class="keyword">false</span>,))?;
+
+<span class="comment">// Mark end of implicit transaction</span>
+p.<span class="function">sync</span>()?;
+
+<span class="comment">// Harvest results in queued order</span>
+<span class="keyword">let</span> stmt = p.<span class="function">harvest</span>(prep)?;       <span class="comment">// PreparedStatement</span>
+<span class="keyword">let</span> active = p.<span class="function">harvest</span>(q1)?;       <span class="comment">// ExecResult&lt;(i32, String)&gt;</span>
+<span class="keyword">let</span> inactive = p.<span class="function">harvest</span>(q2)?;     <span class="comment">// ExecResult&lt;(i32, String)&gt;</span></code></pre>
+
+    <h3>Portal Example (Cursor-style)</h3>
+    <pre><code><span class="keyword">let mut</span> p = conn.<span class="function">pipeline</span>();
+
+<span class="keyword">let</span> prep = p.<span class="function">prepare</span>(<span class="string">"SELECT * FROM big_table"</span>)?;
+<span class="keyword">let</span> portal = p.<span class="function">bind</span>(&amp;prep, ())?;
+<span class="keyword">let</span> batch1 = p.<span class="function">execute</span>::&lt;<span class="type">Row</span>&gt;(&amp;portal, <span class="string">100</span>)?;  <span class="comment">// max 100 rows</span>
+<span class="keyword">let</span> batch2 = p.<span class="function">execute</span>::&lt;<span class="type">Row</span>&gt;(&amp;portal, <span class="string">100</span>)?;  <span class="comment">// next 100 rows</span>
+
+p.<span class="function">sync</span>()?;
+
+<span class="keyword">let</span> _stmt = p.<span class="function">harvest</span>(prep)?;
+p.<span class="function">harvest</span>(portal)?;
+<span class="keyword">let</span> result1 = p.<span class="function">harvest</span>(batch1)?;
+<span class="keyword">let</span> result2 = p.<span class="function">harvest</span>(batch2)?;
+
+<span class="keyword">if</span> result1.suspended {
+    <span class="comment">// More rows were available after batch1</span>
 }</code></pre>
 
     <h2>Why Frontend/Backend Separation</h2>
