@@ -140,56 +140,66 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
     /// Execute a prepared statement.
     ///
     /// Writes Bind + DescribePortal + Execute + Sync to `buffer_set.write_buffer`.
+    ///
+    /// Uses the server-provided parameter OIDs to encode parameters, which allows
+    /// flexible type conversion (e.g., i64 encoded as INT4 if server expects INT4).
     pub fn execute<P: ToParams>(
         handler: &'a mut H,
         buffer_set: &mut BufferSet,
         statement_name: &str,
+        param_oids: &[Oid],
         params: &P,
-    ) -> Self {
+    ) -> Result<Self> {
         buffer_set.write_buffer.clear();
         write_bind(
             &mut buffer_set.write_buffer,
             "",
             statement_name,
             params,
+            param_oids,
             &[],
-        );
+        )?;
         write_describe_portal(&mut buffer_set.write_buffer, "");
         write_execute(&mut buffer_set.write_buffer, "", 0);
         write_sync(&mut buffer_set.write_buffer);
 
-        Self {
+        Ok(Self {
             state: State::Initial,
             handler,
             operation: Operation::Execute,
             transaction_status: TransactionStatus::Idle,
             prepared_stmt: None,
-        }
+        })
     }
 
     /// Execute raw SQL (unnamed statement).
     ///
     /// Writes Parse + Bind + DescribePortal + Execute + Sync to `buffer_set.write_buffer`.
+    ///
+    /// Uses the natural OIDs from the parameters to inform the server about parameter types,
+    /// which prevents "incorrect binary data format" errors when the server would otherwise
+    /// infer a different type (e.g., INT4 vs INT8).
     pub fn execute_sql<P: ToParams>(
         handler: &'a mut H,
         buffer_set: &mut BufferSet,
         sql: &str,
         params: &P,
-    ) -> Self {
+    ) -> Result<Self> {
+        let param_oids = params.natural_oids();
         buffer_set.write_buffer.clear();
-        write_parse(&mut buffer_set.write_buffer, "", sql, &[]); // unnamed statement
-        write_bind(&mut buffer_set.write_buffer, "", "", params, &[]); // bind to unnamed portal
+        write_parse(&mut buffer_set.write_buffer, "", sql, &param_oids); // unnamed statement with OIDs
+        write_bind(&mut buffer_set.write_buffer, "", "", params, &param_oids, &[])?; // bind to unnamed portal
         write_describe_portal(&mut buffer_set.write_buffer, "");
         write_execute(&mut buffer_set.write_buffer, "", 0);
         write_sync(&mut buffer_set.write_buffer);
 
-        Self {
+        Ok(Self {
             state: State::Initial,
             handler,
             operation: Operation::ExecuteSql,
             transaction_status: TransactionStatus::Idle,
             prepared_stmt: None,
-        }
+        })
     }
 
     /// Close a prepared statement.
@@ -488,40 +498,47 @@ impl BindStateMachine {
     /// Bind a prepared statement to an unnamed portal.
     ///
     /// Writes Bind + Flush to `buffer_set.write_buffer`.
+    ///
+    /// Uses the server-provided parameter OIDs to encode parameters.
     pub fn bind_prepared<P: ToParams>(
         buffer_set: &mut BufferSet,
         statement_name: &str,
+        param_oids: &[Oid],
         params: &P,
-    ) -> Self {
+    ) -> Result<Self> {
         buffer_set.write_buffer.clear();
         write_bind(
             &mut buffer_set.write_buffer,
             "",
             statement_name,
             params,
+            param_oids,
             &[],
-        );
+        )?;
         write_flush(&mut buffer_set.write_buffer);
 
-        Self {
+        Ok(Self {
             state: BindState::Initial,
             needs_parse: false,
-        }
+        })
     }
 
     /// Parse raw SQL and bind to an unnamed portal.
     ///
     /// Writes Parse + Bind + Flush to `buffer_set.write_buffer`.
-    pub fn bind_sql<P: ToParams>(buffer_set: &mut BufferSet, sql: &str, params: &P) -> Self {
+    ///
+    /// Uses the natural OIDs from the parameters to inform the server about parameter types.
+    pub fn bind_sql<P: ToParams>(buffer_set: &mut BufferSet, sql: &str, params: &P) -> Result<Self> {
+        let param_oids = params.natural_oids();
         buffer_set.write_buffer.clear();
-        write_parse(&mut buffer_set.write_buffer, "", sql, &[]); // unnamed statement
-        write_bind(&mut buffer_set.write_buffer, "", "", params, &[]); // bind to unnamed portal
+        write_parse(&mut buffer_set.write_buffer, "", sql, &param_oids); // unnamed statement with OIDs
+        write_bind(&mut buffer_set.write_buffer, "", "", params, &param_oids, &[])?; // bind to unnamed portal
         write_flush(&mut buffer_set.write_buffer);
 
-        Self {
+        Ok(Self {
             state: BindState::Initial,
             needs_parse: true,
-        }
+        })
     }
 
     /// Process input and return the next action.

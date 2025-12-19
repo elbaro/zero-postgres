@@ -53,10 +53,20 @@ impl FromWireValue<'_> for NaiveDate {
 }
 
 impl ToWireValue for NaiveDate {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        let pg_days = self.signed_duration_since(PG_EPOCH).num_days() as i32;
-        buf.extend_from_slice(&4_i32.to_be_bytes());
-        buf.extend_from_slice(&pg_days.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::DATE
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::DATE => {
+                let pg_days = self.signed_duration_since(PG_EPOCH).num_days() as i32;
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&pg_days.to_be_bytes());
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
@@ -95,11 +105,21 @@ impl FromWireValue<'_> for NaiveTime {
 }
 
 impl ToWireValue for NaiveTime {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        let usecs = (self.num_seconds_from_midnight() as i64) * USECS_PER_SEC
-            + (self.nanosecond() as i64) / 1000;
-        buf.extend_from_slice(&8_i32.to_be_bytes());
-        buf.extend_from_slice(&usecs.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::TIME
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::TIME => {
+                let usecs = (self.num_seconds_from_midnight() as i64) * USECS_PER_SEC
+                    + (self.nanosecond() as i64) / 1000;
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&usecs.to_be_bytes());
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
@@ -155,12 +175,22 @@ impl FromWireValue<'_> for NaiveDateTime {
 }
 
 impl ToWireValue for NaiveDateTime {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        let pg_epoch_dt = PG_EPOCH.and_hms_opt(0, 0, 0).expect("valid epoch");
-        let duration = self.signed_duration_since(pg_epoch_dt);
-        let usecs = duration.num_microseconds().unwrap_or(i64::MAX);
-        buf.extend_from_slice(&8_i32.to_be_bytes());
-        buf.extend_from_slice(&usecs.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::TIMESTAMP
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::TIMESTAMP | oid::TIMESTAMPTZ => {
+                let pg_epoch_dt = PG_EPOCH.and_hms_opt(0, 0, 0).expect("valid epoch");
+                let duration = self.signed_duration_since(pg_epoch_dt);
+                let usecs = duration.num_microseconds().unwrap_or(i64::MAX);
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&usecs.to_be_bytes());
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
@@ -214,15 +244,25 @@ impl FromWireValue<'_> for DateTime<Utc> {
 }
 
 impl ToWireValue for DateTime<Utc> {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        let pg_epoch_utc = PG_EPOCH
-            .and_hms_opt(0, 0, 0)
-            .expect("valid epoch")
-            .and_utc();
-        let duration = self.signed_duration_since(pg_epoch_utc);
-        let usecs = duration.num_microseconds().unwrap_or(i64::MAX);
-        buf.extend_from_slice(&8_i32.to_be_bytes());
-        buf.extend_from_slice(&usecs.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::TIMESTAMPTZ
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::TIMESTAMP | oid::TIMESTAMPTZ => {
+                let pg_epoch_utc = PG_EPOCH
+                    .and_hms_opt(0, 0, 0)
+                    .expect("valid epoch")
+                    .and_utc();
+                let duration = self.signed_duration_since(pg_epoch_utc);
+                let usecs = duration.num_microseconds().unwrap_or(i64::MAX);
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&usecs.to_be_bytes());
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
@@ -254,7 +294,7 @@ mod tests {
     fn test_date_roundtrip() {
         let original = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = NaiveDate::from_binary(oid::DATE, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -292,7 +332,7 @@ mod tests {
     fn test_time_roundtrip() {
         let original = NaiveTime::from_hms_micro_opt(10, 30, 45, 123456).unwrap();
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = NaiveTime::from_binary(oid::TIME, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -332,7 +372,7 @@ mod tests {
             .and_hms_micro_opt(10, 30, 45, 123456)
             .unwrap();
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = NaiveDateTime::from_binary(oid::TIMESTAMP, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -360,7 +400,7 @@ mod tests {
             .with_nanosecond((original.nanosecond() / 1000) * 1000)
             .unwrap();
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = DateTime::<Utc>::from_binary(oid::TIMESTAMPTZ, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }

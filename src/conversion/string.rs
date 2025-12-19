@@ -1,7 +1,7 @@
 //! String type implementations (&str, String).
 
 use crate::error::{Error, Result};
-use crate::protocol::types::{Oid, oid};
+use crate::protocol::types::{oid, Oid};
 
 use super::{FromWireValue, ToWireValue};
 
@@ -49,16 +49,31 @@ impl FromWireValue<'_> for String {
     }
 }
 
-impl ToWireValue for &str {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&(self.len() as i32).to_be_bytes());
-        buf.extend_from_slice(self.as_bytes());
+impl ToWireValue for str {
+    fn natural_oid(&self) -> Oid {
+        oid::TEXT
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME | oid::JSON | oid::JSONB => {
+                let bytes = self.as_bytes();
+                buf.extend_from_slice(&(bytes.len() as i32).to_be_bytes());
+                buf.extend_from_slice(bytes);
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
 impl ToWireValue for String {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        self.as_str().to_binary(buf);
+    fn natural_oid(&self) -> Oid {
+        oid::TEXT
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        self.as_str().to_binary(target_oid, buf)
     }
 }
 

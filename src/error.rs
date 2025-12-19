@@ -208,6 +208,25 @@ pub enum Error {
     /// Value decode error
     #[error("Decode error: {0}")]
     Decode(String),
+
+    /// Value encode error
+    #[error("Encode error: {0}")]
+    Encode(String),
+}
+
+impl Error {
+    /// Create an overflow error when a value cannot be converted to a target type.
+    pub fn overflow(from: &str, to: &str) -> Self {
+        Error::Encode(format!("value overflow: cannot convert {} to {}", from, to))
+    }
+
+    /// Create a type mismatch error when encoding to an incompatible OID.
+    pub fn type_mismatch(value_oid: u32, target_oid: u32) -> Self {
+        Error::Encode(format!(
+            "type mismatch: value has OID {} but target expects OID {}",
+            value_oid, target_oid
+        ))
+    }
 }
 
 impl Error {

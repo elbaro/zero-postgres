@@ -397,15 +397,16 @@ impl Conn {
                 &mut self.buffer_set,
                 statement.as_sql().unwrap(),
                 params,
-            )
+            )?
         } else {
             let stmt = statement.as_prepared().unwrap();
             ExtendedQueryStateMachine::execute(
                 handler,
                 &mut self.buffer_set,
                 &stmt.wire_name(),
+                &stmt.param_oids,
                 params,
-            )
+            )?
         };
 
         self.drive(&mut state_machine).await

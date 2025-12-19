@@ -1,7 +1,7 @@
 //! Primitive type implementations (bool, integers, floats).
 
 use crate::error::{Error, Result};
-use crate::protocol::types::{Oid, oid};
+use crate::protocol::types::{oid, Oid};
 
 use super::{FromWireValue, ToWireValue};
 
@@ -37,9 +37,19 @@ impl FromWireValue<'_> for bool {
 }
 
 impl ToWireValue for bool {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&1_i32.to_be_bytes());
-        buf.push(if *self { 1 } else { 0 });
+    fn natural_oid(&self) -> Oid {
+        oid::BOOL
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::BOOL => {
+                buf.extend_from_slice(&1_i32.to_be_bytes());
+                buf.push(if *self { 1 } else { 0 });
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
@@ -68,9 +78,27 @@ impl FromWireValue<'_> for i16 {
 }
 
 impl ToWireValue for i16 {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&2_i32.to_be_bytes());
-        buf.extend_from_slice(&self.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::INT2
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::INT2 => {
+                buf.extend_from_slice(&2_i32.to_be_bytes());
+                buf.extend_from_slice(&self.to_be_bytes());
+            }
+            oid::INT4 => {
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i32).to_be_bytes());
+            }
+            oid::INT8 => {
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i64).to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
     }
 }
 
@@ -105,9 +133,28 @@ impl FromWireValue<'_> for i32 {
 }
 
 impl ToWireValue for i32 {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&4_i32.to_be_bytes());
-        buf.extend_from_slice(&self.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::INT4
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::INT2 => {
+                let v = i16::try_from(*self).map_err(|_| Error::overflow("i32", "INT2"))?;
+                buf.extend_from_slice(&2_i32.to_be_bytes());
+                buf.extend_from_slice(&v.to_be_bytes());
+            }
+            oid::INT4 => {
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&self.to_be_bytes());
+            }
+            oid::INT8 => {
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i64).to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
     }
 }
 
@@ -148,9 +195,172 @@ impl FromWireValue<'_> for i64 {
 }
 
 impl ToWireValue for i64 {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&8_i32.to_be_bytes());
-        buf.extend_from_slice(&self.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::INT8
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::INT2 => {
+                let v = i16::try_from(*self).map_err(|_| Error::overflow("i64", "INT2"))?;
+                buf.extend_from_slice(&2_i32.to_be_bytes());
+                buf.extend_from_slice(&v.to_be_bytes());
+            }
+            oid::INT4 => {
+                let v = i32::try_from(*self).map_err(|_| Error::overflow("i64", "INT4"))?;
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&v.to_be_bytes());
+            }
+            oid::INT8 => {
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&self.to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
+    }
+}
+
+// === i8 (encodes as INT2) ===
+
+impl ToWireValue for i8 {
+    fn natural_oid(&self) -> Oid {
+        oid::INT2 // PostgreSQL doesn't have INT1, use INT2
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::INT2 => {
+                buf.extend_from_slice(&2_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i16).to_be_bytes());
+            }
+            oid::INT4 => {
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i32).to_be_bytes());
+            }
+            oid::INT8 => {
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i64).to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
+    }
+}
+
+// === u8 (encodes as INT2) ===
+
+impl ToWireValue for u8 {
+    fn natural_oid(&self) -> Oid {
+        oid::INT2 // PostgreSQL doesn't have unsigned types, use INT2
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::INT2 => {
+                buf.extend_from_slice(&2_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i16).to_be_bytes());
+            }
+            oid::INT4 => {
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i32).to_be_bytes());
+            }
+            oid::INT8 => {
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i64).to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
+    }
+}
+
+// === u16 (encodes as INT4 due to sign) ===
+
+impl ToWireValue for u16 {
+    fn natural_oid(&self) -> Oid {
+        // u16 max (65535) exceeds i16 max (32767), so use INT4
+        oid::INT4
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::INT2 => {
+                let v = i16::try_from(*self).map_err(|_| Error::overflow("u16", "INT2"))?;
+                buf.extend_from_slice(&2_i32.to_be_bytes());
+                buf.extend_from_slice(&v.to_be_bytes());
+            }
+            oid::INT4 => {
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i32).to_be_bytes());
+            }
+            oid::INT8 => {
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i64).to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
+    }
+}
+
+// === u32 (encodes as INT8 due to sign) ===
+
+impl ToWireValue for u32 {
+    fn natural_oid(&self) -> Oid {
+        // u32 max (4294967295) exceeds i32 max (2147483647), so use INT8
+        oid::INT8
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::INT2 => {
+                let v = i16::try_from(*self).map_err(|_| Error::overflow("u32", "INT2"))?;
+                buf.extend_from_slice(&2_i32.to_be_bytes());
+                buf.extend_from_slice(&v.to_be_bytes());
+            }
+            oid::INT4 => {
+                let v = i32::try_from(*self).map_err(|_| Error::overflow("u32", "INT4"))?;
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&v.to_be_bytes());
+            }
+            oid::INT8 => {
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as i64).to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
+    }
+}
+
+// === u64 (encodes as INT8 with overflow check) ===
+
+impl ToWireValue for u64 {
+    fn natural_oid(&self) -> Oid {
+        oid::INT8
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::INT2 => {
+                let v = i16::try_from(*self).map_err(|_| Error::overflow("u64", "INT2"))?;
+                buf.extend_from_slice(&2_i32.to_be_bytes());
+                buf.extend_from_slice(&v.to_be_bytes());
+            }
+            oid::INT4 => {
+                let v = i32::try_from(*self).map_err(|_| Error::overflow("u64", "INT4"))?;
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&v.to_be_bytes());
+            }
+            oid::INT8 => {
+                let v = i64::try_from(*self).map_err(|_| Error::overflow("u64", "INT8"))?;
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&v.to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
     }
 }
 
@@ -179,9 +389,23 @@ impl FromWireValue<'_> for f32 {
 }
 
 impl ToWireValue for f32 {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&4_i32.to_be_bytes());
-        buf.extend_from_slice(&self.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::FLOAT4
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::FLOAT4 => {
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&self.to_bits().to_be_bytes());
+            }
+            oid::FLOAT8 => {
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as f64).to_bits().to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
     }
 }
 
@@ -216,10 +440,26 @@ impl FromWireValue<'_> for f64 {
 }
 
 impl ToWireValue for f64 {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&8_i32.to_be_bytes());
-        buf.extend_from_slice(&self.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::FLOAT8
     }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::FLOAT4 => {
+                // Note: potential precision loss
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&(*self as f32).to_bits().to_be_bytes());
+            }
+            oid::FLOAT8 => {
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&self.to_bits().to_be_bytes());
+            }
+            _ => return Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]
@@ -274,5 +514,89 @@ mod tests {
     fn test_type_mismatch() {
         // Trying to decode TEXT as i32 should fail
         assert!(i32::from_text(oid::TEXT, b"123").is_err());
+    }
+
+    #[test]
+    fn test_i8_encoding() {
+        let mut buf = Vec::new();
+        42i8.to_binary(oid::INT2, &mut buf).unwrap();
+        // Length prefix (4 bytes) + i16 value (2 bytes)
+        assert_eq!(buf.len(), 6);
+        assert_eq!(&buf[0..4], &2_i32.to_be_bytes()); // length = 2
+        assert_eq!(&buf[4..6], &42_i16.to_be_bytes());
+    }
+
+    #[test]
+    fn test_u8_encoding() {
+        let mut buf = Vec::new();
+        200u8.to_binary(oid::INT2, &mut buf).unwrap();
+        assert_eq!(buf.len(), 6);
+        assert_eq!(&buf[0..4], &2_i32.to_be_bytes());
+        assert_eq!(&buf[4..6], &200_i16.to_be_bytes());
+    }
+
+    #[test]
+    fn test_u16_encoding() {
+        let mut buf = Vec::new();
+        50000u16.to_binary(oid::INT4, &mut buf).unwrap();
+        // u16 encodes as INT4
+        assert_eq!(buf.len(), 8);
+        assert_eq!(&buf[0..4], &4_i32.to_be_bytes());
+        assert_eq!(&buf[4..8], &50000_i32.to_be_bytes());
+    }
+
+    #[test]
+    fn test_u16_overflow_to_int2() {
+        // 50000 > i16::MAX, should fail when encoding to INT2
+        let result = 50000u16.to_binary(oid::INT2, &mut Vec::new());
+        assert!(result.is_err());
+
+        // But 1000 should work
+        let mut buf = Vec::new();
+        1000u16.to_binary(oid::INT2, &mut buf).unwrap();
+        assert_eq!(&buf[4..6], &1000_i16.to_be_bytes());
+    }
+
+    #[test]
+    fn test_u32_encoding() {
+        let mut buf = Vec::new();
+        3_000_000_000u32.to_binary(oid::INT8, &mut buf).unwrap();
+        // u32 encodes as INT8
+        assert_eq!(buf.len(), 12);
+        assert_eq!(&buf[0..4], &8_i32.to_be_bytes());
+        assert_eq!(&buf[4..12], &3_000_000_000_i64.to_be_bytes());
+    }
+
+    #[test]
+    fn test_u32_overflow_to_int4() {
+        // 3 billion > i32::MAX, should fail when encoding to INT4
+        let result = 3_000_000_000u32.to_binary(oid::INT4, &mut Vec::new());
+        assert!(result.is_err());
+
+        // But 1 million should work
+        let mut buf = Vec::new();
+        1_000_000u32.to_binary(oid::INT4, &mut buf).unwrap();
+        assert_eq!(&buf[4..8], &1_000_000_i32.to_be_bytes());
+    }
+
+    #[test]
+    fn test_u64_encoding() {
+        let mut buf = Vec::new();
+        1000u64.to_binary(oid::INT8, &mut buf).unwrap();
+        assert_eq!(buf.len(), 12);
+        assert_eq!(&buf[0..4], &8_i32.to_be_bytes());
+        assert_eq!(&buf[4..12], &1000_i64.to_be_bytes());
+    }
+
+    #[test]
+    fn test_u64_overflow() {
+        // u64::MAX > i64::MAX, should fail
+        let result = u64::MAX.to_binary(oid::INT8, &mut Vec::new());
+        assert!(result.is_err());
+
+        // But i64::MAX as u64 should work
+        let mut buf = Vec::new();
+        (i64::MAX as u64).to_binary(oid::INT8, &mut buf).unwrap();
+        assert_eq!(&buf[4..12], &i64::MAX.to_be_bytes());
     }
 }

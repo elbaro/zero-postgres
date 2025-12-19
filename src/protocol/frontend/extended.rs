@@ -1,6 +1,7 @@
 //! Extended query protocol messages.
 
 use crate::conversion::ToParams;
+use crate::error::Result;
 use crate::protocol::codec::MessageBuilder;
 use crate::protocol::types::{FormatCode, Oid};
 
@@ -25,14 +26,16 @@ pub fn write_parse(buf: &mut Vec<u8>, name: &str, query: &str, param_oids: &[Oid
 /// - `portal`: Portal name (empty string for unnamed portal)
 /// - `statement_name`: Prepared statement name
 /// - `params`: Parameter values (tuple of ToValue types)
+/// - `target_oids`: Target OIDs for encoding parameters
 /// - `result_formats`: Format codes for results
 pub fn write_bind<P: ToParams>(
     buf: &mut Vec<u8>,
     portal: &str,
     statement_name: &str,
     params: &P,
+    target_oids: &[Oid],
     result_formats: &[FormatCode],
-) {
+) -> Result<()> {
     let mut msg = MessageBuilder::new(buf, super::msg_type::BIND);
 
     // Portal and statement names
@@ -48,7 +51,7 @@ pub fn write_bind<P: ToParams>(
 
     // Parameter values (count + length-prefixed data)
     msg.write_i16(param_count as i16);
-    params.to_binary(msg.buf());
+    params.to_binary(target_oids, msg.buf())?;
 
     // Result format codes
     msg.write_i16(result_formats.len() as i16);
@@ -57,6 +60,7 @@ pub fn write_bind<P: ToParams>(
     }
 
     msg.finish();
+    Ok(())
 }
 
 /// Write an Execute message to run a portal.

@@ -130,69 +130,79 @@ impl FromWireValue<'_> for Decimal {
 }
 
 impl ToWireValue for Decimal {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        if self.is_zero() {
-            // Zero: ndigits=0, weight=0, sign=positive, dscale=0
-            buf.extend_from_slice(&8_i32.to_be_bytes()); // length
-            buf.extend_from_slice(&0_i16.to_be_bytes()); // ndigits
-            buf.extend_from_slice(&0_i16.to_be_bytes()); // weight
-            buf.extend_from_slice(&NUMERIC_POS.to_be_bytes()); // sign
-            buf.extend_from_slice(&0_u16.to_be_bytes()); // dscale
-            return;
-        }
+    fn natural_oid(&self) -> Oid {
+        oid::NUMERIC
+    }
 
-        let is_negative = self.is_sign_negative();
-        let scale = self.scale();
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::NUMERIC => {
+                if self.is_zero() {
+                    // Zero: ndigits=0, weight=0, sign=positive, dscale=0
+                    buf.extend_from_slice(&8_i32.to_be_bytes()); // length
+                    buf.extend_from_slice(&0_i16.to_be_bytes()); // ndigits
+                    buf.extend_from_slice(&0_i16.to_be_bytes()); // weight
+                    buf.extend_from_slice(&NUMERIC_POS.to_be_bytes()); // sign
+                    buf.extend_from_slice(&0_u16.to_be_bytes()); // dscale
+                    return Ok(());
+                }
 
-        // Get the unscaled value (mantissa)
-        let mantissa = self.mantissa().unsigned_abs();
+                let is_negative = self.is_sign_negative();
+                let scale = self.scale();
 
-        // Convert mantissa to base-10000 digits
-        let mut digits = Vec::new();
-        let mut remaining = mantissa;
+                // Get the unscaled value (mantissa)
+                let mantissa = self.mantissa().unsigned_abs();
 
-        while remaining > 0 {
-            digits.push((remaining % (NBASE as u128)) as u16);
-            remaining /= NBASE as u128;
-        }
-        digits.reverse();
+                // Convert mantissa to base-10000 digits
+                let mut digits = Vec::new();
+                let mut remaining = mantissa;
 
-        if digits.is_empty() {
-            digits.push(0);
-        }
+                while remaining > 0 {
+                    digits.push((remaining % (NBASE as u128)) as u16);
+                    remaining /= NBASE as u128;
+                }
+                digits.reverse();
 
-        // Calculate weight
-        // The value is: mantissa * 10^(-scale)
-        // In base 10000: each digit represents 10000^(weight - i)
-        // Total decimal digits before converting to base 10000
-        let total_decimal_digits = if mantissa == 0 {
-            1
-        } else {
-            (mantissa as f64).log10().floor() as i32 + 1
-        };
+                if digits.is_empty() {
+                    digits.push(0);
+                }
 
-        // Weight represents how many groups of 4 digits before the decimal point
-        // weight = (total_decimal_digits - scale - 1) / 4
-        let weight = ((total_decimal_digits as i32 - scale as i32 - 1) / 4) as i16;
+                // Calculate weight
+                // The value is: mantissa * 10^(-scale)
+                // In base 10000: each digit represents 10000^(weight - i)
+                // Total decimal digits before converting to base 10000
+                let total_decimal_digits = if mantissa == 0 {
+                    1
+                } else {
+                    (mantissa as f64).log10().floor() as i32 + 1
+                };
 
-        let ndigits = digits.len() as i16;
-        let sign = if is_negative {
-            NUMERIC_NEG
-        } else {
-            NUMERIC_POS
-        };
-        let dscale = scale as u16;
+                // Weight represents how many groups of 4 digits before the decimal point
+                // weight = (total_decimal_digits - scale - 1) / 4
+                let weight = ((total_decimal_digits as i32 - scale as i32 - 1) / 4) as i16;
 
-        // Calculate total length
-        let data_len = 8 + (ndigits as usize) * 2;
-        buf.extend_from_slice(&(data_len as i32).to_be_bytes());
-        buf.extend_from_slice(&ndigits.to_be_bytes());
-        buf.extend_from_slice(&weight.to_be_bytes());
-        buf.extend_from_slice(&sign.to_be_bytes());
-        buf.extend_from_slice(&dscale.to_be_bytes());
+                let ndigits = digits.len() as i16;
+                let sign = if is_negative {
+                    NUMERIC_NEG
+                } else {
+                    NUMERIC_POS
+                };
+                let dscale = scale as u16;
 
-        for digit in &digits {
-            buf.extend_from_slice(&digit.to_be_bytes());
+                // Calculate total length
+                let data_len = 8 + (ndigits as usize) * 2;
+                buf.extend_from_slice(&(data_len as i32).to_be_bytes());
+                buf.extend_from_slice(&ndigits.to_be_bytes());
+                buf.extend_from_slice(&weight.to_be_bytes());
+                buf.extend_from_slice(&sign.to_be_bytes());
+                buf.extend_from_slice(&dscale.to_be_bytes());
+
+                for digit in &digits {
+                    buf.extend_from_slice(&digit.to_be_bytes());
+                }
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
         }
     }
 }
@@ -224,7 +234,7 @@ mod tests {
     fn test_decimal_zero_binary_roundtrip() {
         let original = Decimal::ZERO;
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = Decimal::from_binary(oid::NUMERIC, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -233,7 +243,7 @@ mod tests {
     fn test_decimal_positive_roundtrip() {
         let original = Decimal::from_str("12345.6789").unwrap();
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = Decimal::from_binary(oid::NUMERIC, &buf[4..]).unwrap();
         // Note: precision may vary due to base-10000 conversion
         assert!((original - decoded).abs() < Decimal::from_str("0.0001").unwrap());

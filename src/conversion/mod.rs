@@ -57,9 +57,27 @@ pub trait FromWireValue<'a>: Sized {
 /// Implementations write length-prefixed binary data directly to the buffer:
 /// - Int32 length followed by the value bytes, OR
 /// - Int32 -1 for NULL
+///
+/// The trait provides OID-aware encoding:
+/// - `natural_oid()` returns the OID this value naturally encodes to
+/// - `to_binary()` encodes the value for a specific target OID
 pub trait ToWireValue {
-    /// Encode as a length-prefixed binary parameter.
-    fn to_binary(&self, buf: &mut Vec<u8>);
+    /// The OID this value naturally encodes to.
+    ///
+    /// For example, i64 naturally encodes to INT8 (OID 20).
+    fn natural_oid(&self) -> Oid;
+
+    /// Encode this value to binary format for the given target OID.
+    ///
+    /// This allows flexible encoding: an i64 can encode as INT2, INT4, or INT8
+    /// depending on what the server expects (with overflow checking).
+    ///
+    /// The implementation should write:
+    /// - 4-byte length (i32, big-endian)
+    /// - followed by the binary data
+    ///
+    /// For NULL values, write -1 as the length (no data follows).
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()>;
 }
 
 /// Trait for encoding multiple parameters.
@@ -67,8 +85,13 @@ pub trait ToParams {
     /// Number of parameters.
     fn param_count(&self) -> usize;
 
-    /// Encode all parameters to the buffer.
-    fn to_binary(&self, buf: &mut Vec<u8>);
+    /// Get natural OIDs for all parameters (for exec_* with SQL string).
+    fn natural_oids(&self) -> Vec<Oid>;
+
+    /// Encode all parameters using specified target OIDs.
+    ///
+    /// The target_oids slice must have the same length as param_count().
+    fn to_binary(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()>;
 }
 
 // === Option<T> - NULL handling ===
@@ -88,10 +111,21 @@ impl<'a, T: FromWireValue<'a>> FromWireValue<'a> for Option<T> {
 }
 
 impl<T: ToWireValue> ToWireValue for Option<T> {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
+    fn natural_oid(&self) -> Oid {
         match self {
-            Some(v) => v.to_binary(buf),
-            None => buf.extend_from_slice(&(-1_i32).to_be_bytes()),
+            Some(v) => v.natural_oid(),
+            None => 0, // Unknown/NULL
+        }
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match self {
+            Some(v) => v.to_binary(target_oid, buf),
+            None => {
+                // NULL is represented as -1 length
+                buf.extend_from_slice(&(-1_i32).to_be_bytes());
+                Ok(())
+            }
         }
     }
 }
@@ -99,8 +133,12 @@ impl<T: ToWireValue> ToWireValue for Option<T> {
 // === Reference support ===
 
 impl<T: ToWireValue + ?Sized> ToWireValue for &T {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        (*self).to_binary(buf);
+    fn natural_oid(&self) -> Oid {
+        (*self).natural_oid()
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        (*self).to_binary(target_oid, buf)
     }
 }
 
@@ -111,7 +149,13 @@ impl ToParams for () {
         0
     }
 
-    fn to_binary(&self, _buf: &mut Vec<u8>) {}
+    fn natural_oids(&self) -> Vec<Oid> {
+        vec![]
+    }
+
+    fn to_binary(&self, _target_oids: &[Oid], _buf: &mut Vec<u8>) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl<T: ToParams + ?Sized> ToParams for &T {
@@ -119,8 +163,12 @@ impl<T: ToParams + ?Sized> ToParams for &T {
         (*self).param_count()
     }
 
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        (*self).to_binary(buf);
+    fn natural_oids(&self) -> Vec<Oid> {
+        (*self).natural_oids()
+    }
+
+    fn to_binary(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()> {
+        (*self).to_binary(target_oids, buf)
     }
 }
 
@@ -132,8 +180,17 @@ macro_rules! impl_to_params {
                 $count
             }
 
-            fn to_binary(&self, buf: &mut Vec<u8>) {
-                $(self.$idx.to_binary(buf);)+
+            fn natural_oids(&self) -> Vec<Oid> {
+                vec![$(self.$idx.natural_oid()),+]
+            }
+
+            fn to_binary(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()> {
+                let mut _idx = 0;
+                $(
+                    self.$idx.to_binary(target_oids[_idx], buf)?;
+                    _idx += 1;
+                )+
+                Ok(())
             }
         }
     };

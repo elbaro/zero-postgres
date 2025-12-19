@@ -1,7 +1,7 @@
 //! Byte type implementations (`&[u8]`, `Vec<u8>`).
 
 use crate::error::{Error, Result};
-use crate::protocol::types::{Oid, oid};
+use crate::protocol::types::{oid, Oid};
 
 use super::{FromWireValue, ToWireValue};
 
@@ -51,16 +51,30 @@ impl FromWireValue<'_> for Vec<u8> {
     }
 }
 
-impl ToWireValue for &[u8] {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&(self.len() as i32).to_be_bytes());
-        buf.extend_from_slice(self);
+impl ToWireValue for [u8] {
+    fn natural_oid(&self) -> Oid {
+        oid::BYTEA
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::BYTEA => {
+                buf.extend_from_slice(&(self.len() as i32).to_be_bytes());
+                buf.extend_from_slice(self);
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
 impl ToWireValue for Vec<u8> {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        self.as_slice().to_binary(buf);
+    fn natural_oid(&self) -> Oid {
+        oid::BYTEA
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        self.as_slice().to_binary(target_oid, buf)
     }
 }
 

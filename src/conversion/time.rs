@@ -34,10 +34,20 @@ impl FromWireValue<'_> for time::Date {
 }
 
 impl ToWireValue for time::Date {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        let pg_days = self.to_julian_day() - PG_EPOCH_JULIAN_DAY;
-        buf.extend_from_slice(&4_i32.to_be_bytes());
-        buf.extend_from_slice(&pg_days.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::DATE
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::DATE => {
+                let pg_days = self.to_julian_day() - PG_EPOCH_JULIAN_DAY;
+                buf.extend_from_slice(&4_i32.to_be_bytes());
+                buf.extend_from_slice(&pg_days.to_be_bytes());
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
@@ -80,14 +90,24 @@ impl FromWireValue<'_> for time::Time {
 }
 
 impl ToWireValue for time::Time {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        let (hour, minute, second, nano) = self.as_hms_nano();
-        let usecs = (hour as i64) * 3_600_000_000
-            + (minute as i64) * 60_000_000
-            + (second as i64) * 1_000_000
-            + (nano as i64) / 1000;
-        buf.extend_from_slice(&8_i32.to_be_bytes());
-        buf.extend_from_slice(&usecs.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::TIME
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::TIME => {
+                let (hour, minute, second, nano) = self.as_hms_nano();
+                let usecs = (hour as i64) * 3_600_000_000
+                    + (minute as i64) * 60_000_000
+                    + (second as i64) * 1_000_000
+                    + (nano as i64) / 1000;
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&usecs.to_be_bytes());
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
@@ -140,13 +160,23 @@ impl FromWireValue<'_> for time::PrimitiveDateTime {
 }
 
 impl ToWireValue for time::PrimitiveDateTime {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        // Calculate microseconds since PostgreSQL epoch (2000-01-01 00:00:00)
-        const PG_EPOCH: time::PrimitiveDateTime = time::macros::datetime!(2000-01-01 00:00:00);
-        let duration = *self - PG_EPOCH;
-        let usecs = duration.whole_microseconds() as i64;
-        buf.extend_from_slice(&8_i32.to_be_bytes());
-        buf.extend_from_slice(&usecs.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::TIMESTAMP
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::TIMESTAMP | oid::TIMESTAMPTZ => {
+                // Calculate microseconds since PostgreSQL epoch (2000-01-01 00:00:00)
+                const PG_EPOCH: time::PrimitiveDateTime = time::macros::datetime!(2000-01-01 00:00:00);
+                let duration = *self - PG_EPOCH;
+                let usecs = duration.whole_microseconds() as i64;
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&usecs.to_be_bytes());
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
@@ -198,14 +228,24 @@ impl FromWireValue<'_> for time::OffsetDateTime {
 }
 
 impl ToWireValue for time::OffsetDateTime {
-    fn to_binary(&self, buf: &mut Vec<u8>) {
-        // Convert to UTC and calculate microseconds since PostgreSQL epoch
-        let utc = self.to_offset(time::UtcOffset::UTC);
-        const PG_EPOCH: time::OffsetDateTime = time::macros::datetime!(2000-01-01 00:00:00 UTC);
-        let duration = utc - PG_EPOCH;
-        let usecs = duration.whole_microseconds() as i64;
-        buf.extend_from_slice(&8_i32.to_be_bytes());
-        buf.extend_from_slice(&usecs.to_be_bytes());
+    fn natural_oid(&self) -> Oid {
+        oid::TIMESTAMPTZ
+    }
+
+    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        match target_oid {
+            oid::TIMESTAMP | oid::TIMESTAMPTZ => {
+                // Convert to UTC and calculate microseconds since PostgreSQL epoch
+                let utc = self.to_offset(time::UtcOffset::UTC);
+                const PG_EPOCH: time::OffsetDateTime = time::macros::datetime!(2000-01-01 00:00:00 UTC);
+                let duration = utc - PG_EPOCH;
+                let usecs = duration.whole_microseconds() as i64;
+                buf.extend_from_slice(&8_i32.to_be_bytes());
+                buf.extend_from_slice(&usecs.to_be_bytes());
+                Ok(())
+            }
+            _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
+        }
     }
 }
 
@@ -236,7 +276,7 @@ mod tests {
     fn test_date_roundtrip() {
         let original = time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap();
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = time::Date::from_binary(oid::DATE, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -273,7 +313,7 @@ mod tests {
     fn test_time_roundtrip() {
         let original = time::Time::from_hms_micro(10, 30, 45, 123456).unwrap();
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = time::Time::from_binary(oid::TIME, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -314,7 +354,7 @@ mod tests {
         let time = time::Time::from_hms_micro(10, 30, 45, 123456).unwrap();
         let original = time::PrimitiveDateTime::new(date, time);
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = time::PrimitiveDateTime::from_binary(oid::TIMESTAMP, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -343,7 +383,7 @@ mod tests {
             .replace_nanosecond((original.nanosecond() / 1000) * 1000)
             .unwrap();
         let mut buf = Vec::new();
-        original.to_binary(&mut buf);
+        original.to_binary(original.natural_oid(), &mut buf).unwrap();
         let decoded = time::OffsetDateTime::from_binary(oid::TIMESTAMPTZ, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }

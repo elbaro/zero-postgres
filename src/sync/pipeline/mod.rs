@@ -211,14 +211,16 @@ impl<'a> Pipeline<'a> {
         stmt_name: &str,
         params: &P,
     ) -> Result<()> {
+        let param_oids = params.natural_oids();
         self.conn.buffer_set.write_buffer.clear();
         write_bind(
             &mut self.conn.buffer_set.write_buffer,
             portal_name,
             stmt_name,
             params,
+            &param_oids,
             &[],
-        );
+        )?;
         self.conn
             .stream
             .write_all(&self.conn.buffer_set.write_buffer)?;
@@ -311,14 +313,16 @@ impl<'a> Pipeline<'a> {
     }
 
     fn exec_inner<P: ToParams>(&mut self, stmt_name: &str, params: &P) -> Result<()> {
+        let param_oids = params.natural_oids();
         self.conn.buffer_set.write_buffer.clear();
         write_bind(
             &mut self.conn.buffer_set.write_buffer,
             "",
             stmt_name,
             params,
+            &param_oids,
             &[],
-        );
+        )?;
         write_describe_portal(&mut self.conn.buffer_set.write_buffer, ""); // Get RowDescription
         write_execute(&mut self.conn.buffer_set.write_buffer, "", 0);
         self.conn

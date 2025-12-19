@@ -428,15 +428,16 @@ impl Conn {
                 &mut self.buffer_set,
                 statement.as_sql().unwrap(),
                 params,
-            )
+            )?
         } else {
             let stmt = statement.as_prepared().unwrap();
             ExtendedQueryStateMachine::execute(
                 handler,
                 &mut self.buffer_set,
                 &stmt.wire_name(),
+                &stmt.param_oids,
                 params,
-            )
+            )?
         };
 
         self.drive(&mut state_machine)
@@ -575,14 +576,16 @@ impl Conn {
         use crate::protocol::backend::{BindComplete, ErrorResponse, RawMessage, msg_type};
         use crate::protocol::frontend::{write_bind, write_flush};
 
+        let param_oids = params.natural_oids();
         self.buffer_set.write_buffer.clear();
         write_bind(
             &mut self.buffer_set.write_buffer,
             portal,
             statement_name,
             params,
+            &param_oids,
             &[],
-        );
+        )?;
         write_flush(&mut self.buffer_set.write_buffer);
 
         self.stream.write_all(&self.buffer_set.write_buffer)?;
@@ -843,10 +846,15 @@ impl Conn {
     {
         // Create bind state machine
         let mut state_machine = if let Some(sql) = statement.as_sql() {
-            BindStateMachine::bind_sql(&mut self.buffer_set, sql, params)
+            BindStateMachine::bind_sql(&mut self.buffer_set, sql, params)?
         } else {
             let stmt = statement.as_prepared().unwrap();
-            BindStateMachine::bind_prepared(&mut self.buffer_set, &stmt.wire_name(), params)
+            BindStateMachine::bind_prepared(
+                &mut self.buffer_set,
+                &stmt.wire_name(),
+                &stmt.param_oids,
+                params,
+            )?
         };
 
         // Drive the state machine to completion (ParseComplete + BindComplete)
