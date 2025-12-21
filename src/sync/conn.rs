@@ -215,25 +215,34 @@ impl Conn {
         self.async_message_handler = None;
     }
 
-    /// Enter pipeline mode for batching multiple queries.
+    /// Run a pipeline of batched queries.
+    ///
+    /// This provides automatic cleanup of the pipeline on exit, ensuring
+    /// the connection is left in a valid state even if the closure fails.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// let mut pipeline = conn.pipeline();
+    /// let stmt = conn.prepare("INSERT INTO users (name) VALUES ($1) RETURNING id")?;
     ///
-    /// pipeline.queue("insert_user", &[&"alice"])?;
-    /// pipeline.queue("insert_user", &[&"bob"])?;
-    /// pipeline.queue("get_users", &[])?;
+    /// let (id1, id2) = conn.run_pipeline(|p| {
+    ///     let t1 = p.exec(&stmt, ("alice",))?;
+    ///     let t2 = p.exec(&stmt, ("bob",))?;
+    ///     p.sync()?;
     ///
-    /// pipeline.fetch_drop()?;
-    /// pipeline.fetch_drop()?;
-    /// let users: Vec<User> = pipeline.fetch_collect()?;
-    ///
-    /// pipeline.sync()?;
+    ///     let id1: Option<(i32,)> = p.claim_one(t1)?;
+    ///     let id2: Option<(i32,)> = p.claim_one(t2)?;
+    ///     Ok((id1, id2))
+    /// })?;
     /// ```
-    pub fn pipeline(&mut self) -> super::pipeline::Pipeline<'_> {
-        super::pipeline::Pipeline::new(self)
+    pub fn run_pipeline<T, F>(&mut self, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut super::pipeline::Pipeline<'_>) -> Result<T>,
+    {
+        let mut pipeline = super::pipeline::Pipeline::new_inner(self);
+        let result = f(&mut pipeline);
+        pipeline.cleanup();
+        result
     }
 
     /// Ping the server with an empty query to check connection aliveness.
@@ -350,6 +359,30 @@ impl Conn {
     /// Prepare a statement using the extended query protocol.
     pub fn prepare(&mut self, query: &str) -> Result<PreparedStatement> {
         self.prepare_typed(query, &[])
+    }
+
+    /// Prepare multiple statements in a single round-trip.
+    ///
+    /// This is more efficient than calling `prepare()` multiple times when you
+    /// need to prepare several statements, as it batches the network communication.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let stmts = conn.prepare_batch(&[
+    ///     "SELECT id, name FROM users WHERE id = $1",
+    ///     "INSERT INTO users (name) VALUES ($1) RETURNING id",
+    ///     "UPDATE users SET name = $1 WHERE id = $2",
+    /// ])?;
+    ///
+    /// // Use stmts[0], stmts[1], stmts[2]...
+    /// ```
+    pub fn prepare_batch(&mut self, queries: &[&str]) -> Result<Vec<PreparedStatement>> {
+        let mut statements = Vec::with_capacity(queries.len());
+        for query in queries {
+            statements.push(self.prepare(query)?);
+        }
+        Ok(statements)
     }
 
     /// Prepare a statement with explicit parameter types.
@@ -483,6 +516,29 @@ impl Conn {
         Ok(handler.into_rows())
     }
 
+    /// Execute a statement and return the first typed row.
+    ///
+    /// The statement can be either a `&PreparedStatement` or a raw SQL `&str`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let stmt = conn.prepare("SELECT id, name FROM users WHERE id = $1")?;
+    /// let row: Option<(i32, String)> = conn.exec_first(&stmt, (42,))?;
+    ///
+    /// // Or with raw SQL:
+    /// let row: Option<(i32, String)> = conn.exec_first("SELECT id, name FROM users LIMIT 1", ())?;
+    /// ```
+    pub fn exec_first<T: for<'a> crate::conversion::FromRow<'a>, S: IntoStatement, P: ToParams>(
+        &mut self,
+        statement: S,
+        params: P,
+    ) -> Result<Option<T>> {
+        let mut handler = crate::handler::FirstRowHandler::<T>::new();
+        self.exec(statement, params, &mut handler)?;
+        Ok(handler.into_row())
+    }
+
     /// Close a prepared statement.
     pub fn close_statement(&mut self, stmt: &PreparedStatement) -> Result<()> {
         let result = self.close_statement_inner(&stmt.wire_name());
@@ -584,7 +640,6 @@ impl Conn {
             statement_name,
             params,
             &param_oids,
-            &[],
         )?;
         write_flush(&mut self.buffer_set.write_buffer);
 

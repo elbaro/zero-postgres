@@ -1,21 +1,19 @@
 //! Decimal type implementation (rust_decimal crate).
 //!
-//! PostgreSQL NUMERIC binary format:
-//! - ndigits: i16 - number of base-10000 digits
-//! - weight: i16 - weight of first digit (power of 10000)
-//! - sign: u16 - 0x0000 = positive, 0x4000 = negative, 0xC000 = NaN
-//! - dscale: u16 - display scale (decimal places)
-//! - digits: [u16] - base-10000 digits
+//! PostgreSQL NUMERIC uses text format for encoding parameters because:
+//! 1. Binary format is complex (base-10000 encoding)
+//! 2. Text format is equally efficient (server parses quickly)
+//! 3. Preserves full precision through string representation
+//!
+//! Binary decoding is still supported for receiving results.
 
 use rust_decimal::Decimal;
 
 use crate::error::{Error, Result};
-use crate::protocol::types::{Oid, oid};
+use crate::protocol::types::{oid, Oid};
 
 use super::{FromWireValue, ToWireValue};
 
-const NUMERIC_POS: u16 = 0x0000;
-const NUMERIC_NEG: u16 = 0x4000;
 const NUMERIC_NAN: u16 = 0xC000;
 const NBASE: i128 = 10000;
 
@@ -134,72 +132,16 @@ impl ToWireValue for Decimal {
         oid::NUMERIC
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::NUMERIC => {
-                if self.is_zero() {
-                    // Zero: ndigits=0, weight=0, sign=positive, dscale=0
-                    buf.extend_from_slice(&8_i32.to_be_bytes()); // length
-                    buf.extend_from_slice(&0_i16.to_be_bytes()); // ndigits
-                    buf.extend_from_slice(&0_i16.to_be_bytes()); // weight
-                    buf.extend_from_slice(&NUMERIC_POS.to_be_bytes()); // sign
-                    buf.extend_from_slice(&0_u16.to_be_bytes()); // dscale
-                    return Ok(());
-                }
-
-                let is_negative = self.is_sign_negative();
-                let scale = self.scale();
-
-                // Get the unscaled value (mantissa)
-                let mantissa = self.mantissa().unsigned_abs();
-
-                // Convert mantissa to base-10000 digits
-                let mut digits = Vec::new();
-                let mut remaining = mantissa;
-
-                while remaining > 0 {
-                    digits.push((remaining % (NBASE as u128)) as u16);
-                    remaining /= NBASE as u128;
-                }
-                digits.reverse();
-
-                if digits.is_empty() {
-                    digits.push(0);
-                }
-
-                // Calculate weight
-                // The value is: mantissa * 10^(-scale)
-                // In base 10000: each digit represents 10000^(weight - i)
-                // Total decimal digits before converting to base 10000
-                let total_decimal_digits = if mantissa == 0 {
-                    1
-                } else {
-                    (mantissa as f64).log10().floor() as i32 + 1
-                };
-
-                // Weight represents how many groups of 4 digits before the decimal point
-                // weight = (total_decimal_digits - scale - 1) / 4
-                let weight = ((total_decimal_digits as i32 - scale as i32 - 1) / 4) as i16;
-
-                let ndigits = digits.len() as i16;
-                let sign = if is_negative {
-                    NUMERIC_NEG
-                } else {
-                    NUMERIC_POS
-                };
-                let dscale = scale as u16;
-
-                // Calculate total length
-                let data_len = 8 + (ndigits as usize) * 2;
-                buf.extend_from_slice(&(data_len as i32).to_be_bytes());
-                buf.extend_from_slice(&ndigits.to_be_bytes());
-                buf.extend_from_slice(&weight.to_be_bytes());
-                buf.extend_from_slice(&sign.to_be_bytes());
-                buf.extend_from_slice(&dscale.to_be_bytes());
-
-                for digit in &digits {
-                    buf.extend_from_slice(&digit.to_be_bytes());
-                }
+                // Use text format for NUMERIC - simple and preserves full precision
+                use std::fmt::Write;
+                let mut text = String::new();
+                write!(&mut text, "{}", self).expect("Decimal formatting cannot fail");
+                let bytes = text.as_bytes();
+                buf.extend_from_slice(&(bytes.len() as i32).to_be_bytes());
+                buf.extend_from_slice(bytes);
                 Ok(())
             }
             _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),
@@ -213,7 +155,7 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn test_decimal_text() {
+    fn test_decimal_text_decode() {
         let dec = Decimal::from_text(oid::NUMERIC, b"123.45").unwrap();
         assert_eq!(dec, Decimal::from_str("123.45").unwrap());
     }
@@ -231,22 +173,32 @@ mod tests {
     }
 
     #[test]
-    fn test_decimal_zero_binary_roundtrip() {
-        let original = Decimal::ZERO;
+    fn test_decimal_encode_text_format() {
+        // encode() now produces text format for NUMERIC
+        let original = Decimal::from_str("12345.6789").unwrap();
         let mut buf = Vec::new();
-        original.to_binary(original.natural_oid(), &mut buf).unwrap();
-        let decoded = Decimal::from_binary(oid::NUMERIC, &buf[4..]).unwrap();
-        assert_eq!(original, decoded);
+        original.encode(original.natural_oid(), &mut buf).unwrap();
+        // Skip 4-byte length prefix
+        let text = std::str::from_utf8(&buf[4..]).unwrap();
+        assert_eq!(text, "12345.6789");
     }
 
     #[test]
-    fn test_decimal_positive_roundtrip() {
-        let original = Decimal::from_str("12345.6789").unwrap();
+    fn test_decimal_encode_zero() {
+        let original = Decimal::ZERO;
         let mut buf = Vec::new();
-        original.to_binary(original.natural_oid(), &mut buf).unwrap();
-        let decoded = Decimal::from_binary(oid::NUMERIC, &buf[4..]).unwrap();
-        // Note: precision may vary due to base-10000 conversion
-        assert!((original - decoded).abs() < Decimal::from_str("0.0001").unwrap());
+        original.encode(original.natural_oid(), &mut buf).unwrap();
+        let text = std::str::from_utf8(&buf[4..]).unwrap();
+        assert_eq!(text, "0");
+    }
+
+    #[test]
+    fn test_decimal_encode_negative() {
+        let original = Decimal::from_str("-123.456").unwrap();
+        let mut buf = Vec::new();
+        original.encode(original.natural_oid(), &mut buf).unwrap();
+        let text = std::str::from_utf8(&buf[4..]).unwrap();
+        assert_eq!(text, "-123.456");
     }
 
     #[test]

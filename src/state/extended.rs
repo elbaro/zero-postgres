@@ -157,7 +157,6 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
             statement_name,
             params,
             param_oids,
-            &[],
         )?;
         write_describe_portal(&mut buffer_set.write_buffer, "");
         write_execute(&mut buffer_set.write_buffer, "", 0);
@@ -187,8 +186,8 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
     ) -> Result<Self> {
         let param_oids = params.natural_oids();
         buffer_set.write_buffer.clear();
-        write_parse(&mut buffer_set.write_buffer, "", sql, &param_oids); // unnamed statement with OIDs
-        write_bind(&mut buffer_set.write_buffer, "", "", params, &param_oids, &[])?; // bind to unnamed portal
+        write_parse(&mut buffer_set.write_buffer, "", sql, &param_oids);
+        write_bind(&mut buffer_set.write_buffer, "", "", params, &param_oids)?;
         write_describe_portal(&mut buffer_set.write_buffer, "");
         write_execute(&mut buffer_set.write_buffer, "", 0);
         write_sync(&mut buffer_set.write_buffer);
@@ -513,7 +512,6 @@ impl BindStateMachine {
             statement_name,
             params,
             param_oids,
-            &[],
         )?;
         write_flush(&mut buffer_set.write_buffer);
 
@@ -531,8 +529,8 @@ impl BindStateMachine {
     pub fn bind_sql<P: ToParams>(buffer_set: &mut BufferSet, sql: &str, params: &P) -> Result<Self> {
         let param_oids = params.natural_oids();
         buffer_set.write_buffer.clear();
-        write_parse(&mut buffer_set.write_buffer, "", sql, &param_oids); // unnamed statement with OIDs
-        write_bind(&mut buffer_set.write_buffer, "", "", params, &param_oids, &[])?; // bind to unnamed portal
+        write_parse(&mut buffer_set.write_buffer, "", sql, &param_oids);
+        write_bind(&mut buffer_set.write_buffer, "", "", params, &param_oids)?;
         write_flush(&mut buffer_set.write_buffer);
 
         Ok(Self {

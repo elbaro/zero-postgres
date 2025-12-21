@@ -3,7 +3,7 @@
 use crate::conversion::ToParams;
 use crate::error::Result;
 use crate::protocol::codec::MessageBuilder;
-use crate::protocol::types::{FormatCode, Oid};
+use crate::protocol::types::{preferred_format, FormatCode, Oid};
 
 /// Write a Parse message to create a prepared statement.
 ///
@@ -27,14 +27,16 @@ pub fn write_parse(buf: &mut Vec<u8>, name: &str, query: &str, param_oids: &[Oid
 /// - `statement_name`: Prepared statement name
 /// - `params`: Parameter values (tuple of ToValue types)
 /// - `target_oids`: Target OIDs for encoding parameters
-/// - `result_formats`: Format codes for results
+///
+/// Uses per-parameter format codes based on `preferred_format()`:
+/// - NUMERIC uses text format (0)
+/// - All other types use binary format (1)
 pub fn write_bind<P: ToParams>(
     buf: &mut Vec<u8>,
     portal: &str,
     statement_name: &str,
     params: &P,
     target_oids: &[Oid],
-    result_formats: &[FormatCode],
 ) -> Result<()> {
     let mut msg = MessageBuilder::new(buf, super::msg_type::BIND);
 
@@ -42,22 +44,20 @@ pub fn write_bind<P: ToParams>(
     msg.write_cstr(portal);
     msg.write_cstr(statement_name);
 
-    // Parameter format codes - all binary (1)
+    // Parameter format codes: one per parameter
     let param_count = params.param_count();
     msg.write_i16(param_count as i16);
-    for _ in 0..param_count {
-        msg.write_i16(FormatCode::Binary as i16);
+    for &oid in target_oids {
+        msg.write_i16(preferred_format(oid) as i16);
     }
 
     // Parameter values (count + length-prefixed data)
     msg.write_i16(param_count as i16);
-    params.to_binary(target_oids, msg.buf())?;
+    params.encode(target_oids, msg.buf())?;
 
-    // Result format codes
-    msg.write_i16(result_formats.len() as i16);
-    for &fmt in result_formats {
-        msg.write_i16(fmt as i16);
-    }
+    // Result format codes: 1 code that applies to all columns (binary)
+    msg.write_i16(1);
+    msg.write_i16(FormatCode::Binary as i16);
 
     msg.finish();
     Ok(())

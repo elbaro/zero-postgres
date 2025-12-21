@@ -8,6 +8,8 @@ mod primitives;
 mod row;
 mod string;
 
+pub use primitives::numeric_to_string;
+
 #[cfg(feature = "with-chrono")]
 mod chrono;
 #[cfg(feature = "with-rust-decimal")]
@@ -52,32 +54,37 @@ pub trait FromWireValue<'a>: Sized {
     fn from_binary(oid: Oid, bytes: &'a [u8]) -> Result<Self>;
 }
 
-/// Trait for encoding Rust values as PostgreSQL binary parameters.
+/// Trait for encoding Rust values as PostgreSQL parameters.
 ///
-/// Implementations write length-prefixed binary data directly to the buffer:
+/// Implementations write length-prefixed data directly to the buffer:
 /// - Int32 length followed by the value bytes, OR
 /// - Int32 -1 for NULL
 ///
 /// The trait provides OID-aware encoding:
 /// - `natural_oid()` returns the OID this value naturally encodes to
-/// - `to_binary()` encodes the value for a specific target OID
+/// - `encode()` encodes the value for a specific target OID, using the
+///   preferred format (text for NUMERIC, binary for everything else)
 pub trait ToWireValue {
     /// The OID this value naturally encodes to.
     ///
     /// For example, i64 naturally encodes to INT8 (OID 20).
     fn natural_oid(&self) -> Oid;
 
-    /// Encode this value to binary format for the given target OID.
+    /// Encode this value for the given target OID.
     ///
     /// This allows flexible encoding: an i64 can encode as INT2, INT4, or INT8
     /// depending on what the server expects (with overflow checking).
     ///
+    /// The format (text vs binary) is determined by `preferred_format(target_oid)`:
+    /// - NUMERIC uses text format (decimal string representation)
+    /// - All other types use binary format
+    ///
     /// The implementation should write:
     /// - 4-byte length (i32, big-endian)
-    /// - followed by the binary data
+    /// - followed by the encoded data
     ///
     /// For NULL values, write -1 as the length (no data follows).
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()>;
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()>;
 }
 
 /// Trait for encoding multiple parameters.
@@ -91,7 +98,8 @@ pub trait ToParams {
     /// Encode all parameters using specified target OIDs.
     ///
     /// The target_oids slice must have the same length as param_count().
-    fn to_binary(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()>;
+    /// Each parameter is encoded using its preferred format based on the OID.
+    fn encode(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()>;
 }
 
 // === Option<T> - NULL handling ===
@@ -118,9 +126,9 @@ impl<T: ToWireValue> ToWireValue for Option<T> {
         }
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match self {
-            Some(v) => v.to_binary(target_oid, buf),
+            Some(v) => v.encode(target_oid, buf),
             None => {
                 // NULL is represented as -1 length
                 buf.extend_from_slice(&(-1_i32).to_be_bytes());
@@ -137,8 +145,8 @@ impl<T: ToWireValue + ?Sized> ToWireValue for &T {
         (*self).natural_oid()
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
-        (*self).to_binary(target_oid, buf)
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        (*self).encode(target_oid, buf)
     }
 }
 
@@ -153,7 +161,7 @@ impl ToParams for () {
         vec![]
     }
 
-    fn to_binary(&self, _target_oids: &[Oid], _buf: &mut Vec<u8>) -> Result<()> {
+    fn encode(&self, _target_oids: &[Oid], _buf: &mut Vec<u8>) -> Result<()> {
         Ok(())
     }
 }
@@ -167,8 +175,8 @@ impl<T: ToParams + ?Sized> ToParams for &T {
         (*self).natural_oids()
     }
 
-    fn to_binary(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()> {
-        (*self).to_binary(target_oids, buf)
+    fn encode(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()> {
+        (*self).encode(target_oids, buf)
     }
 }
 
@@ -184,10 +192,10 @@ macro_rules! impl_to_params {
                 vec![$(self.$idx.natural_oid()),+]
             }
 
-            fn to_binary(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()> {
+            fn encode(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()> {
                 let mut _idx = 0;
                 $(
-                    self.$idx.to_binary(target_oids[_idx], buf)?;
+                    self.$idx.encode(target_oids[_idx], buf)?;
                     _idx += 1;
                 )+
                 Ok(())

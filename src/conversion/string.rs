@@ -7,7 +7,11 @@ use super::{FromWireValue, ToWireValue};
 
 impl<'a> FromWireValue<'a> for &'a str {
     fn from_text(oid: Oid, bytes: &'a [u8]) -> Result<Self> {
-        if !matches!(oid, oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME) {
+        // NUMERIC uses text format, so it can be decoded as str in text mode
+        if !matches!(
+            oid,
+            oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME | oid::NUMERIC
+        ) {
             return Err(Error::Decode(format!("cannot decode oid {} as str", oid)));
         }
         simdutf8::compat::from_utf8(bytes)
@@ -15,6 +19,7 @@ impl<'a> FromWireValue<'a> for &'a str {
     }
 
     fn from_binary(oid: Oid, bytes: &'a [u8]) -> Result<Self> {
+        // Note: NUMERIC binary format is NOT UTF-8, so we don't accept it here
         if !matches!(oid, oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME) {
             return Err(Error::Decode(format!("cannot decode oid {} as str", oid)));
         }
@@ -25,7 +30,11 @@ impl<'a> FromWireValue<'a> for &'a str {
 
 impl FromWireValue<'_> for String {
     fn from_text(oid: Oid, bytes: &[u8]) -> Result<Self> {
-        if !matches!(oid, oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME) {
+        // NUMERIC uses text format, so it can be decoded as String in text mode
+        if !matches!(
+            oid,
+            oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME | oid::NUMERIC
+        ) {
             return Err(Error::Decode(format!(
                 "cannot decode oid {} as String",
                 oid
@@ -37,6 +46,7 @@ impl FromWireValue<'_> for String {
     }
 
     fn from_binary(oid: Oid, bytes: &[u8]) -> Result<Self> {
+        // Note: NUMERIC binary format is NOT UTF-8, so we don't accept it here
         if !matches!(oid, oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME) {
             return Err(Error::Decode(format!(
                 "cannot decode oid {} as String",
@@ -54,7 +64,7 @@ impl ToWireValue for str {
         oid::TEXT
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::TEXT | oid::VARCHAR | oid::BPCHAR | oid::NAME | oid::JSON | oid::JSONB => {
                 let bytes = self.as_bytes();
@@ -72,8 +82,8 @@ impl ToWireValue for String {
         oid::TEXT
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
-        self.as_str().to_binary(target_oid, buf)
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        self.as_str().encode(target_oid, buf)
     }
 }
 

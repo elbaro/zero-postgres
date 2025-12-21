@@ -1,341 +1,237 @@
 //! Pipeline mode for batching multiple queries.
 //!
 //! Pipeline mode allows sending multiple queries to the server without waiting
-//! for responses, reducing round-trip latency. This implementation provides
-//! typed handles for compile-time safety and supports:
-//!
-//! - Preparing statements within the pipeline
-//! - Creating named portals for cursor-style iteration
-//! - Multiple executions on the same portal with row limits
+//! for responses, reducing round-trip latency.
 //!
 //! # Example
 //!
 //! ```ignore
-//! let mut p = conn.pipeline();
+//! // Prepare statements outside the pipeline
+//! let stmts = conn.prepare_batch(&[
+//!     "SELECT id, name FROM users WHERE active = $1",
+//!     "INSERT INTO users (name) VALUES ($1) RETURNING id",
+//! ])?;
 //!
-//! // Prepare a statement in the pipeline
-//! let prep = p.prepare("SELECT id, name FROM users WHERE active = $1")?;
+//! let (active, inactive, count) = conn.run_pipeline(|p| {
+//!     // Queue executions
+//!     let t1 = p.exec(&stmts[0], (true,))?;
+//!     let t2 = p.exec(&stmts[0], (false,))?;
+//!     let t3 = p.exec("SELECT COUNT(*) FROM users", ())?;
 //!
-//! // Execute it with different parameters
-//! let q1 = p.exec::<(i32, String), _>(&prep, (true,))?;
-//! let q2 = p.exec::<(i32, String), _>(&prep, (false,))?;
+//!     p.sync()?;
 //!
-//! p.sync()?;
+//!     // Claim results in order with different methods
+//!     let active: Vec<(i32, String)> = p.claim_collect(t1)?;
+//!     let inactive: Option<(i32, String)> = p.claim_one(t2)?;
+//!     let count: Vec<(i64,)> = p.claim_collect(t3)?;
 //!
-//! // Harvest results in order
-//! let stmt = p.harvest(prep)?;
-//! let active: ExecResult<(i32, String)> = p.harvest(q1)?;
-//! let inactive: ExecResult<(i32, String)> = p.harvest(q2)?;
-//! ```
-//!
-//! # Portal Example (Cursor-style)
-//!
-//! ```ignore
-//! let mut p = conn.pipeline();
-//!
-//! let prep = p.prepare("SELECT * FROM big_table")?;
-//! let portal = p.bind(&prep, ())?;
-//! let batch1 = p.execute::<Row>(&portal, 100)?;  // max 100 rows
-//! let batch2 = p.execute::<Row>(&portal, 100)?;  // next 100 rows
-//!
-//! p.sync()?;
-//!
-//! let _stmt = p.harvest(prep)?;
-//! p.harvest(portal)?;
-//! let result1 = p.harvest(batch1)?;
-//! let result2 = p.harvest(batch2)?;
-//!
-//! if result1.suspended {
-//!     // More rows were available after batch1
-//! }
+//!     Ok((active, inactive, count))
+//! })?;
 //! ```
 
 mod handles;
 
-pub use handles::{ExecResult, QueuedExec, QueuedPortal, QueuedPrepare};
-
-use std::marker::PhantomData;
+pub use handles::Ticket;
 
 use crate::conversion::{FromRow, ToParams};
 use crate::error::{Error, Result};
+use crate::handler::BinaryHandler;
 use crate::protocol::backend::{
     BindComplete, CommandComplete, DataRow, EmptyQueryResponse, ErrorResponse, NoData,
-    ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
-    RowDescription, msg_type,
+    ParseComplete, RawMessage, ReadyForQuery, RowDescription, msg_type,
 };
 use crate::protocol::frontend::{
-    write_bind, write_describe_portal, write_describe_statement, write_execute, write_flush,
-    write_parse, write_sync,
+    write_bind, write_describe_portal, write_execute, write_flush, write_parse, write_sync,
 };
-use crate::protocol::types::Oid;
-use crate::state::extended::PreparedStatement;
+use crate::statement::IntoStatement;
 
 use super::conn::Conn;
 
 /// What response sequence to expect for a queued operation.
 #[derive(Debug, Clone, Copy)]
 enum Expectation {
-    /// Parse + Describe(S): ParseComplete + ParameterDescription + RowDescription/NoData
-    Prepare,
-    /// Bind: BindComplete
-    BindPortal,
+    /// Parse + Bind + Execute: ParseComplete + BindComplete + RowDescription/NoData + DataRow* + terminal
+    ParseBindExecute,
     /// Bind + Execute: BindComplete + RowDescription/NoData + DataRow* + terminal
     BindExecute,
-    /// Execute only: RowDescription (first time) + DataRow* + terminal
-    Execute { first: bool },
 }
 
 /// Pipeline mode for batching multiple queries.
 ///
-/// Created by [`Conn::pipeline`].
+/// Created by [`Conn::run_pipeline`].
 pub struct Pipeline<'a> {
     conn: &'a mut Conn,
     /// Monotonically increasing counter for queued operations
     queue_seq: usize,
-    /// Next sequence number to harvest
-    harvest_seq: usize,
+    /// Next sequence number to claim
+    claim_seq: usize,
     /// Expected responses for each queued operation
     expectations: Vec<Expectation>,
-    /// Counter for generating unique statement names
-    stmt_counter: usize,
-    /// Counter for generating unique portal names
-    portal_counter: usize,
     /// Whether we have queued data that needs to be flushed
     needs_flush: bool,
     /// Whether the pipeline is in aborted state (error occurred)
     aborted: bool,
     /// Buffer for column descriptions during row processing
     column_buffer: Vec<u8>,
-    /// Captured ParameterDescription OIDs during prepare harvest
-    param_oids: Vec<Oid>,
-    /// Captured RowDescription payload during prepare harvest
-    row_desc_payload: Option<Vec<u8>>,
 }
 
 impl<'a> Pipeline<'a> {
     /// Create a new pipeline.
-    pub(crate) fn new(conn: &'a mut Conn) -> Self {
+    ///
+    /// Prefer using [`Conn::run_pipeline`] which handles cleanup automatically.
+    /// This constructor is available for advanced use cases.
+    #[cfg(feature = "lowlevel")]
+    pub fn new(conn: &'a mut Conn) -> Self {
+        Self::new_inner(conn)
+    }
+
+    /// Create a new pipeline (internal).
+    pub(crate) fn new_inner(conn: &'a mut Conn) -> Self {
         Self {
             conn,
             queue_seq: 0,
-            harvest_seq: 0,
+            claim_seq: 0,
             expectations: Vec::new(),
-            stmt_counter: 0,
-            portal_counter: 0,
             needs_flush: false,
             aborted: false,
             column_buffer: Vec::new(),
-            param_oids: Vec::new(),
-            row_desc_payload: None,
         }
     }
 
-    /// Generate a unique statement name for this pipeline.
-    fn next_stmt_name(&mut self) -> String {
-        self.stmt_counter += 1;
-        format!("_zero_pipe_{}", self.stmt_counter)
+    /// Cleanup the pipeline, draining any unclaimed tickets.
+    ///
+    /// This is called automatically by [`Conn::run_pipeline`].
+    pub(crate) fn cleanup(&mut self) {
+        if self.queue_seq == self.claim_seq {
+            return;
+        }
+
+        // Send sync if we have pending operations
+        if self.needs_flush {
+            let _ = self.sync();
+        }
+
+        // Drain remaining tickets
+        while self.claim_seq < self.queue_seq {
+            let _ = self.drain_one();
+            self.claim_seq += 1;
+        }
+
+        // Consume ReadyForQuery
+        let _ = self.finish();
     }
 
-    /// Generate a unique portal name for this pipeline.
-    fn next_portal_name(&mut self) -> String {
-        self.portal_counter += 1;
-        format!("_zero_portal_{}", self.portal_counter)
+    /// Drain one ticket's worth of messages.
+    fn drain_one(&mut self) {
+        let expectation = self.expectations.get(self.claim_seq).copied();
+        let mut handler = crate::handler::DropHandler::new();
+
+        let _ = match expectation {
+            Some(Expectation::ParseBindExecute) => self.claim_parse_bind_exec_inner(&mut handler),
+            Some(Expectation::BindExecute) => self.claim_bind_exec_inner(&mut handler),
+            None => Ok(()),
+        };
     }
 
     // ========================================================================
     // Queue Operations
     // ========================================================================
 
-    /// Queue a Parse + Describe to prepare a statement.
+    /// Queue a statement execution.
     ///
-    /// Returns a handle that can be:
-    /// - Passed to [`exec`](Self::exec) for immediate execution
-    /// - Passed to [`bind`](Self::bind) to create a named portal
-    /// - Harvested to get a reusable [`PreparedStatement`]
-    pub fn prepare(&mut self, sql: &str) -> Result<QueuedPrepare> {
-        let stmt_name = self.next_stmt_name();
-        let seq = self.queue_seq;
-        self.queue_seq += 1;
-
-        let result = self.prepare_inner(&stmt_name, sql);
-        if let Err(e) = &result
-            && e.is_connection_broken()
-        {
-            self.conn.is_broken = true;
-        }
-        result?;
-
-        self.expectations.push(Expectation::Prepare);
-        Ok(QueuedPrepare { seq, stmt_name })
-    }
-
-    fn prepare_inner(&mut self, stmt_name: &str, sql: &str) -> Result<()> {
-        self.conn.buffer_set.write_buffer.clear();
-        write_parse(&mut self.conn.buffer_set.write_buffer, stmt_name, sql, &[]);
-        write_describe_statement(&mut self.conn.buffer_set.write_buffer, stmt_name);
-        self.conn
-            .stream
-            .write_all(&self.conn.buffer_set.write_buffer)?;
-        self.needs_flush = true;
-        Ok(())
-    }
-
-    /// Queue a Bind to create a named portal from a prepared statement.
+    /// The statement can be either:
+    /// - A `&PreparedStatement` returned from `conn.prepare()` or `conn.prepare_batch()`
+    /// - A raw SQL `&str` for one-shot execution
     ///
-    /// The portal can be executed multiple times with [`execute`](Self::execute),
-    /// allowing cursor-style iteration with row limits.
-    pub fn bind<P: ToParams>(&mut self, stmt: &QueuedPrepare, params: P) -> Result<QueuedPortal> {
-        let portal_name = self.next_portal_name();
-        let seq = self.queue_seq;
-        self.queue_seq += 1;
-
-        let result = self.bind_inner(&portal_name, &stmt.stmt_name, &params);
-        if let Err(e) = &result
-            && e.is_connection_broken()
-        {
-            self.conn.is_broken = true;
-        }
-        result?;
-
-        self.expectations.push(Expectation::BindPortal);
-        Ok(QueuedPortal {
-            seq,
-            portal_name,
-            first_execute_done: std::cell::Cell::new(false),
-        })
-    }
-
-    fn bind_inner<P: ToParams>(
+    /// # Example
+    ///
+    /// ```ignore
+    /// let stmt = conn.prepare("SELECT id, name FROM users WHERE id = $1")?;
+    ///
+    /// let (r1, r2) = conn.run_pipeline(|p| {
+    ///     let t1 = p.exec(&stmt, (1,))?;
+    ///     let t2 = p.exec("SELECT COUNT(*) FROM users", ())?;
+    ///     p.sync()?;
+    ///
+    ///     let r1: Vec<(i32, String)> = p.claim_collect(t1)?;
+    ///     let r2: Option<(i64,)> = p.claim_one(t2)?;
+    ///     Ok((r1, r2))
+    /// })?;
+    /// ```
+    pub fn exec<P: ToParams>(
         &mut self,
-        portal_name: &str,
-        stmt_name: &str,
-        params: &P,
-    ) -> Result<()> {
+        statement: impl IntoStatement,
+        params: P,
+    ) -> Result<Ticket> {
+        let seq = self.queue_seq;
+        self.queue_seq += 1;
+
+        let result = if statement.needs_parse() {
+            self.exec_sql_inner(statement.as_sql().unwrap(), &params)
+        } else {
+            let stmt = statement.as_prepared().unwrap();
+            self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)
+        };
+
+        if let Err(e) = &result {
+            if e.is_connection_broken() {
+                self.conn.is_broken = true;
+            }
+        }
+        result?;
+
+        Ok(Ticket { seq })
+    }
+
+    fn exec_sql_inner<P: ToParams>(&mut self, sql: &str, params: &P) -> Result<()> {
         let param_oids = params.natural_oids();
         self.conn.buffer_set.write_buffer.clear();
+        write_parse(&mut self.conn.buffer_set.write_buffer, "", sql, &param_oids);
         write_bind(
             &mut self.conn.buffer_set.write_buffer,
-            portal_name,
-            stmt_name,
+            "",
+            "",
             params,
             &param_oids,
-            &[],
         )?;
+        write_describe_portal(&mut self.conn.buffer_set.write_buffer, "");
+        write_execute(&mut self.conn.buffer_set.write_buffer, "", 0);
         self.conn
             .stream
             .write_all(&self.conn.buffer_set.write_buffer)?;
         self.needs_flush = true;
+        self.expectations.push(Expectation::ParseBindExecute);
         Ok(())
     }
 
-    /// Queue an Execute on a named portal.
-    ///
-    /// - `max_rows`: Maximum number of rows to return. Use 0 for unlimited.
-    ///
-    /// If `max_rows` is reached, the result will have `suspended = true`,
-    /// and you can call `execute` again on the same portal to get more rows.
-    pub fn execute<T>(&mut self, portal: &QueuedPortal, max_rows: u32) -> Result<QueuedExec<T>>
-    where
-        T: for<'b> FromRow<'b>,
-    {
-        let seq = self.queue_seq;
-        self.queue_seq += 1;
-
-        let first_execute = !portal.first_execute_done.get();
-        portal.first_execute_done.set(true);
-
-        let result = self.execute_inner(&portal.portal_name, max_rows, first_execute);
-        if let Err(e) = &result
-            && e.is_connection_broken()
-        {
-            self.conn.is_broken = true;
-        }
-        result?;
-
-        self.expectations.push(Expectation::Execute {
-            first: first_execute,
-        });
-        Ok(QueuedExec {
-            seq,
-            _phantom: PhantomData,
-        })
-    }
-
-    fn execute_inner(
+    fn exec_prepared_inner<P: ToParams>(
         &mut self,
-        portal_name: &str,
-        max_rows: u32,
-        first_execute: bool,
+        stmt_name: &str,
+        param_oids: &[u32],
+        params: &P,
     ) -> Result<()> {
-        self.conn.buffer_set.write_buffer.clear();
-        // On first execute, we need to Describe the portal to get RowDescription
-        if first_execute {
-            write_describe_portal(&mut self.conn.buffer_set.write_buffer, portal_name);
-        }
-        write_execute(
-            &mut self.conn.buffer_set.write_buffer,
-            portal_name,
-            max_rows,
-        );
-        self.conn
-            .stream
-            .write_all(&self.conn.buffer_set.write_buffer)?;
-        self.needs_flush = true;
-        Ok(())
-    }
-
-    /// Queue a Bind + Execute for immediate execution (convenience method).
-    ///
-    /// This is equivalent to calling [`bind`](Self::bind) followed by
-    /// [`execute`](Self::execute) with `max_rows = 0`, but uses an unnamed
-    /// portal and is more efficient for one-shot queries.
-    pub fn exec<T, P>(&mut self, stmt: &QueuedPrepare, params: P) -> Result<QueuedExec<T>>
-    where
-        T: for<'b> FromRow<'b>,
-        P: ToParams,
-    {
-        let seq = self.queue_seq;
-        self.queue_seq += 1;
-
-        let result = self.exec_inner(&stmt.stmt_name, &params);
-        if let Err(e) = &result
-            && e.is_connection_broken()
-        {
-            self.conn.is_broken = true;
-        }
-        result?;
-
-        self.expectations.push(Expectation::BindExecute);
-        Ok(QueuedExec {
-            seq,
-            _phantom: PhantomData,
-        })
-    }
-
-    fn exec_inner<P: ToParams>(&mut self, stmt_name: &str, params: &P) -> Result<()> {
-        let param_oids = params.natural_oids();
         self.conn.buffer_set.write_buffer.clear();
         write_bind(
             &mut self.conn.buffer_set.write_buffer,
             "",
             stmt_name,
             params,
-            &param_oids,
-            &[],
+            param_oids,
         )?;
-        write_describe_portal(&mut self.conn.buffer_set.write_buffer, ""); // Get RowDescription
+        write_describe_portal(&mut self.conn.buffer_set.write_buffer, "");
         write_execute(&mut self.conn.buffer_set.write_buffer, "", 0);
         self.conn
             .stream
             .write_all(&self.conn.buffer_set.write_buffer)?;
         self.needs_flush = true;
+        self.expectations.push(Expectation::BindExecute);
         Ok(())
     }
 
     /// Send a FLUSH message to trigger server response.
     ///
     /// This forces the server to send all pending responses without establishing
-    /// a transaction boundary. Called automatically by harvest methods when needed.
+    /// a transaction boundary. Called automatically by claim methods when needed.
     pub fn flush(&mut self) -> Result<()> {
         if self.needs_flush {
             self.conn.buffer_set.write_buffer.clear();
@@ -351,15 +247,15 @@ impl<'a> Pipeline<'a> {
 
     /// Send a SYNC message to establish a transaction boundary.
     ///
-    /// After calling sync, you must harvest all queued operations in order.
+    /// After calling sync, you must claim all queued operations in order.
     /// The final ReadyForQuery message will be consumed when all operations
-    /// are harvested.
+    /// are claimed.
     pub fn sync(&mut self) -> Result<()> {
         let result = self.sync_inner();
-        if let Err(e) = &result
-            && e.is_connection_broken()
-        {
-            self.conn.is_broken = true;
+        if let Err(e) = &result {
+            if e.is_connection_broken() {
+                self.conn.is_broken = true;
+            }
         }
         result
     }
@@ -375,7 +271,7 @@ impl<'a> Pipeline<'a> {
         Ok(())
     }
 
-    /// Wait for ReadyForQuery after all operations are harvested.
+    /// Wait for ReadyForQuery after all operations are claimed.
     fn finish(&mut self) -> Result<()> {
         // Wait for ReadyForQuery
         loop {
@@ -398,7 +294,7 @@ impl<'a> Pipeline<'a> {
                 self.conn.transaction_status = ready.transaction_status().unwrap_or_default();
                 // Reset pipeline state
                 self.queue_seq = 0;
-                self.harvest_seq = 0;
+                self.claim_seq = 0;
                 self.expectations.clear();
                 self.aborted = false;
                 return Ok(());
@@ -407,161 +303,39 @@ impl<'a> Pipeline<'a> {
     }
 
     // ========================================================================
-    // Harvest Operations
+    // Claim Operations
     // ========================================================================
 
-    /// Harvest the result of a queued operation.
+    /// Claim with a custom handler.
     ///
-    /// Results must be harvested in the same order they were queued.
-    pub fn harvest<H: Harvest>(&mut self, handle: H) -> Result<H::Output> {
-        handle.harvest(self)
+    /// Results must be claimed in the same order they were queued.
+    #[cfg(feature = "lowlevel")]
+    pub fn claim<H: BinaryHandler>(&mut self, ticket: Ticket, handler: &mut H) -> Result<()> {
+        self.claim_with_handler(ticket, handler)
     }
 
-    /// Check that the handle sequence matches the expected harvest sequence.
-    fn check_sequence(&self, seq: usize) -> Result<()> {
-        if seq != self.harvest_seq {
-            return Err(Error::InvalidUsage(format!(
-                "harvest out of order: expected seq {}, got {}",
-                self.harvest_seq, seq
-            )));
-        }
-        Ok(())
-    }
-
-    /// Check if all operations are harvested and consume ReadyForQuery if so.
-    fn maybe_finish(&mut self) -> Result<()> {
-        if self.harvest_seq == self.queue_seq {
-            self.finish()?;
-        }
-        Ok(())
-    }
-
-    /// Harvest a prepare operation.
-    fn harvest_prepare(&mut self, handle: QueuedPrepare) -> Result<PreparedStatement> {
-        self.check_sequence(handle.seq)?;
-        self.flush()?;
-
-        if self.aborted {
-            self.harvest_seq += 1;
-            self.maybe_finish()?;
-            return Err(Error::Protocol(
-                "pipeline aborted due to earlier error".into(),
-            ));
-        }
-
-        let result = self.harvest_prepare_inner(&handle.stmt_name);
-        if let Err(e) = &result {
-            if e.is_connection_broken() {
-                self.conn.is_broken = true;
-            }
-            self.aborted = true;
-        }
-        self.harvest_seq += 1;
-        self.maybe_finish()?;
-        result
-    }
-
-    fn harvest_prepare_inner(&mut self, stmt_name: &str) -> Result<PreparedStatement> {
-        // Expect: ParseComplete
-        self.read_next_message()?;
-        if self.conn.buffer_set.type_byte != msg_type::PARSE_COMPLETE {
-            return self.unexpected_message("ParseComplete");
-        }
-        ParseComplete::parse(&self.conn.buffer_set.read_buffer)?;
-
-        // Expect: ParameterDescription
-        self.read_next_message()?;
-        if self.conn.buffer_set.type_byte != msg_type::PARAMETER_DESCRIPTION {
-            return self.unexpected_message("ParameterDescription");
-        }
-        let param_desc = ParameterDescription::parse(&self.conn.buffer_set.read_buffer)?;
-        self.param_oids = param_desc.oids().to_vec();
-
-        // Expect: RowDescription or NoData
-        self.read_next_message()?;
-        match self.conn.buffer_set.type_byte {
-            msg_type::ROW_DESCRIPTION => {
-                self.row_desc_payload = Some(self.conn.buffer_set.read_buffer.clone());
-            }
-            msg_type::NO_DATA => {
-                NoData::parse(&self.conn.buffer_set.read_buffer)?;
-                self.row_desc_payload = None;
-            }
-            _ => return self.unexpected_message("RowDescription or NoData"),
-        }
-
-        // Create PreparedStatement
-        // We need to give it a unique idx - use a hash of the statement name
-        let idx = stmt_name
-            .bytes()
-            .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
-
-        Ok(PreparedStatement::new(
-            idx,
-            std::mem::take(&mut self.param_oids),
-            self.row_desc_payload.take(),
-            stmt_name.to_string(),
-        ))
-    }
-
-    /// Harvest a portal bind operation.
-    fn harvest_portal(&mut self, handle: QueuedPortal) -> Result<()> {
-        self.check_sequence(handle.seq)?;
-        self.flush()?;
-
-        if self.aborted {
-            self.harvest_seq += 1;
-            self.maybe_finish()?;
-            return Err(Error::Protocol(
-                "pipeline aborted due to earlier error".into(),
-            ));
-        }
-
-        let result = self.harvest_portal_inner();
-        if let Err(e) = &result {
-            if e.is_connection_broken() {
-                self.conn.is_broken = true;
-            }
-            self.aborted = true;
-        }
-        self.harvest_seq += 1;
-        self.maybe_finish()?;
-        result
-    }
-
-    fn harvest_portal_inner(&mut self) -> Result<()> {
-        // Expect: BindComplete
-        self.read_next_message()?;
-        if self.conn.buffer_set.type_byte != msg_type::BIND_COMPLETE {
-            return self.unexpected_message("BindComplete");
-        }
-        BindComplete::parse(&self.conn.buffer_set.read_buffer)?;
-        Ok(())
-    }
-
-    /// Harvest an execute operation.
-    fn harvest_exec<T: for<'b> FromRow<'b>>(
+    fn claim_with_handler<H: BinaryHandler>(
         &mut self,
-        handle: QueuedExec<T>,
-    ) -> Result<ExecResult<T>> {
-        self.check_sequence(handle.seq)?;
+        ticket: Ticket,
+        handler: &mut H,
+    ) -> Result<()> {
+        self.check_sequence(ticket.seq)?;
         self.flush()?;
 
         if self.aborted {
-            self.harvest_seq += 1;
+            self.claim_seq += 1;
             self.maybe_finish()?;
             return Err(Error::Protocol(
                 "pipeline aborted due to earlier error".into(),
             ));
         }
 
-        // Check if this is a BindExecute (includes BindComplete) or just Execute
-        let expectation = self.expectations.get(handle.seq).copied();
+        let expectation = self.expectations.get(ticket.seq).copied();
 
         let result = match expectation {
-            Some(Expectation::BindExecute) => self.harvest_bind_exec_inner(),
-            Some(Expectation::Execute { first }) => self.harvest_execute_inner(first),
-            _ => Err(Error::Protocol("unexpected expectation type".into())),
+            Some(Expectation::ParseBindExecute) => self.claim_parse_bind_exec_inner(handler),
+            Some(Expectation::BindExecute) => self.claim_bind_exec_inner(handler),
+            None => Err(Error::Protocol("unexpected expectation type".into())),
         };
 
         if let Err(e) = &result {
@@ -570,13 +344,65 @@ impl<'a> Pipeline<'a> {
             }
             self.aborted = true;
         }
-        self.harvest_seq += 1;
+        self.claim_seq += 1;
         self.maybe_finish()?;
         result
     }
 
-    /// Harvest Bind + Execute (for exec() calls).
-    fn harvest_bind_exec_inner<T: for<'b> FromRow<'b>>(&mut self) -> Result<ExecResult<T>> {
+    /// Claim and collect all rows.
+    ///
+    /// Results must be claimed in the same order they were queued.
+    pub fn claim_collect<T: for<'b> FromRow<'b>>(&mut self, ticket: Ticket) -> Result<Vec<T>> {
+        let mut handler = crate::handler::CollectHandler::<T>::new();
+        self.claim_with_handler(ticket, &mut handler)?;
+        Ok(handler.into_rows())
+    }
+
+    /// Claim and return just the first row.
+    ///
+    /// Results must be claimed in the same order they were queued.
+    pub fn claim_one<T: for<'b> FromRow<'b>>(&mut self, ticket: Ticket) -> Result<Option<T>> {
+        let mut handler = crate::handler::FirstRowHandler::<T>::new();
+        self.claim_with_handler(ticket, &mut handler)?;
+        Ok(handler.into_row())
+    }
+
+    /// Claim and discard all rows.
+    ///
+    /// Results must be claimed in the same order they were queued.
+    pub fn claim_drop(&mut self, ticket: Ticket) -> Result<()> {
+        let mut handler = crate::handler::DropHandler::new();
+        self.claim_with_handler(ticket, &mut handler)
+    }
+
+    /// Check that the ticket sequence matches the expected claim sequence.
+    fn check_sequence(&self, seq: usize) -> Result<()> {
+        if seq != self.claim_seq {
+            return Err(Error::InvalidUsage(format!(
+                "claim out of order: expected seq {}, got {}",
+                self.claim_seq, seq
+            )));
+        }
+        Ok(())
+    }
+
+    /// Check if all operations are claimed and consume ReadyForQuery if so.
+    fn maybe_finish(&mut self) -> Result<()> {
+        if self.claim_seq == self.queue_seq {
+            self.finish()?;
+        }
+        Ok(())
+    }
+
+    /// Claim Parse + Bind + Execute (for raw SQL exec() calls).
+    fn claim_parse_bind_exec_inner<H: BinaryHandler>(&mut self, handler: &mut H) -> Result<()> {
+        // Expect: ParseComplete
+        self.read_next_message()?;
+        if self.conn.buffer_set.type_byte != msg_type::PARSE_COMPLETE {
+            return self.unexpected_message("ParseComplete");
+        }
+        ParseComplete::parse(&self.conn.buffer_set.read_buffer)?;
+
         // Expect: BindComplete
         self.read_next_message()?;
         if self.conn.buffer_set.type_byte != msg_type::BIND_COMPLETE {
@@ -585,53 +411,41 @@ impl<'a> Pipeline<'a> {
         BindComplete::parse(&self.conn.buffer_set.read_buffer)?;
 
         // Now read rows
-        self.harvest_rows_inner()
+        self.claim_rows_inner(handler)
     }
 
-    /// Harvest Execute only (for execute() calls on named portals).
-    fn harvest_execute_inner<T: for<'b> FromRow<'b>>(
-        &mut self,
-        first: bool,
-    ) -> Result<ExecResult<T>> {
-        // For named portals, server sends RowDescription on first execute
-        // Subsequent executes don't get RowDescription
-        self.harvest_rows_inner_with_row_desc(first)
+    /// Claim Bind + Execute (for prepared statement exec() calls).
+    fn claim_bind_exec_inner<H: BinaryHandler>(&mut self, handler: &mut H) -> Result<()> {
+        // Expect: BindComplete
+        self.read_next_message()?;
+        if self.conn.buffer_set.type_byte != msg_type::BIND_COMPLETE {
+            return self.unexpected_message("BindComplete");
+        }
+        BindComplete::parse(&self.conn.buffer_set.read_buffer)?;
+
+        // Now read rows
+        self.claim_rows_inner(handler)
     }
 
-    /// Common row harvesting logic (expects RowDescription).
-    fn harvest_rows_inner<T: for<'b> FromRow<'b>>(&mut self) -> Result<ExecResult<T>> {
-        self.harvest_rows_inner_with_row_desc(true)
-    }
-
-    /// Row harvesting logic with optional RowDescription expectation.
-    ///
-    /// - `expect_row_desc`: If true, expects RowDescription/NoData before data rows.
-    ///   If false, uses cached column_buffer (for subsequent portal executes).
-    fn harvest_rows_inner_with_row_desc<T: for<'b> FromRow<'b>>(
-        &mut self,
-        expect_row_desc: bool,
-    ) -> Result<ExecResult<T>> {
-        let mut rows = Vec::new();
-
-        // If we expect RowDescription, read it first
-        if expect_row_desc {
-            self.read_next_message()?;
-            match self.conn.buffer_set.type_byte {
-                msg_type::ROW_DESCRIPTION => {
-                    self.column_buffer.clear();
-                    self.column_buffer
-                        .extend_from_slice(&self.conn.buffer_set.read_buffer);
-                }
-                msg_type::NO_DATA => {
-                    NoData::parse(&self.conn.buffer_set.read_buffer)?;
-                    // No rows will follow, but we still need terminal message
-                }
-                _ => {
-                    return Err(Error::Protocol(format!(
-                        "expected RowDescription or NoData, got '{}'",
-                        self.conn.buffer_set.type_byte as char
-                    )));
-                }
+    /// Common row reading logic.
+    fn claim_rows_inner<H: BinaryHandler>(&mut self, handler: &mut H) -> Result<()> {
+        // Expect RowDescription or NoData
+        self.read_next_message()?;
+        match self.conn.buffer_set.type_byte {
+            msg_type::ROW_DESCRIPTION => {
+                self.column_buffer.clear();
+                self.column_buffer
+                    .extend_from_slice(&self.conn.buffer_set.read_buffer);
+            }
+            msg_type::NO_DATA => {
+                NoData::parse(&self.conn.buffer_set.read_buffer)?;
+                // No rows will follow, but we still need terminal message
+            }
+            _ => {
+                return Err(Error::Protocol(format!(
+                    "expected RowDescription or NoData, got '{}'",
+                    self.conn.buffer_set.type_byte as char
+                )));
             }
         }
 
@@ -644,23 +458,20 @@ impl<'a> Pipeline<'a> {
                 msg_type::DATA_ROW => {
                     let cols = RowDescription::parse(&self.column_buffer)?;
                     let row = DataRow::parse(&self.conn.buffer_set.read_buffer)?;
-                    rows.push(T::from_row(cols.fields(), row)?);
+                    handler.row(cols, row)?;
                 }
                 msg_type::COMMAND_COMPLETE => {
-                    CommandComplete::parse(&self.conn.buffer_set.read_buffer)?;
-                    return Ok(ExecResult::new(rows, false));
+                    let cmd = CommandComplete::parse(&self.conn.buffer_set.read_buffer)?;
+                    handler.result_end(cmd)?;
+                    return Ok(());
                 }
                 msg_type::EMPTY_QUERY_RESPONSE => {
                     EmptyQueryResponse::parse(&self.conn.buffer_set.read_buffer)?;
-                    return Ok(ExecResult::new(rows, false));
-                }
-                msg_type::PORTAL_SUSPENDED => {
-                    PortalSuspended::parse(&self.conn.buffer_set.read_buffer)?;
-                    return Ok(ExecResult::new(rows, true));
+                    return Ok(());
                 }
                 _ => {
                     return Err(Error::Protocol(format!(
-                        "unexpected message type in pipeline harvest: '{}'",
+                        "unexpected message type in pipeline claim: '{}'",
                         type_byte as char
                     )));
                 }
@@ -697,50 +508,13 @@ impl<'a> Pipeline<'a> {
         )))
     }
 
-    /// Returns the number of operations that have been queued but not yet harvested.
+    /// Returns the number of operations that have been queued but not yet claimed.
     pub fn pending_count(&self) -> usize {
-        self.queue_seq - self.harvest_seq
+        self.queue_seq - self.claim_seq
     }
 
     /// Returns true if the pipeline is in aborted state due to an error.
     pub fn is_aborted(&self) -> bool {
         self.aborted
-    }
-}
-
-// ============================================================================
-// Harvest Trait
-// ============================================================================
-
-/// Trait for harvesting results from pipeline handles.
-pub trait Harvest {
-    /// The output type when harvesting this handle.
-    type Output;
-
-    /// Harvest the result from the pipeline.
-    fn harvest(self, pipeline: &mut Pipeline<'_>) -> Result<Self::Output>;
-}
-
-impl Harvest for QueuedPrepare {
-    type Output = PreparedStatement;
-
-    fn harvest(self, pipeline: &mut Pipeline<'_>) -> Result<Self::Output> {
-        pipeline.harvest_prepare(self)
-    }
-}
-
-impl Harvest for QueuedPortal {
-    type Output = ();
-
-    fn harvest(self, pipeline: &mut Pipeline<'_>) -> Result<Self::Output> {
-        pipeline.harvest_portal(self)
-    }
-}
-
-impl<T: for<'b> FromRow<'b>> Harvest for QueuedExec<T> {
-    type Output = ExecResult<T>;
-
-    fn harvest(self, pipeline: &mut Pipeline<'_>) -> Result<Self::Output> {
-        pipeline.harvest_exec(self)
     }
 }

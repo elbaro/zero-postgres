@@ -31,6 +31,18 @@ impl From<u16> for FormatCode {
     }
 }
 
+/// Returns the preferred format code for a given OID.
+///
+/// Most types use binary format for efficiency, but some types
+/// (like NUMERIC) use text format because the binary encoding
+/// is complex and text is equally efficient.
+pub fn preferred_format(oid: Oid) -> FormatCode {
+    match oid {
+        oid::NUMERIC => FormatCode::Text,
+        _ => FormatCode::Binary,
+    }
+}
+
 /// Transaction status indicator from ReadyForQuery message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]

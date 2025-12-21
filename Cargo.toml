@@ -18,6 +18,7 @@ with-uuid = ["dep:uuid"]
 with-time = ["dep:time"]
 with-chrono = ["dep:chrono"]
 with-rust-decimal = ["dep:rust_decimal"]
+lowlevel = []
 
 [dependencies]
 thiserror = "2"

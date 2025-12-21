@@ -38,7 +38,7 @@ impl ToWireValue for time::Date {
         oid::DATE
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::DATE => {
                 let pg_days = self.to_julian_day() - PG_EPOCH_JULIAN_DAY;
@@ -94,7 +94,7 @@ impl ToWireValue for time::Time {
         oid::TIME
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::TIME => {
                 let (hour, minute, second, nano) = self.as_hms_nano();
@@ -164,7 +164,7 @@ impl ToWireValue for time::PrimitiveDateTime {
         oid::TIMESTAMP
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::TIMESTAMP | oid::TIMESTAMPTZ => {
                 // Calculate microseconds since PostgreSQL epoch (2000-01-01 00:00:00)
@@ -232,7 +232,7 @@ impl ToWireValue for time::OffsetDateTime {
         oid::TIMESTAMPTZ
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::TIMESTAMP | oid::TIMESTAMPTZ => {
                 // Convert to UTC and calculate microseconds since PostgreSQL epoch
@@ -276,7 +276,7 @@ mod tests {
     fn test_date_roundtrip() {
         let original = time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap();
         let mut buf = Vec::new();
-        original.to_binary(original.natural_oid(), &mut buf).unwrap();
+        original.encode(original.natural_oid(), &mut buf).unwrap();
         let decoded = time::Date::from_binary(oid::DATE, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -313,7 +313,7 @@ mod tests {
     fn test_time_roundtrip() {
         let original = time::Time::from_hms_micro(10, 30, 45, 123456).unwrap();
         let mut buf = Vec::new();
-        original.to_binary(original.natural_oid(), &mut buf).unwrap();
+        original.encode(original.natural_oid(), &mut buf).unwrap();
         let decoded = time::Time::from_binary(oid::TIME, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -354,7 +354,7 @@ mod tests {
         let time = time::Time::from_hms_micro(10, 30, 45, 123456).unwrap();
         let original = time::PrimitiveDateTime::new(date, time);
         let mut buf = Vec::new();
-        original.to_binary(original.natural_oid(), &mut buf).unwrap();
+        original.encode(original.natural_oid(), &mut buf).unwrap();
         let decoded = time::PrimitiveDateTime::from_binary(oid::TIMESTAMP, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }
@@ -383,7 +383,7 @@ mod tests {
             .replace_nanosecond((original.nanosecond() / 1000) * 1000)
             .unwrap();
         let mut buf = Vec::new();
-        original.to_binary(original.natural_oid(), &mut buf).unwrap();
+        original.encode(original.natural_oid(), &mut buf).unwrap();
         let decoded = time::OffsetDateTime::from_binary(oid::TIMESTAMPTZ, &buf[4..]).unwrap();
         assert_eq!(original, decoded);
     }

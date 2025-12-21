@@ -56,7 +56,7 @@ impl ToWireValue for [u8] {
         oid::BYTEA
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::BYTEA => {
                 buf.extend_from_slice(&(self.len() as i32).to_be_bytes());
@@ -73,8 +73,8 @@ impl ToWireValue for Vec<u8> {
         oid::BYTEA
     }
 
-    fn to_binary(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
-        self.as_slice().to_binary(target_oid, buf)
+    fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
+        self.as_slice().encode(target_oid, buf)
     }
 }
 

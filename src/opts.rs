@@ -122,9 +122,9 @@ impl TryFrom<&Url> for Opts {
     /// - `pool_max_idle_conn`: maximum idle connections (positive integer)
     /// - `pool_max_concurrency`: maximum concurrent connections (positive integer)
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
-        if !["postgres", "pg"].contains(&url.scheme()) {
+        if !["postgres", "postgresql", "pg"].contains(&url.scheme()) {
             return Err(Error::InvalidUsage(format!(
-                "Invalid scheme: expected 'postgres://' or 'pg://', got '{}://'",
+                "Invalid scheme: expected 'postgres://', 'postgresql://', or 'pg://', got '{}://'",
                 url.scheme()
             )));
         }
