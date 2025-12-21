@@ -41,17 +41,33 @@ fn main() -> zero_postgres::Result<()> {
     for iteration in 0..10 {
         let iteration_start = std::time::Instant::now();
 
-        for (username, age, email, score, description) in rows.iter() {
-            conn.exec_drop(
-                &insert_stmt,
-                (
-                    username.as_str(),
-                    *age,
-                    email.as_str(),
-                    *score,
-                    description.as_str(),
-                ),
-            )?;
+        // Use pipeline for bulk inserts - batches of 1000 to avoid too many pending operations
+        const BATCH_SIZE: usize = 1000;
+        for chunk in rows.chunks(BATCH_SIZE) {
+            conn.run_pipeline(|p| {
+                let mut tickets = Vec::with_capacity(chunk.len());
+                for (username, age, email, score, description) in chunk.iter() {
+                    let ticket = p.exec(
+                        &insert_stmt,
+                        (
+                            username.as_str(),
+                            *age,
+                            email.as_str(),
+                            *score,
+                            description.as_str(),
+                        ),
+                    )?;
+                    tickets.push(ticket);
+                }
+
+                p.sync()?;
+
+                for ticket in tickets {
+                    p.claim_drop(ticket)?;
+                }
+
+                Ok(())
+            })?;
         }
 
         let elapsed = iteration_start.elapsed();

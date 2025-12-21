@@ -1,5 +1,8 @@
 //! Benchmark: zero-postgres async (tokio)
 //!
+//! Note: This benchmark does not use pipeline mode as async pipeline is not yet implemented.
+//! For pipeline benchmarks, use bench_zero_sync.
+//!
 //! Usage:
 //!   DATABASE_URL=postgres://user:pass@localhost/test cargo run --example bench_zero_async
 

@@ -14,6 +14,7 @@ use crate::protocol::types::{oid, Oid};
 
 use super::{FromWireValue, ToWireValue};
 
+const NUMERIC_NEG: u16 = 0x4000;
 const NUMERIC_NAN: u16 = 0xC000;
 const NBASE: i128 = 10000;
 

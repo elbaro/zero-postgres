@@ -16,7 +16,7 @@ use crate::protocol::types::TransactionStatus;
 use crate::state::StateMachine;
 use crate::state::action::Action;
 use crate::state::connection::ConnectionStateMachine;
-use crate::state::extended::{ExtendedQueryStateMachine, PreparedStatement};
+use crate::state::extended::{BindStateMachine, ExtendedQueryStateMachine, PreparedStatement};
 use crate::state::simple_query::SimpleQueryStateMachine;
 use crate::statement::IntoStatement;
 
@@ -24,12 +24,12 @@ use super::stream::Stream;
 
 /// Asynchronous PostgreSQL connection.
 pub struct Conn {
-    stream: Stream,
-    buffer_set: PooledBufferSet,
+    pub(crate) stream: Stream,
+    pub(crate) buffer_set: PooledBufferSet,
     backend_key: Option<BackendKeyData>,
     server_params: Vec<(String, String)>,
-    transaction_status: TransactionStatus,
-    is_broken: bool,
+    pub(crate) transaction_status: TransactionStatus,
+    pub(crate) is_broken: bool,
     stmt_counter: u64,
     async_message_handler: Option<Box<dyn AsyncMessageHandler>>,
 }
@@ -458,6 +458,398 @@ impl Conn {
         let mut state_machine =
             ExtendedQueryStateMachine::close_statement(&mut handler, &mut self.buffer_set, name);
         self.drive(&mut state_machine).await
+    }
+
+    // === Low-Level Extended Query Protocol ===
+
+    /// Low-level flush: send FLUSH to force server to send pending responses.
+    ///
+    /// Unlike SYNC, FLUSH does not end the transaction or wait for ReadyForQuery.
+    /// It just forces the server to send any pending responses without ending
+    /// the extended query sequence.
+    pub async fn lowlevel_flush(&mut self) -> Result<()> {
+        use crate::protocol::frontend::write_flush;
+
+        self.buffer_set.write_buffer.clear();
+        write_flush(&mut self.buffer_set.write_buffer);
+
+        self.stream.write_all(&self.buffer_set.write_buffer).await?;
+        self.stream.flush().await?;
+        Ok(())
+    }
+
+    /// Low-level sync: send SYNC and receive ReadyForQuery.
+    ///
+    /// This ends an extended query sequence and:
+    /// - Commits implicit transaction if successful
+    /// - Rolls back implicit transaction if failed
+    /// - Updates transaction status
+    pub async fn lowlevel_sync(&mut self) -> Result<()> {
+        let result = self.lowlevel_sync_inner().await;
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
+        }
+        result
+    }
+
+    async fn lowlevel_sync_inner(&mut self) -> Result<()> {
+        use crate::protocol::backend::{ErrorResponse, RawMessage, ReadyForQuery, msg_type};
+        use crate::protocol::frontend::write_sync;
+
+        self.buffer_set.write_buffer.clear();
+        write_sync(&mut self.buffer_set.write_buffer);
+
+        self.stream.write_all(&self.buffer_set.write_buffer).await?;
+        self.stream.flush().await?;
+
+        let mut pending_error: Option<Error> = None;
+
+        loop {
+            self.stream.read_message(&mut self.buffer_set).await?;
+            let type_byte = self.buffer_set.type_byte;
+
+            if RawMessage::is_async_type(type_byte) {
+                continue;
+            }
+
+            match type_byte {
+                msg_type::READY_FOR_QUERY => {
+                    let ready = ReadyForQuery::parse(&self.buffer_set.read_buffer)?;
+                    self.transaction_status = ready.transaction_status().unwrap_or_default();
+                    if let Some(e) = pending_error {
+                        return Err(e);
+                    }
+                    return Ok(());
+                }
+                msg_type::ERROR_RESPONSE => {
+                    let error = ErrorResponse::parse(&self.buffer_set.read_buffer)?;
+                    pending_error = Some(error.into_error());
+                }
+                _ => {
+                    // Ignore other messages before ReadyForQuery
+                }
+            }
+        }
+    }
+
+    /// Low-level bind: send BIND message and receive BindComplete.
+    ///
+    /// This allows creating named portals. Unlike `exec()`, this does NOT
+    /// send EXECUTE or SYNC - the caller controls when to execute and sync.
+    ///
+    /// # Arguments
+    /// - `portal`: Portal name (empty string "" for unnamed portal)
+    /// - `statement_name`: Prepared statement name
+    /// - `params`: Parameter values
+    pub async fn lowlevel_bind<P: ToParams>(
+        &mut self,
+        portal: &str,
+        statement_name: &str,
+        params: P,
+    ) -> Result<()> {
+        let result = self.lowlevel_bind_inner(portal, statement_name, &params).await;
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
+        }
+        result
+    }
+
+    async fn lowlevel_bind_inner<P: ToParams>(
+        &mut self,
+        portal: &str,
+        statement_name: &str,
+        params: &P,
+    ) -> Result<()> {
+        use crate::protocol::backend::{BindComplete, ErrorResponse, RawMessage, msg_type};
+        use crate::protocol::frontend::{write_bind, write_flush};
+
+        let param_oids = params.natural_oids();
+        self.buffer_set.write_buffer.clear();
+        write_bind(
+            &mut self.buffer_set.write_buffer,
+            portal,
+            statement_name,
+            params,
+            &param_oids,
+        )?;
+        write_flush(&mut self.buffer_set.write_buffer);
+
+        self.stream.write_all(&self.buffer_set.write_buffer).await?;
+        self.stream.flush().await?;
+
+        loop {
+            self.stream.read_message(&mut self.buffer_set).await?;
+            let type_byte = self.buffer_set.type_byte;
+
+            if RawMessage::is_async_type(type_byte) {
+                continue;
+            }
+
+            match type_byte {
+                msg_type::BIND_COMPLETE => {
+                    BindComplete::parse(&self.buffer_set.read_buffer)?;
+                    return Ok(());
+                }
+                msg_type::ERROR_RESPONSE => {
+                    let error = ErrorResponse::parse(&self.buffer_set.read_buffer)?;
+                    return Err(error.into_error());
+                }
+                _ => {
+                    return Err(Error::Protocol(format!(
+                        "Expected BindComplete or ErrorResponse, got '{}'",
+                        type_byte as char
+                    )));
+                }
+            }
+        }
+    }
+
+    /// Low-level execute: send EXECUTE message and receive results.
+    ///
+    /// Executes a previously bound portal. Does NOT send SYNC.
+    ///
+    /// # Arguments
+    /// - `portal`: Portal name (empty string "" for unnamed portal)
+    /// - `max_rows`: Maximum rows to return (0 = unlimited)
+    /// - `handler`: Handler to receive rows
+    ///
+    /// # Returns
+    /// - `Ok(true)` if more rows available (PortalSuspended received)
+    /// - `Ok(false)` if execution completed (CommandComplete received)
+    pub async fn lowlevel_execute<H: BinaryHandler>(
+        &mut self,
+        portal: &str,
+        max_rows: u32,
+        handler: &mut H,
+    ) -> Result<bool> {
+        let result = self.lowlevel_execute_inner(portal, max_rows, handler).await;
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
+        }
+        result
+    }
+
+    async fn lowlevel_execute_inner<H: BinaryHandler>(
+        &mut self,
+        portal: &str,
+        max_rows: u32,
+        handler: &mut H,
+    ) -> Result<bool> {
+        use crate::protocol::backend::{
+            CommandComplete, DataRow, ErrorResponse, NoData, PortalSuspended, RawMessage,
+            RowDescription, msg_type,
+        };
+        use crate::protocol::frontend::{write_describe_portal, write_execute, write_flush};
+
+        self.buffer_set.write_buffer.clear();
+        write_describe_portal(&mut self.buffer_set.write_buffer, portal);
+        write_execute(&mut self.buffer_set.write_buffer, portal, max_rows);
+        write_flush(&mut self.buffer_set.write_buffer);
+
+        self.stream.write_all(&self.buffer_set.write_buffer).await?;
+        self.stream.flush().await?;
+
+        let mut column_buffer: Vec<u8> = Vec::new();
+
+        loop {
+            self.stream.read_message(&mut self.buffer_set).await?;
+            let type_byte = self.buffer_set.type_byte;
+
+            if RawMessage::is_async_type(type_byte) {
+                continue;
+            }
+
+            match type_byte {
+                msg_type::ROW_DESCRIPTION => {
+                    column_buffer.clear();
+                    column_buffer.extend_from_slice(&self.buffer_set.read_buffer);
+                    let cols = RowDescription::parse(&column_buffer)?;
+                    handler.result_start(cols)?;
+                }
+                msg_type::NO_DATA => {
+                    NoData::parse(&self.buffer_set.read_buffer)?;
+                }
+                msg_type::DATA_ROW => {
+                    let cols = RowDescription::parse(&column_buffer)?;
+                    let row = DataRow::parse(&self.buffer_set.read_buffer)?;
+                    handler.row(cols, row)?;
+                }
+                msg_type::COMMAND_COMPLETE => {
+                    let complete = CommandComplete::parse(&self.buffer_set.read_buffer)?;
+                    handler.result_end(complete)?;
+                    return Ok(false); // No more rows
+                }
+                msg_type::PORTAL_SUSPENDED => {
+                    PortalSuspended::parse(&self.buffer_set.read_buffer)?;
+                    return Ok(true); // More rows available
+                }
+                msg_type::ERROR_RESPONSE => {
+                    let error = ErrorResponse::parse(&self.buffer_set.read_buffer)?;
+                    return Err(error.into_error());
+                }
+                _ => {
+                    return Err(Error::Protocol(format!(
+                        "Unexpected message in execute: '{}'",
+                        type_byte as char
+                    )));
+                }
+            }
+        }
+    }
+
+    /// Execute a statement with iterative row fetching.
+    ///
+    /// Creates an unnamed portal and passes it to the closure. The closure can
+    /// call `portal.fetch(n, handler)` multiple times to retrieve rows in batches.
+    /// Sync is called after the closure returns to end the implicit transaction.
+    ///
+    /// The statement can be either:
+    /// - A `&PreparedStatement` returned from `prepare()`
+    /// - A raw SQL `&str` for one-shot execution
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Using prepared statement
+    /// let stmt = conn.prepare("SELECT * FROM users").await?;
+    /// conn.exec_iter(&stmt, (), |portal| async move {
+    ///     while portal.fetch(100, &mut handler).await? {
+    ///         // process handler.into_rows()...
+    ///     }
+    ///     Ok(())
+    /// }).await?;
+    ///
+    /// // Using raw SQL
+    /// conn.exec_iter("SELECT * FROM users", (), |portal| async move {
+    ///     while portal.fetch(100, &mut handler).await? {
+    ///         // process handler.into_rows()...
+    ///     }
+    ///     Ok(())
+    /// }).await?;
+    /// ```
+    pub async fn exec_iter<S: IntoStatement, P, F, Fut, T>(
+        &mut self,
+        statement: S,
+        params: P,
+        f: F,
+    ) -> Result<T>
+    where
+        P: ToParams,
+        F: FnOnce(&mut super::unnamed_portal::UnnamedPortal<'_>) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let result = self.exec_iter_inner(&statement, &params, f).await;
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
+        }
+        result
+    }
+
+    async fn exec_iter_inner<S: IntoStatement, P, F, Fut, T>(
+        &mut self,
+        statement: &S,
+        params: &P,
+        f: F,
+    ) -> Result<T>
+    where
+        P: ToParams,
+        F: FnOnce(&mut super::unnamed_portal::UnnamedPortal<'_>) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        // Create bind state machine
+        let mut state_machine = if let Some(sql) = statement.as_sql() {
+            BindStateMachine::bind_sql(&mut self.buffer_set, sql, params)?
+        } else {
+            let stmt = statement.as_prepared().unwrap();
+            BindStateMachine::bind_prepared(
+                &mut self.buffer_set,
+                &stmt.wire_name(),
+                &stmt.param_oids,
+                params,
+            )?
+        };
+
+        // Drive the state machine to completion (ParseComplete + BindComplete)
+        loop {
+            match state_machine.step(&mut self.buffer_set)? {
+                Action::ReadMessage => {
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Action::Write => {
+                    self.stream.write_all(&self.buffer_set.write_buffer).await?;
+                    self.stream.flush().await?;
+                }
+                Action::WriteAndReadMessage => {
+                    self.stream.write_all(&self.buffer_set.write_buffer).await?;
+                    self.stream.flush().await?;
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Action::Finished => break,
+                _ => return Err(Error::Protocol("Unexpected action in bind".into())),
+            }
+        }
+
+        // Execute closure with portal handle
+        let mut portal = super::unnamed_portal::UnnamedPortal { conn: self };
+        let result = f(&mut portal).await;
+
+        // Always sync to end implicit transaction (even on error)
+        let sync_result = portal.conn.lowlevel_sync().await;
+
+        // Return closure result, or sync error if closure succeeded but sync failed
+        match (result, sync_result) {
+            (Ok(v), Ok(())) => Ok(v),
+            (Err(e), _) => Err(e),
+            (Ok(_), Err(e)) => Err(e),
+        }
+    }
+
+    /// Run a pipeline of batched queries.
+    ///
+    /// Pipeline mode allows sending multiple queries to the server without waiting
+    /// for responses, reducing round-trip latency.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Prepare statements outside the pipeline
+    /// let stmts = conn.prepare_batch(&[
+    ///     "SELECT id, name FROM users WHERE active = $1",
+    ///     "INSERT INTO users (name) VALUES ($1) RETURNING id",
+    /// ]).await?;
+    ///
+    /// let (active, inactive, count) = conn.run_pipeline(|p| async move {
+    ///     // Queue executions
+    ///     let t1 = p.exec(&stmts[0], (true,)).await?;
+    ///     let t2 = p.exec(&stmts[0], (false,)).await?;
+    ///     let t3 = p.exec("SELECT COUNT(*) FROM users", ()).await?;
+    ///
+    ///     p.sync().await?;
+    ///
+    ///     // Claim results in order with different methods
+    ///     let active: Vec<(i32, String)> = p.claim_collect(t1).await?;
+    ///     let inactive: Option<(i32, String)> = p.claim_one(t2).await?;
+    ///     let count: Vec<(i64,)> = p.claim_collect(t3).await?;
+    ///
+    ///     Ok((active, inactive, count))
+    /// }).await?;
+    /// ```
+    pub async fn run_pipeline<T, F, Fut>(&mut self, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut super::pipeline::Pipeline<'_>) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let mut pipeline = super::pipeline::Pipeline::new_inner(self);
+        let result = f(&mut pipeline).await;
+        pipeline.cleanup().await;
+        result
     }
 
     /// Execute a closure within a transaction.

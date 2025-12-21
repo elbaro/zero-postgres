@@ -196,6 +196,7 @@
 │   ├── <span class="file">chrono.rs</span>           <span class="comment"># chrono types (feature-gated)</span>
 │   ├── <span class="file">uuid.rs</span>             <span class="comment"># UUID (feature-gated)</span>
 │   ├── <span class="file">decimal.rs</span>          <span class="comment"># rust_decimal (feature-gated)</span>
+│   ├── <span class="file">numeric_util.rs</span>     <span class="comment"># NUMERIC string parsing (f32/f64)</span>
 │   └── <span class="file">row.rs</span>              <span class="comment"># Row parsing utilities</span>
 │
 ├── <span class="dir">sync/</span>                   <span class="comment"># Synchronous API</span>
@@ -206,8 +207,8 @@
 │   ├── <span class="file">transaction.rs</span>      <span class="comment"># Transaction handle</span>
 │   ├── <span class="file">unnamed_portal.rs</span>   <span class="comment"># Cursor-style iteration</span>
 │   └── <span class="dir">pipeline/</span>           <span class="comment"># Pipelining support</span>
-│       ├── <span class="file">mod.rs</span>          <span class="comment"># Pipeline struct</span>
-│       └── <span class="file">handles.rs</span>      <span class="comment"># QueuedPrepare, QueuedPortal, QueuedExec</span>
+│       ├── <span class="file">mod.rs</span>          <span class="comment"># Pipeline struct, exec/sync/claim_* methods</span>
+│       └── <span class="file">handles.rs</span>      <span class="comment"># Ticket struct (sequence-based handle)</span>
 │
 ├── <span class="dir">tokio/</span>                  <span class="comment"># Async API (feature-gated)</span>
 │   ├── <span class="file">mod.rs</span>
@@ -505,78 +506,75 @@ conn.<span class="function">set_async_message_handler</span>(|msg: &amp;<span cl
 }</code></pre>
 
     <h2>Pipelining Support</h2>
-    <p>PostgreSQL's extended protocol supports pipelining natively. The implementation uses typed handles for compile-time safety:</p>
+    <p>PostgreSQL's extended protocol supports pipelining natively. The implementation uses a simple ticket-based approach with sequence numbers for ordering:</p>
 
     <h3>Handle Types</h3>
-    <pre><code><span class="comment">/// Handle for a queued prepare operation.</span>
-<span class="keyword">pub struct</span> <span class="type">QueuedPrepare</span> { seq: <span class="type">usize</span>, stmt_name: <span class="type">String</span> }
-
-<span class="comment">/// Handle for a queued bind (named portal) operation.</span>
-<span class="keyword">pub struct</span> <span class="type">QueuedPortal</span> { seq: <span class="type">usize</span>, portal_name: <span class="type">String</span>, ... }
-
-<span class="comment">/// Handle for a queued execute operation with typed rows.</span>
-<span class="keyword">pub struct</span> <span class="type">QueuedExec</span>&lt;T&gt; { seq: <span class="type">usize</span>, ... }
-
-<span class="comment">/// Result of harvesting an execute operation.</span>
-<span class="keyword">pub struct</span> <span class="type">ExecResult</span>&lt;T&gt; {
-    <span class="keyword">pub</span> rows: <span class="type">Vec</span>&lt;T&gt;,
-    <span class="keyword">pub</span> suspended: <span class="type">bool</span>,  <span class="comment">// true if more rows available (PortalSuspended)</span>
+    <pre><code><span class="comment">/// A ticket for a queued pipeline operation.</span>
+<span class="comment">///</span>
+<span class="comment">/// Created by [`Pipeline::exec`].</span>
+<span class="comment">/// Claim with [`claim_collect`], [`claim_one`], or [`claim_drop`].</span>
+<span class="macro">#[derive(Debug)]</span>
+<span class="keyword">pub struct</span> <span class="type">Ticket</span> {
+    seq: <span class="type">usize</span>,
 }</code></pre>
 
     <h3>Pipeline API</h3>
     <pre><code><span class="keyword">pub struct</span> <span class="type">Pipeline</span>&lt;<span class="lifetime">'a</span>&gt; {
     conn: &amp;<span class="lifetime">'a</span> <span class="keyword">mut</span> <span class="type">Conn</span>,
+    queue_seq: <span class="type">usize</span>,          <span class="comment">// Queued operations counter</span>
+    claim_seq: <span class="type">usize</span>,          <span class="comment">// Next to claim counter</span>
+    expectations: <span class="type">Vec</span>&lt;<span class="type">Expectation</span>&gt;,
     <span class="comment">// ...</span>
 }
 
 <span class="keyword">impl</span>&lt;<span class="lifetime">'a</span>&gt; <span class="type">Pipeline</span>&lt;<span class="lifetime">'a</span>&gt; {
-    <span class="comment">// Queue operations - write messages immediately, don't wait for response</span>
-    <span class="keyword">pub fn</span> <span class="function">prepare</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, sql: &amp;<span class="type">str</span>) -&gt; <span class="type">Result</span>&lt;<span class="type">QueuedPrepare</span>&gt;;
-    <span class="keyword">pub fn</span> <span class="function">bind</span>&lt;P: <span class="type">ToParams</span>&gt;(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, stmt: &amp;<span class="type">QueuedPrepare</span>, params: P) -&gt; <span class="type">Result</span>&lt;<span class="type">QueuedPortal</span>&gt;;
-    <span class="keyword">pub fn</span> <span class="function">execute</span>&lt;T&gt;(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, portal: &amp;<span class="type">QueuedPortal</span>, max_rows: <span class="type">u32</span>) -&gt; <span class="type">Result</span>&lt;<span class="type">QueuedExec</span>&lt;T&gt;&gt;;
-    <span class="keyword">pub fn</span> <span class="function">exec</span>&lt;T, P&gt;(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, stmt: &amp;<span class="type">QueuedPrepare</span>, params: P) -&gt; <span class="type">Result</span>&lt;<span class="type">QueuedExec</span>&lt;T&gt;&gt;;
+    <span class="comment">/// Queue a statement execution (prepared statement or raw SQL).</span>
+    <span class="keyword">pub fn</span> <span class="function">exec</span>&lt;P: <span class="type">ToParams</span>&gt;(
+        &amp;<span class="keyword">mut</span> <span class="keyword">self</span>,
+        statement: <span class="keyword">impl</span> <span class="type">IntoStatement</span>,
+        params: P,
+    ) -&gt; <span class="type">Result</span>&lt;<span class="type">Ticket</span>&gt;;
 
-    <span class="comment">// Sync ends implicit transaction</span>
+    <span class="comment">/// Send FLUSH message to trigger server response.</span>
+    <span class="keyword">pub fn</span> <span class="function">flush</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>) -&gt; <span class="type">Result</span>&lt;()&gt;;
+
+    <span class="comment">/// Send SYNC message to establish transaction boundary.</span>
     <span class="keyword">pub fn</span> <span class="function">sync</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>) -&gt; <span class="type">Result</span>&lt;()&gt;;
 
-    <span class="comment">// Harvest results in order</span>
-    <span class="keyword">pub fn</span> <span class="function">harvest</span>&lt;H: <span class="type">Harvest</span>&gt;(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, handle: H) -&gt; <span class="type">Result</span>&lt;H::<span class="type">Output</span>&gt;;
+    <span class="comment">/// Claim and collect all rows.</span>
+    <span class="keyword">pub fn</span> <span class="function">claim_collect</span>&lt;T: <span class="keyword">for</span>&lt;<span class="lifetime">'b</span>&gt; <span class="type">FromRow</span>&lt;<span class="lifetime">'b</span>&gt;&gt;(
+        &amp;<span class="keyword">mut</span> <span class="keyword">self</span>, ticket: <span class="type">Ticket</span>
+    ) -&gt; <span class="type">Result</span>&lt;<span class="type">Vec</span>&lt;T&gt;&gt;;
+
+    <span class="comment">/// Claim and return just the first row.</span>
+    <span class="keyword">pub fn</span> <span class="function">claim_one</span>&lt;T: <span class="keyword">for</span>&lt;<span class="lifetime">'b</span>&gt; <span class="type">FromRow</span>&lt;<span class="lifetime">'b</span>&gt;&gt;(
+        &amp;<span class="keyword">mut</span> <span class="keyword">self</span>, ticket: <span class="type">Ticket</span>
+    ) -&gt; <span class="type">Result</span>&lt;<span class="type">Option</span>&lt;T&gt;&gt;;
+
+    <span class="comment">/// Claim and discard all rows.</span>
+    <span class="keyword">pub fn</span> <span class="function">claim_drop</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, ticket: <span class="type">Ticket</span>) -&gt; <span class="type">Result</span>&lt;()&gt;;
 }</code></pre>
 
     <h3>Example Usage</h3>
-    <pre><code><span class="keyword">let mut</span> p = conn.<span class="function">pipeline</span>();
+    <pre><code><span class="comment">// Prepare statements outside the pipeline</span>
+<span class="keyword">let</span> stmts = conn.<span class="function">prepare_batch</span>(&amp;[
+    <span class="string">"SELECT id, name FROM users WHERE active = $1"</span>,
+])?;
 
-<span class="comment">// Queue operations - these write to socket immediately</span>
-<span class="keyword">let</span> prep = p.<span class="function">prepare</span>(<span class="string">"SELECT id, name FROM users WHERE active = $1"</span>)?;
-<span class="keyword">let</span> q1 = p.<span class="function">exec</span>::&lt;(i32, <span class="type">String</span>), _&gt;(&amp;prep, (<span class="keyword">true</span>,))?;
-<span class="keyword">let</span> q2 = p.<span class="function">exec</span>::&lt;(i32, <span class="type">String</span>), _&gt;(&amp;prep, (<span class="keyword">false</span>,))?;
+<span class="keyword">let</span> (active, inactive) = conn.<span class="function">run_pipeline</span>(|p| {
+    <span class="comment">// Queue executions - writes to socket immediately</span>
+    <span class="keyword">let</span> t1 = p.<span class="function">exec</span>(&amp;stmts[<span class="string">0</span>], (<span class="keyword">true</span>,))?;
+    <span class="keyword">let</span> t2 = p.<span class="function">exec</span>(&amp;stmts[<span class="string">0</span>], (<span class="keyword">false</span>,))?;
 
-<span class="comment">// Mark end of implicit transaction</span>
-p.<span class="function">sync</span>()?;
+    <span class="comment">// Mark end of implicit transaction</span>
+    p.<span class="function">sync</span>()?;
 
-<span class="comment">// Harvest results in queued order</span>
-<span class="keyword">let</span> stmt = p.<span class="function">harvest</span>(prep)?;       <span class="comment">// PreparedStatement</span>
-<span class="keyword">let</span> active = p.<span class="function">harvest</span>(q1)?;       <span class="comment">// ExecResult&lt;(i32, String)&gt;</span>
-<span class="keyword">let</span> inactive = p.<span class="function">harvest</span>(q2)?;     <span class="comment">// ExecResult&lt;(i32, String)&gt;</span></code></pre>
+    <span class="comment">// Claim results in queued order</span>
+    <span class="keyword">let</span> active: <span class="type">Vec</span>&lt;(i32, <span class="type">String</span>)&gt; = p.<span class="function">claim_collect</span>(t1)?;
+    <span class="keyword">let</span> inactive: <span class="type">Vec</span>&lt;(i32, <span class="type">String</span>)&gt; = p.<span class="function">claim_collect</span>(t2)?;
 
-    <h3>Portal Example (Cursor-style)</h3>
-    <pre><code><span class="keyword">let mut</span> p = conn.<span class="function">pipeline</span>();
-
-<span class="keyword">let</span> prep = p.<span class="function">prepare</span>(<span class="string">"SELECT * FROM big_table"</span>)?;
-<span class="keyword">let</span> portal = p.<span class="function">bind</span>(&amp;prep, ())?;
-<span class="keyword">let</span> batch1 = p.<span class="function">execute</span>::&lt;<span class="type">Row</span>&gt;(&amp;portal, <span class="string">100</span>)?;  <span class="comment">// max 100 rows</span>
-<span class="keyword">let</span> batch2 = p.<span class="function">execute</span>::&lt;<span class="type">Row</span>&gt;(&amp;portal, <span class="string">100</span>)?;  <span class="comment">// next 100 rows</span>
-
-p.<span class="function">sync</span>()?;
-
-<span class="keyword">let</span> _stmt = p.<span class="function">harvest</span>(prep)?;
-p.<span class="function">harvest</span>(portal)?;
-<span class="keyword">let</span> result1 = p.<span class="function">harvest</span>(batch1)?;
-<span class="keyword">let</span> result2 = p.<span class="function">harvest</span>(batch2)?;
-
-<span class="keyword">if</span> result1.suspended {
-    <span class="comment">// More rows were available after batch1</span>
-}</code></pre>
+    <span class="type">Ok</span>((active, inactive))
+})?;</code></pre>
 
     <h2>Why Frontend/Backend Separation</h2>
     <p>PostgreSQL uses distinct message type bytes for each direction (unlike MySQL's symmetric packets). Separating by direction provides:</p>

@@ -4,11 +4,12 @@
 //! Rust types and PostgreSQL wire format values.
 
 mod bytes;
+mod numeric_util;
 mod primitives;
 mod row;
 mod string;
 
-pub use primitives::numeric_to_string;
+pub use numeric_util::numeric_to_string;
 
 #[cfg(feature = "with-chrono")]
 mod chrono;
