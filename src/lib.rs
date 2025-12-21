@@ -37,6 +37,7 @@ mod buffer_pool;
 mod buffer_set;
 mod error;
 mod opts;
+mod pipeline;
 mod statement;
 
 // pub

@@ -29,9 +29,8 @@
 //! })?;
 //! ```
 
-mod handles;
-
-pub use handles::Ticket;
+pub use crate::pipeline::Ticket;
+use crate::pipeline::Expectation;
 
 use crate::conversion::{FromRow, ToParams};
 use crate::error::{Error, Result};
@@ -47,15 +46,6 @@ use crate::statement::IntoStatement;
 
 use super::conn::Conn;
 
-/// What response sequence to expect for a queued operation.
-#[derive(Debug, Clone, Copy)]
-enum Expectation {
-    /// Parse + Bind + Execute: ParseComplete + BindComplete + RowDescription/NoData + DataRow* + terminal
-    ParseBindExecute,
-    /// Bind + Execute: BindComplete + RowDescription/NoData + DataRow* + terminal
-    BindExecute,
-}
-
 /// Pipeline mode for batching multiple queries.
 ///
 /// Created by [`Conn::run_pipeline`].
@@ -65,14 +55,14 @@ pub struct Pipeline<'a> {
     queue_seq: usize,
     /// Next sequence number to claim
     claim_seq: usize,
-    /// Expected responses for each queued operation
-    expectations: Vec<Expectation>,
     /// Whether we have queued data that needs to be flushed
     needs_flush: bool,
     /// Whether the pipeline is in aborted state (error occurred)
     aborted: bool,
     /// Buffer for column descriptions during row processing
     column_buffer: Vec<u8>,
+    /// Expected responses for each queued operation
+    expectations: Vec<Expectation>,
 }
 
 impl<'a> Pipeline<'a> {
@@ -91,17 +81,28 @@ impl<'a> Pipeline<'a> {
             conn,
             queue_seq: 0,
             claim_seq: 0,
-            expectations: Vec::new(),
             needs_flush: false,
             aborted: false,
             column_buffer: Vec::new(),
+            expectations: Vec::new(),
         }
     }
 
     /// Cleanup the pipeline, draining any unclaimed tickets.
     ///
     /// This is called automatically by [`Conn::run_pipeline`].
+    /// Also available with the `lowlevel` feature for manual cleanup.
+    #[cfg(feature = "lowlevel")]
+    pub fn cleanup(&mut self) {
+        self.cleanup_inner();
+    }
+
+    #[cfg(not(feature = "lowlevel"))]
     pub(crate) fn cleanup(&mut self) {
+        self.cleanup_inner();
+    }
+
+    fn cleanup_inner(&mut self) {
         if self.queue_seq == self.claim_seq {
             return;
         }
@@ -123,13 +124,14 @@ impl<'a> Pipeline<'a> {
 
     /// Drain one ticket's worth of messages.
     fn drain_one(&mut self) {
-        let expectation = self.expectations.get(self.claim_seq).copied();
+        let Some(expectation) = self.expectations.get(self.claim_seq).copied() else {
+            return;
+        };
         let mut handler = crate::handler::DropHandler::new();
 
         let _ = match expectation {
-            Some(Expectation::ParseBindExecute) => self.claim_parse_bind_exec_inner(&mut handler),
-            Some(Expectation::BindExecute) => self.claim_bind_exec_inner(&mut handler),
-            None => Ok(()),
+            Expectation::ParseBindExecute => self.claim_parse_bind_exec_inner(&mut handler),
+            Expectation::BindExecute => self.claim_bind_exec_inner(&mut handler),
         };
     }
 
@@ -166,19 +168,12 @@ impl<'a> Pipeline<'a> {
         let seq = self.queue_seq;
         self.queue_seq += 1;
 
-        let result = if statement.needs_parse() {
-            self.exec_sql_inner(statement.as_sql().unwrap(), &params)
+        if statement.needs_parse() {
+            self.exec_sql_inner(statement.as_sql().unwrap(), &params)?;
         } else {
             let stmt = statement.as_prepared().unwrap();
-            self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)
+            self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)?;
         };
-
-        if let Err(e) = &result {
-            if e.is_connection_broken() {
-                self.conn.is_broken = true;
-            }
-        }
-        result?;
 
         Ok(Ticket { seq })
     }
@@ -196,9 +191,14 @@ impl<'a> Pipeline<'a> {
         )?;
         write_describe_portal(&mut self.conn.buffer_set.write_buffer, "");
         write_execute(&mut self.conn.buffer_set.write_buffer, "", 0);
-        self.conn
+        if let Err(e) = self
+            .conn
             .stream
-            .write_all(&self.conn.buffer_set.write_buffer)?;
+            .write_all(&self.conn.buffer_set.write_buffer)
+        {
+            self.conn.is_broken = true;
+            return Err(e.into());
+        }
         self.needs_flush = true;
         self.expectations.push(Expectation::ParseBindExecute);
         Ok(())
@@ -220,9 +220,14 @@ impl<'a> Pipeline<'a> {
         )?;
         write_describe_portal(&mut self.conn.buffer_set.write_buffer, "");
         write_execute(&mut self.conn.buffer_set.write_buffer, "", 0);
-        self.conn
+        if let Err(e) = self
+            .conn
             .stream
-            .write_all(&self.conn.buffer_set.write_buffer)?;
+            .write_all(&self.conn.buffer_set.write_buffer)
+        {
+            self.conn.is_broken = true;
+            return Err(e.into());
+        }
         self.needs_flush = true;
         self.expectations.push(Expectation::BindExecute);
         Ok(())
