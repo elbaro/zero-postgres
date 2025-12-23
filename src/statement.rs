@@ -21,7 +21,9 @@ mod private {
 
     pub trait Sealed {}
 
+    impl Sealed for PreparedStatement {}
     impl Sealed for &PreparedStatement {}
+    impl Sealed for str {}
     impl Sealed for &str {}
     impl Sealed for &&str {}
 }
@@ -65,5 +67,33 @@ impl IntoStatement for &&str {
 
     fn as_prepared(&self) -> Option<&PreparedStatement> {
         None
+    }
+}
+
+impl IntoStatement for str {
+    fn needs_parse(&self) -> bool {
+        true
+    }
+
+    fn as_sql(&self) -> Option<&str> {
+        Some(self)
+    }
+
+    fn as_prepared(&self) -> Option<&PreparedStatement> {
+        None
+    }
+}
+
+impl IntoStatement for PreparedStatement {
+    fn needs_parse(&self) -> bool {
+        false
+    }
+
+    fn as_sql(&self) -> Option<&str> {
+        None
+    }
+
+    fn as_prepared(&self) -> Option<&PreparedStatement> {
+        Some(self)
     }
 }

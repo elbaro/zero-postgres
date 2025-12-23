@@ -1869,6 +1869,7 @@ dependencies = [
  "chrono",
  "crossbeam-queue",
  "hmac",
+ "log",
  "md-5",
  "memchr",
  "native-tls",

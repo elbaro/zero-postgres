@@ -442,6 +442,166 @@ impl Conn {
         Ok(handler.into_rows())
     }
 
+    /// Execute a statement with multiple parameter sets in a batch.
+    ///
+    /// This is more efficient than calling `exec_drop` multiple times as it
+    /// batches the network communication. The statement is parsed once (if raw SQL)
+    /// and then bound/executed for each parameter set.
+    ///
+    /// Parameters are processed in chunks (default 1000) to avoid overwhelming
+    /// the server with too many pending operations.
+    ///
+    /// The statement can be either:
+    /// - A `&PreparedStatement` returned from `prepare()`
+    /// - A raw SQL `&str` for one-shot execution
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Using prepared statement
+    /// let stmt = conn.prepare("INSERT INTO users (name, age) VALUES ($1, $2)").await?;
+    /// conn.exec_batch(&stmt, &[
+    ///     ("alice", 30),
+    ///     ("bob", 25),
+    ///     ("charlie", 35),
+    /// ]).await?;
+    ///
+    /// // Using raw SQL
+    /// conn.exec_batch("INSERT INTO users (name, age) VALUES ($1, $2)", &[
+    ///     ("alice", 30),
+    ///     ("bob", 25),
+    /// ]).await?;
+    /// ```
+    pub async fn exec_batch<S: IntoStatement, P: ToParams>(
+        &mut self,
+        statement: S,
+        params_list: &[P],
+    ) -> Result<()> {
+        self.exec_batch_chunked(statement, params_list, 1000).await
+    }
+
+    /// Execute a statement with multiple parameter sets in a batch with custom chunk size.
+    ///
+    /// Same as `exec_batch` but allows specifying the chunk size for batching.
+    pub async fn exec_batch_chunked<S: IntoStatement, P: ToParams>(
+        &mut self,
+        statement: S,
+        params_list: &[P],
+        chunk_size: usize,
+    ) -> Result<()> {
+        let result = self.exec_batch_inner(&statement, params_list, chunk_size).await;
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
+        }
+        result
+    }
+
+    async fn exec_batch_inner<S: IntoStatement, P: ToParams>(
+        &mut self,
+        statement: &S,
+        params_list: &[P],
+        chunk_size: usize,
+    ) -> Result<()> {
+        use crate::protocol::frontend::{write_bind, write_execute, write_parse, write_sync};
+        use crate::state::extended::BatchStateMachine;
+
+        if params_list.is_empty() {
+            return Ok(());
+        }
+
+        let chunk_size = chunk_size.max(1);
+        let needs_parse = statement.needs_parse();
+        let sql = statement.as_sql();
+        let prepared = statement.as_prepared();
+
+        // Get param OIDs from first params or prepared statement
+        let param_oids: Vec<u32> = if let Some(stmt) = prepared {
+            stmt.param_oids.clone()
+        } else {
+            params_list[0].natural_oids()
+        };
+
+        // Statement name: empty for raw SQL, actual name for prepared
+        let stmt_name = prepared.map(|s| s.wire_name()).unwrap_or_default();
+
+        for chunk in params_list.chunks(chunk_size) {
+            self.buffer_set.write_buffer.clear();
+
+            // For raw SQL, send Parse each chunk (reuses unnamed statement)
+            let parse_in_chunk = needs_parse;
+            if parse_in_chunk {
+                write_parse(
+                    &mut self.buffer_set.write_buffer,
+                    "",
+                    sql.unwrap(),
+                    &param_oids,
+                );
+            }
+
+            // Write Bind + Execute for each param set
+            for params in chunk {
+                let effective_stmt_name = if needs_parse { "" } else { &stmt_name };
+                write_bind(
+                    &mut self.buffer_set.write_buffer,
+                    "",
+                    effective_stmt_name,
+                    params,
+                    &param_oids,
+                )?;
+                write_execute(&mut self.buffer_set.write_buffer, "", 0);
+            }
+
+            // Send Sync
+            write_sync(&mut self.buffer_set.write_buffer);
+
+            // Drive state machine
+            let mut state_machine = BatchStateMachine::new(parse_in_chunk);
+            self.drive_batch(&mut state_machine).await?;
+            self.transaction_status = state_machine.transaction_status();
+        }
+
+        Ok(())
+    }
+
+    /// Drive a batch state machine to completion.
+    async fn drive_batch(&mut self, state_machine: &mut crate::state::extended::BatchStateMachine) -> Result<()> {
+        use crate::protocol::backend::{ReadyForQuery, msg_type};
+        use crate::state::action::Action;
+
+        loop {
+            let step_result = state_machine.step(&mut self.buffer_set);
+            match step_result {
+                Ok(Action::ReadMessage) => {
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Ok(Action::WriteAndReadMessage) => {
+                    self.stream.write_all(&self.buffer_set.write_buffer).await?;
+                    self.stream.flush().await?;
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Ok(Action::Finished) => {
+                    break;
+                }
+                Ok(_) => return Err(Error::Protocol("Unexpected action in batch".into())),
+                Err(e) => {
+                    // On error, drain to ReadyForQuery to leave connection in clean state
+                    loop {
+                        self.stream.read_message(&mut self.buffer_set).await?;
+                        if self.buffer_set.type_byte == msg_type::READY_FOR_QUERY {
+                            let ready = ReadyForQuery::parse(&self.buffer_set.read_buffer)?;
+                            self.transaction_status = ready.transaction_status().unwrap_or_default();
+                            break;
+                        }
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Close a prepared statement.
     pub async fn close_statement(&mut self, stmt: &PreparedStatement) -> Result<()> {
         let result = self.close_statement_inner(&stmt.wire_name()).await;

@@ -77,6 +77,13 @@ impl PreparedStatement {
             .as_ref()
             .map(|bytes| RowDescription::parse(bytes))
     }
+
+    /// Get the raw RowDescription payload.
+    ///
+    /// Returns `None` if the statement doesn't return rows.
+    pub fn row_desc_payload(&self) -> Option<&[u8]> {
+        self.row_desc_payload.as_deref()
+    }
 }
 
 /// Operation type marker for tracking what operation is in progress.
@@ -586,6 +593,132 @@ impl BindStateMachine {
                 BindComplete::parse(&buffer_set.read_buffer)?;
                 self.state = BindState::Finished;
                 Ok(Action::Finished)
+            }
+            _ => Err(Error::Protocol(format!(
+                "Unexpected state {:?}",
+                self.state
+            ))),
+        }
+    }
+}
+
+// === Batch Execution State Machine ===
+// Used by exec_batch to execute multiple parameter sets efficiently.
+
+/// State for batch execution flow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BatchState {
+    Initial,
+    WaitingParse,
+    Processing,
+    Finished,
+}
+
+/// State machine for batch execution (Parse? + (Bind + Execute)* + Sync).
+///
+/// Used by `exec_batch` to execute a statement with multiple parameter sets.
+pub struct BatchStateMachine {
+    state: BatchState,
+    needs_parse: bool,
+    transaction_status: TransactionStatus,
+}
+
+impl BatchStateMachine {
+    /// Create a new batch state machine.
+    ///
+    /// The caller is responsible for populating `buffer_set.write_buffer` with:
+    /// - Parse (optional, if needs_parse is true)
+    /// - Bind + Execute for each parameter set
+    /// - Sync
+    pub fn new(needs_parse: bool) -> Self {
+        Self {
+            state: BatchState::Initial,
+            needs_parse,
+            transaction_status: TransactionStatus::Idle,
+        }
+    }
+
+    /// Get the transaction status after completion.
+    pub fn transaction_status(&self) -> TransactionStatus {
+        self.transaction_status
+    }
+
+    /// Process input and return the next action.
+    pub fn step(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
+        // Initial state: write buffer was pre-filled by caller
+        if self.state == BatchState::Initial {
+            self.state = if self.needs_parse {
+                BatchState::WaitingParse
+            } else {
+                BatchState::Processing
+            };
+            return Ok(Action::WriteAndReadMessage);
+        }
+
+        let type_byte = buffer_set.type_byte;
+
+        // Handle async messages - need to keep reading
+        if RawMessage::is_async_type(type_byte) {
+            return Ok(Action::ReadMessage);
+        }
+
+        // Handle error response - continue reading until ReadyForQuery
+        if type_byte == msg_type::ERROR_RESPONSE {
+            let error = ErrorResponse::parse(&buffer_set.read_buffer)?;
+            self.state = BatchState::Processing;
+            return Err(error.into_error());
+        }
+
+        match self.state {
+            BatchState::WaitingParse => {
+                if type_byte != msg_type::PARSE_COMPLETE {
+                    return Err(Error::Protocol(format!(
+                        "Expected ParseComplete, got '{}'",
+                        type_byte as char
+                    )));
+                }
+                ParseComplete::parse(&buffer_set.read_buffer)?;
+                self.state = BatchState::Processing;
+                Ok(Action::ReadMessage)
+            }
+            BatchState::Processing => {
+                match type_byte {
+                    msg_type::BIND_COMPLETE => {
+                        BindComplete::parse(&buffer_set.read_buffer)?;
+                        Ok(Action::ReadMessage)
+                    }
+                    msg_type::NO_DATA => {
+                        NoData::parse(&buffer_set.read_buffer)?;
+                        Ok(Action::ReadMessage)
+                    }
+                    msg_type::ROW_DESCRIPTION => {
+                        // Discard row description - we don't process rows in batch
+                        RowDescription::parse(&buffer_set.read_buffer)?;
+                        Ok(Action::ReadMessage)
+                    }
+                    msg_type::DATA_ROW => {
+                        // Discard data rows - batch doesn't return data
+                        Ok(Action::ReadMessage)
+                    }
+                    msg_type::COMMAND_COMPLETE => {
+                        CommandComplete::parse(&buffer_set.read_buffer)?;
+                        Ok(Action::ReadMessage)
+                    }
+                    msg_type::EMPTY_QUERY_RESPONSE => {
+                        EmptyQueryResponse::parse(&buffer_set.read_buffer)?;
+                        Ok(Action::ReadMessage)
+                    }
+                    msg_type::READY_FOR_QUERY => {
+                        let ready = ReadyForQuery::parse(&buffer_set.read_buffer)?;
+                        self.transaction_status = ready.transaction_status().unwrap_or_default();
+                        self.state = BatchState::Finished;
+                        Ok(Action::Finished)
+                    }
+                    _ => Err(Error::Protocol(format!(
+                        "Unexpected message in batch: '{}'",
+                        type_byte as char
+                    ))),
+                }
             }
             _ => Err(Error::Protocol(format!(
                 "Unexpected state {:?}",

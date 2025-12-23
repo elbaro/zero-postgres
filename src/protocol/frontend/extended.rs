@@ -11,6 +11,7 @@ use crate::protocol::types::{preferred_format, FormatCode, Oid};
 /// - `query`: SQL query with $1, $2, ... placeholders
 /// - `param_oids`: Parameter type OIDs (0 = let server infer)
 pub fn write_parse(buf: &mut Vec<u8>, name: &str, query: &str, param_oids: &[Oid]) {
+    log::debug!("PARSE {query}");
     let mut msg = MessageBuilder::new(buf, super::msg_type::PARSE);
     msg.write_cstr(name);
     msg.write_cstr(query);
@@ -38,6 +39,11 @@ pub fn write_bind<P: ToParams>(
     params: &P,
     target_oids: &[Oid],
 ) -> Result<()> {
+    log::debug!(
+        "BIND {} {}",
+        if statement_name.is_empty() { "<unnamed statement>" } else { statement_name },
+        if portal.is_empty() { "<unnamed portal>" } else { portal }
+    );
     let mut msg = MessageBuilder::new(buf, super::msg_type::BIND);
 
     // Portal and statement names
@@ -68,6 +74,10 @@ pub fn write_bind<P: ToParams>(
 /// - `portal`: Portal name
 /// - `max_rows`: Maximum number of rows to return (0 = unlimited)
 pub fn write_execute(buf: &mut Vec<u8>, portal: &str, max_rows: u32) {
+    log::debug!(
+        "EXECUTE {} LIMIT {max_rows}",
+        if portal.is_empty() { "<unnamed portal>" } else { portal }
+    );
     let mut msg = MessageBuilder::new(buf, super::msg_type::EXECUTE);
     msg.write_cstr(portal);
     msg.write_i32(max_rows as i32);
@@ -79,6 +89,7 @@ pub fn write_execute(buf: &mut Vec<u8>, portal: &str, max_rows: u32) {
 /// - `describe_type`: 'S' for statement, 'P' for portal
 /// - `name`: Statement or portal name
 pub fn write_describe(buf: &mut Vec<u8>, describe_type: u8, name: &str) {
+    log::debug!("DESCRIBE({}) {name}", describe_type as char);
     let mut msg = MessageBuilder::new(buf, super::msg_type::DESCRIBE);
     msg.write_u8(describe_type);
     msg.write_cstr(name);
@@ -100,6 +111,7 @@ pub fn write_describe_portal(buf: &mut Vec<u8>, name: &str) {
 /// - `close_type`: 'S' for statement, 'P' for portal
 /// - `name`: Statement or portal name
 pub fn write_close(buf: &mut Vec<u8>, close_type: u8, name: &str) {
+    log::debug!("CLOSE({}) {name}", close_type as char);
     let mut msg = MessageBuilder::new(buf, super::msg_type::CLOSE);
     msg.write_u8(close_type);
     msg.write_cstr(name);
@@ -123,6 +135,7 @@ pub fn write_close_portal(buf: &mut Vec<u8>, name: &str) {
 /// - Implicit ROLLBACK if failed and not in explicit transaction
 /// - Server responds with ReadyForQuery
 pub fn write_sync(buf: &mut Vec<u8>) {
+    log::debug!("SYNC");
     let msg = MessageBuilder::new(buf, super::msg_type::SYNC);
     msg.finish();
 }
@@ -132,6 +145,7 @@ pub fn write_sync(buf: &mut Vec<u8>) {
 /// Forces the server to send all pending responses without waiting for Sync.
 /// Useful for pipelining when you need intermediate results.
 pub fn write_flush(buf: &mut Vec<u8>) {
+    log::debug!("FLUSH");
     let msg = MessageBuilder::new(buf, super::msg_type::FLUSH);
     msg.finish();
 }

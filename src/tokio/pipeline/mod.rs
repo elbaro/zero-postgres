@@ -42,6 +42,7 @@ use crate::protocol::backend::{
 use crate::protocol::frontend::{
     write_bind, write_describe_portal, write_execute, write_flush, write_parse, write_sync,
 };
+use crate::state::extended::PreparedStatement;
 use crate::statement::IntoStatement;
 
 use super::conn::Conn;
@@ -91,7 +92,18 @@ impl<'a> Pipeline<'a> {
     /// Cleanup the pipeline, draining any unclaimed tickets.
     ///
     /// This is called automatically by [`Conn::run_pipeline`].
+    /// Also available with the `lowlevel` feature for manual cleanup.
+    #[cfg(feature = "lowlevel")]
+    pub async fn cleanup(&mut self) {
+        self.cleanup_inner().await;
+    }
+
+    #[cfg(not(feature = "lowlevel"))]
     pub(crate) async fn cleanup(&mut self) {
+        self.cleanup_inner().await;
+    }
+
+    async fn cleanup_inner(&mut self) {
         if self.queue_seq == self.claim_seq {
             return;
         }
@@ -122,7 +134,9 @@ impl<'a> Pipeline<'a> {
             Expectation::ParseBindExecute => {
                 self.claim_parse_bind_exec_inner(&mut handler).await
             }
-            Expectation::BindExecute => self.claim_bind_exec_inner(&mut handler).await,
+            // When draining, we don't have the statement ref, but we also don't need row desc
+            // since we're just dropping the results
+            Expectation::BindExecute => self.claim_bind_exec_inner(&mut handler, None).await,
         };
     }
 
@@ -151,24 +165,24 @@ impl<'a> Pipeline<'a> {
     ///     Ok((r1, r2))
     /// }).await?;
     /// ```
-    pub async fn exec<P: ToParams>(
+    pub async fn exec<'s, P: ToParams>(
         &mut self,
-        statement: impl IntoStatement,
+        statement: &'s (impl IntoStatement + ?Sized),
         params: P,
-    ) -> Result<Ticket> {
+    ) -> Result<Ticket<'s>> {
         let seq = self.queue_seq;
         self.queue_seq += 1;
 
         if statement.needs_parse() {
             self.exec_sql_inner(statement.as_sql().unwrap(), &params)
                 .await?;
+            Ok(Ticket { seq, stmt: None })
         } else {
             let stmt = statement.as_prepared().unwrap();
             self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)
                 .await?;
-        };
-
-        Ok(Ticket { seq })
+            Ok(Ticket { seq, stmt: Some(stmt) })
+        }
     }
 
     async fn exec_sql_inner<P: ToParams>(&mut self, sql: &str, params: &P) -> Result<()> {
@@ -212,7 +226,7 @@ impl<'a> Pipeline<'a> {
             params,
             param_oids,
         )?;
-        write_describe_portal(&mut self.conn.buffer_set.write_buffer, "");
+        // Skip write_describe_portal - use cached RowDescription from PreparedStatement
         write_execute(&mut self.conn.buffer_set.write_buffer, "", 0);
         if let Err(e) = self
             .conn
@@ -317,7 +331,7 @@ impl<'a> Pipeline<'a> {
     #[cfg(feature = "lowlevel")]
     pub async fn claim<H: BinaryHandler>(
         &mut self,
-        ticket: Ticket,
+        ticket: Ticket<'_>,
         handler: &mut H,
     ) -> Result<()> {
         self.claim_with_handler(ticket, handler).await
@@ -325,7 +339,7 @@ impl<'a> Pipeline<'a> {
 
     async fn claim_with_handler<H: BinaryHandler>(
         &mut self,
-        ticket: Ticket,
+        ticket: Ticket<'_>,
         handler: &mut H,
     ) -> Result<()> {
         self.check_sequence(ticket.seq)?;
@@ -345,7 +359,9 @@ impl<'a> Pipeline<'a> {
             Some(Expectation::ParseBindExecute) => {
                 self.claim_parse_bind_exec_inner(handler).await
             }
-            Some(Expectation::BindExecute) => self.claim_bind_exec_inner(handler).await,
+            Some(Expectation::BindExecute) => {
+                self.claim_bind_exec_inner(handler, ticket.stmt).await
+            }
             None => Err(Error::Protocol("unexpected expectation type".into())),
         };
 
@@ -365,7 +381,7 @@ impl<'a> Pipeline<'a> {
     /// Results must be claimed in the same order they were queued.
     pub async fn claim_collect<T: for<'b> FromRow<'b>>(
         &mut self,
-        ticket: Ticket,
+        ticket: Ticket<'_>,
     ) -> Result<Vec<T>> {
         let mut handler = crate::handler::CollectHandler::<T>::new();
         self.claim_with_handler(ticket, &mut handler).await?;
@@ -377,7 +393,7 @@ impl<'a> Pipeline<'a> {
     /// Results must be claimed in the same order they were queued.
     pub async fn claim_one<T: for<'b> FromRow<'b>>(
         &mut self,
-        ticket: Ticket,
+        ticket: Ticket<'_>,
     ) -> Result<Option<T>> {
         let mut handler = crate::handler::FirstRowHandler::<T>::new();
         self.claim_with_handler(ticket, &mut handler).await?;
@@ -387,7 +403,7 @@ impl<'a> Pipeline<'a> {
     /// Claim and discard all rows.
     ///
     /// Results must be claimed in the same order they were queued.
-    pub async fn claim_drop(&mut self, ticket: Ticket) -> Result<()> {
+    pub async fn claim_drop(&mut self, ticket: Ticket<'_>) -> Result<()> {
         let mut handler = crate::handler::DropHandler::new();
         self.claim_with_handler(ticket, &mut handler).await
     }
@@ -435,7 +451,11 @@ impl<'a> Pipeline<'a> {
     }
 
     /// Claim Bind + Execute (for prepared statement exec() calls).
-    async fn claim_bind_exec_inner<H: BinaryHandler>(&mut self, handler: &mut H) -> Result<()> {
+    async fn claim_bind_exec_inner<H: BinaryHandler>(
+        &mut self,
+        handler: &mut H,
+        stmt: Option<&PreparedStatement>,
+    ) -> Result<()> {
         // Expect: BindComplete
         self.read_next_message().await?;
         if self.conn.buffer_set.type_byte != msg_type::BIND_COMPLETE {
@@ -443,23 +463,28 @@ impl<'a> Pipeline<'a> {
         }
         BindComplete::parse(&self.conn.buffer_set.read_buffer)?;
 
-        // Now read rows
-        self.claim_rows_inner(handler).await
+        // Use cached RowDescription from PreparedStatement (no copy)
+        let row_desc = stmt.and_then(|s| s.row_desc_payload());
+
+        // Now read rows (no RowDescription/NoData expected from server)
+        self.claim_rows_cached_inner(handler, row_desc).await
     }
 
-    /// Common row reading logic.
+    /// Common row reading logic (reads RowDescription from server).
     async fn claim_rows_inner<H: BinaryHandler>(&mut self, handler: &mut H) -> Result<()> {
         // Expect RowDescription or NoData
         self.read_next_message().await?;
-        match self.conn.buffer_set.type_byte {
+        let has_rows = match self.conn.buffer_set.type_byte {
             msg_type::ROW_DESCRIPTION => {
                 self.column_buffer.clear();
                 self.column_buffer
                     .extend_from_slice(&self.conn.buffer_set.read_buffer);
+                true
             }
             msg_type::NO_DATA => {
                 NoData::parse(&self.conn.buffer_set.read_buffer)?;
                 // No rows will follow, but we still need terminal message
+                false
             }
             _ => {
                 return Err(Error::Protocol(format!(
@@ -467,16 +492,60 @@ impl<'a> Pipeline<'a> {
                     self.conn.buffer_set.type_byte as char
                 )));
             }
-        }
+        };
 
-        // Now read data rows until terminal message
+        // Read data rows until terminal message
         loop {
             self.read_next_message().await?;
             let type_byte = self.conn.buffer_set.type_byte;
 
             match type_byte {
                 msg_type::DATA_ROW => {
+                    if !has_rows {
+                        return Err(Error::Protocol(
+                            "received DataRow but no RowDescription".into(),
+                        ));
+                    }
                     let cols = RowDescription::parse(&self.column_buffer)?;
+                    let row = DataRow::parse(&self.conn.buffer_set.read_buffer)?;
+                    handler.row(cols, row)?;
+                }
+                msg_type::COMMAND_COMPLETE => {
+                    let cmd = CommandComplete::parse(&self.conn.buffer_set.read_buffer)?;
+                    handler.result_end(cmd)?;
+                    return Ok(());
+                }
+                msg_type::EMPTY_QUERY_RESPONSE => {
+                    EmptyQueryResponse::parse(&self.conn.buffer_set.read_buffer)?;
+                    return Ok(());
+                }
+                _ => {
+                    return Err(Error::Protocol(format!(
+                        "unexpected message type in pipeline claim: '{}'",
+                        type_byte as char
+                    )));
+                }
+            }
+        }
+    }
+
+    /// Row reading logic with cached RowDescription (no server message expected).
+    async fn claim_rows_cached_inner<H: BinaryHandler>(
+        &mut self,
+        handler: &mut H,
+        row_desc: Option<&[u8]>,
+    ) -> Result<()> {
+        // Read data rows until terminal message
+        loop {
+            self.read_next_message().await?;
+            let type_byte = self.conn.buffer_set.type_byte;
+
+            match type_byte {
+                msg_type::DATA_ROW => {
+                    let row_desc = row_desc.ok_or_else(|| {
+                        Error::Protocol("received DataRow but no RowDescription cached".into())
+                    })?;
+                    let cols = RowDescription::parse(row_desc)?;
                     let row = DataRow::parse(&self.conn.buffer_set.read_buffer)?;
                     handler.row(cols, row)?;
                 }

@@ -6,6 +6,7 @@ use crate::protocol::codec::MessageBuilder;
 ///
 /// The query string may contain multiple SQL statements separated by semicolons.
 pub fn write_query(buf: &mut Vec<u8>, query: &str) {
+    log::debug!("QUERY {query}");
     let mut msg = MessageBuilder::new(buf, super::msg_type::QUERY);
     msg.write_cstr(query);
     msg.finish();

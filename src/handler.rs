@@ -142,7 +142,7 @@ impl<T> CollectHandler<T> {
 
 impl<T: for<'a> FromRow<'a>> TextHandler for CollectHandler<T> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
-        let typed_row = T::from_row(cols.fields(), row)?;
+        let typed_row = T::from_row_text(cols.fields(), row)?;
         self.rows.push(typed_row);
         Ok(())
     }
@@ -150,7 +150,7 @@ impl<T: for<'a> FromRow<'a>> TextHandler for CollectHandler<T> {
 
 impl<T: for<'a> FromRow<'a>> BinaryHandler for CollectHandler<T> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
-        let typed_row = T::from_row(cols.fields(), row)?;
+        let typed_row = T::from_row_binary(cols.fields(), row)?;
         self.rows.push(typed_row);
         Ok(())
     }
@@ -182,7 +182,7 @@ impl<T> FirstRowHandler<T> {
 impl<T: for<'a> FromRow<'a>> TextHandler for FirstRowHandler<T> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         if self.row.is_none() {
-            let typed_row = T::from_row(cols.fields(), row)?;
+            let typed_row = T::from_row_text(cols.fields(), row)?;
             self.row = Some(typed_row);
         }
         Ok(())
@@ -192,7 +192,7 @@ impl<T: for<'a> FromRow<'a>> TextHandler for FirstRowHandler<T> {
 impl<T: for<'a> FromRow<'a>> BinaryHandler for FirstRowHandler<T> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         if self.row.is_none() {
-            let typed_row = T::from_row(cols.fields(), row)?;
+            let typed_row = T::from_row_binary(cols.fields(), row)?;
             self.row = Some(typed_row);
         }
         Ok(())

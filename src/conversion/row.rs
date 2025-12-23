@@ -3,28 +3,35 @@
 use crate::conversion::FromWireValue;
 use crate::error::{Error, Result};
 use crate::protocol::backend::query::{DataRow, FieldDescription};
-use crate::protocol::types::FormatCode;
 
 /// Trait for decoding a PostgreSQL row into a Rust type.
 pub trait FromRow<'a>: Sized {
-    /// Decode a row using column metadata.
-    fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self>;
+    /// Decode a row from text format (simple protocol).
+    fn from_row_text(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self>;
+
+    /// Decode a row from binary format (extended protocol).
+    fn from_row_binary(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self>;
 }
 
-/// Decode a single column value.
-fn decode_column<'a, T: FromWireValue<'a>>(
+/// Decode a single column value as text.
+fn decode_column_text<'a, T: FromWireValue<'a>>(
     field: &FieldDescription,
     value: Option<&'a [u8]>,
 ) -> Result<T> {
     match value {
         None => T::from_null(),
-        Some(bytes) => {
-            let oid = field.type_oid();
-            match field.format() {
-                FormatCode::Text => T::from_text(oid, bytes),
-                FormatCode::Binary => T::from_binary(oid, bytes),
-            }
-        }
+        Some(bytes) => T::from_text(field.type_oid(), bytes),
+    }
+}
+
+/// Decode a single column value as binary.
+fn decode_column_binary<'a, T: FromWireValue<'a>>(
+    field: &FieldDescription,
+    value: Option<&'a [u8]>,
+) -> Result<T> {
+    match value {
+        None => T::from_null(),
+        Some(bytes) => T::from_binary(field.type_oid(), bytes),
     }
 }
 
@@ -32,7 +39,11 @@ fn decode_column<'a, T: FromWireValue<'a>>(
 
 /// Implementation for empty tuple - used for statements that don't return rows
 impl FromRow<'_> for () {
-    fn from_row(_cols: &[FieldDescription], _row: DataRow<'_>) -> Result<Self> {
+    fn from_row_text(_cols: &[FieldDescription], _row: DataRow<'_>) -> Result<Self> {
+        Ok(())
+    }
+
+    fn from_row_binary(_cols: &[FieldDescription], _row: DataRow<'_>) -> Result<Self> {
         Ok(())
     }
 }
@@ -40,13 +51,23 @@ impl FromRow<'_> for () {
 macro_rules! impl_from_row_tuple {
     ($count:literal: $($idx:tt => $T:ident),+) => {
         impl<'a, $($T: FromWireValue<'a>),+> FromRow<'a> for ($($T,)+) {
-            fn from_row(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
+            fn from_row_text(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
                 if cols.len() < $count {
                     return Err(Error::Decode("not enough columns for tuple".into()));
                 }
                 let mut iter = row.iter();
                 Ok(($(
-                    decode_column(&cols[$idx], iter.next().flatten())?,
+                    decode_column_text(&cols[$idx], iter.next().flatten())?,
+                )+))
+            }
+
+            fn from_row_binary(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
+                if cols.len() < $count {
+                    return Err(Error::Decode("not enough columns for tuple".into()));
+                }
+                let mut iter = row.iter();
+                Ok(($(
+                    decode_column_binary(&cols[$idx], iter.next().flatten())?,
                 )+))
             }
         }
