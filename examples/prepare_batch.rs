@@ -41,7 +41,11 @@ fn main() -> zero_postgres::Result<()> {
         "SELECT COUNT(*) FROM users",
     ])?;
     let batch_time = start.elapsed();
-    println!("Batch prepared {} statements in {:?}", stmts.len(), batch_time);
+    println!(
+        "Batch prepared {} statements in {:?}",
+        stmts.len(),
+        batch_time
+    );
 
     // Compare with individual prepares
     let start = Instant::now();
@@ -51,7 +55,10 @@ fn main() -> zero_postgres::Result<()> {
     let _stmt4 = conn.prepare("DELETE FROM users WHERE id = $1 RETURNING id")?;
     let _stmt5 = conn.prepare("SELECT COUNT(*) FROM users")?;
     let individual_time = start.elapsed();
-    println!("Individually prepared 5 statements in {:?}", individual_time);
+    println!(
+        "Individually prepared 5 statements in {:?}",
+        individual_time
+    );
     println!(
         "Speedup: {:.1}x\n",
         individual_time.as_secs_f64() / batch_time.as_secs_f64()

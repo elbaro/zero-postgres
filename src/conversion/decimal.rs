@@ -10,7 +10,7 @@
 use rust_decimal::Decimal;
 
 use crate::error::{Error, Result};
-use crate::protocol::types::{oid, Oid};
+use crate::protocol::types::{Oid, oid};
 
 use super::{FromWireValue, ToWireValue};
 

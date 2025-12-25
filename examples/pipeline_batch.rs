@@ -42,8 +42,9 @@ fn main() -> zero_postgres::Result<()> {
     let start = Instant::now();
     {
         // Prepare the insert statement once (outside the pipeline)
-        let insert_stmt =
-            conn.prepare("INSERT INTO products (name, price, quantity) VALUES ($1, $2, $3) RETURNING id")?;
+        let insert_stmt = conn.prepare(
+            "INSERT INTO products (name, price, quantity) VALUES ($1, $2, $3) RETURNING id",
+        )?;
 
         let ids = conn.run_pipeline(|p| {
             // Queue all inserts
@@ -66,7 +67,11 @@ fn main() -> zero_postgres::Result<()> {
             Ok(ids)
         })?;
 
-        println!("Inserted {} products with IDs: {:?}...", ids.len(), &ids[..5]);
+        println!(
+            "Inserted {} products with IDs: {:?}...",
+            ids.len(),
+            &ids[..5]
+        );
     }
     let elapsed = start.elapsed();
     println!("Pipeline insert took: {:?}\n", elapsed);
@@ -77,8 +82,8 @@ fn main() -> zero_postgres::Result<()> {
     let start = Instant::now();
     {
         // Prepare update statement outside the pipeline
-        let update_stmt =
-            conn.prepare("UPDATE products SET price = price * $1 WHERE id = $2 RETURNING id, price")?;
+        let update_stmt = conn
+            .prepare("UPDATE products SET price = price * $1 WHERE id = $2 RETURNING id, price")?;
 
         let updated = conn.run_pipeline(|p| {
             // Queue updates for first 50 products

@@ -29,8 +29,8 @@
 //! })?;
 //! ```
 
-pub use crate::pipeline::Ticket;
 use crate::pipeline::Expectation;
+use crate::pipeline::Ticket;
 
 use crate::conversion::{FromRow, ToParams};
 use crate::error::{Error, Result};
@@ -56,8 +56,6 @@ pub struct Pipeline<'a> {
     queue_seq: usize,
     /// Next sequence number to claim
     claim_seq: usize,
-    /// Whether we have queued data that needs to be flushed
-    needs_flush: bool,
     /// Whether the pipeline is in aborted state (error occurred)
     aborted: bool,
     /// Buffer for column descriptions during row processing
@@ -78,11 +76,11 @@ impl<'a> Pipeline<'a> {
 
     /// Create a new pipeline (internal).
     pub(crate) fn new_inner(conn: &'a mut Conn) -> Self {
+        conn.buffer_set.write_buffer.clear();
         Self {
             conn,
             queue_seq: 0,
             claim_seq: 0,
-            needs_flush: false,
             aborted: false,
             column_buffer: Vec::new(),
             expectations: Vec::new(),
@@ -109,7 +107,7 @@ impl<'a> Pipeline<'a> {
         }
 
         // Send sync if we have pending operations
-        if self.needs_flush {
+        if !self.conn.buffer_set.write_buffer.is_empty() {
             let _ = self.sync();
         }
 
@@ -148,6 +146,9 @@ impl<'a> Pipeline<'a> {
     /// - A `&PreparedStatement` returned from `conn.prepare()` or `conn.prepare_batch()`
     /// - A raw SQL `&str` for one-shot execution
     ///
+    /// This method only buffers the command locally - no network I/O occurs until
+    /// `sync()` or `flush()` is called.
+    ///
     /// # Example
     ///
     /// ```ignore
@@ -177,32 +178,20 @@ impl<'a> Pipeline<'a> {
         } else {
             let stmt = statement.as_prepared().unwrap();
             self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)?;
-            Ok(Ticket { seq, stmt: Some(stmt) })
+            Ok(Ticket {
+                seq,
+                stmt: Some(stmt),
+            })
         }
     }
 
     fn exec_sql_inner<P: ToParams>(&mut self, sql: &str, params: &P) -> Result<()> {
         let param_oids = params.natural_oids();
-        self.conn.buffer_set.write_buffer.clear();
-        write_parse(&mut self.conn.buffer_set.write_buffer, "", sql, &param_oids);
-        write_bind(
-            &mut self.conn.buffer_set.write_buffer,
-            "",
-            "",
-            params,
-            &param_oids,
-        )?;
-        write_describe_portal(&mut self.conn.buffer_set.write_buffer, "");
-        write_execute(&mut self.conn.buffer_set.write_buffer, "", 0);
-        if let Err(e) = self
-            .conn
-            .stream
-            .write_all(&self.conn.buffer_set.write_buffer)
-        {
-            self.conn.is_broken = true;
-            return Err(e.into());
-        }
-        self.needs_flush = true;
+        let buf = &mut self.conn.buffer_set.write_buffer;
+        write_parse(buf, "", sql, &param_oids);
+        write_bind(buf, "", "", params, &param_oids)?;
+        write_describe_portal(buf, "");
+        write_execute(buf, "", 0);
         self.expectations.push(Expectation::ParseBindExecute);
         Ok(())
     }
@@ -213,25 +202,10 @@ impl<'a> Pipeline<'a> {
         param_oids: &[u32],
         params: &P,
     ) -> Result<()> {
-        self.conn.buffer_set.write_buffer.clear();
-        write_bind(
-            &mut self.conn.buffer_set.write_buffer,
-            "",
-            stmt_name,
-            params,
-            param_oids,
-        )?;
+        let buf = &mut self.conn.buffer_set.write_buffer;
+        write_bind(buf, "", stmt_name, params, param_oids)?;
         // Skip write_describe_portal - use cached RowDescription from PreparedStatement
-        write_execute(&mut self.conn.buffer_set.write_buffer, "", 0);
-        if let Err(e) = self
-            .conn
-            .stream
-            .write_all(&self.conn.buffer_set.write_buffer)
-        {
-            self.conn.is_broken = true;
-            return Err(e.into());
-        }
-        self.needs_flush = true;
+        write_execute(buf, "", 0);
         self.expectations.push(Expectation::BindExecute);
         Ok(())
     }
@@ -241,14 +215,13 @@ impl<'a> Pipeline<'a> {
     /// This forces the server to send all pending responses without establishing
     /// a transaction boundary. Called automatically by claim methods when needed.
     pub fn flush(&mut self) -> Result<()> {
-        if self.needs_flush {
-            self.conn.buffer_set.write_buffer.clear();
+        if !self.conn.buffer_set.write_buffer.is_empty() {
             write_flush(&mut self.conn.buffer_set.write_buffer);
             self.conn
                 .stream
                 .write_all(&self.conn.buffer_set.write_buffer)?;
             self.conn.stream.flush()?;
-            self.needs_flush = false;
+            self.conn.buffer_set.write_buffer.clear();
         }
         Ok(())
     }
@@ -260,22 +233,21 @@ impl<'a> Pipeline<'a> {
     /// are claimed.
     pub fn sync(&mut self) -> Result<()> {
         let result = self.sync_inner();
-        if let Err(e) = &result {
-            if e.is_connection_broken() {
-                self.conn.is_broken = true;
-            }
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.conn.is_broken = true;
         }
         result
     }
 
     fn sync_inner(&mut self) -> Result<()> {
-        self.conn.buffer_set.write_buffer.clear();
         write_sync(&mut self.conn.buffer_set.write_buffer);
         self.conn
             .stream
             .write_all(&self.conn.buffer_set.write_buffer)?;
         self.conn.stream.flush()?;
-        self.needs_flush = false;
+        self.conn.buffer_set.write_buffer.clear();
         Ok(())
     }
 
@@ -342,9 +314,7 @@ impl<'a> Pipeline<'a> {
 
         let result = match expectation {
             Some(Expectation::ParseBindExecute) => self.claim_parse_bind_exec_inner(handler),
-            Some(Expectation::BindExecute) => {
-                self.claim_bind_exec_inner(handler, ticket.stmt)
-            }
+            Some(Expectation::BindExecute) => self.claim_bind_exec_inner(handler, ticket.stmt),
             None => Err(Error::Protocol("unexpected expectation type".into())),
         };
 

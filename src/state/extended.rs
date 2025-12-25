@@ -533,7 +533,11 @@ impl BindStateMachine {
     /// Writes Parse + Bind + Flush to `buffer_set.write_buffer`.
     ///
     /// Uses the natural OIDs from the parameters to inform the server about parameter types.
-    pub fn bind_sql<P: ToParams>(buffer_set: &mut BufferSet, sql: &str, params: &P) -> Result<Self> {
+    pub fn bind_sql<P: ToParams>(
+        buffer_set: &mut BufferSet,
+        sql: &str,
+        params: &P,
+    ) -> Result<Self> {
         let param_oids = params.natural_oids();
         buffer_set.write_buffer.clear();
         write_parse(&mut buffer_set.write_buffer, "", sql, &param_oids);

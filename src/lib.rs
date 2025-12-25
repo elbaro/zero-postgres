@@ -57,6 +57,7 @@ pub use buffer_set::BufferSet;
 pub use error::{Error, Result, ServerError};
 pub use handler::AsyncMessageHandler;
 pub use opts::{Opts, SslMode};
+pub use pipeline::Ticket;
 pub use state::action::AsyncMessage;
 pub use state::extended::PreparedStatement;
 pub use statement::IntoStatement;

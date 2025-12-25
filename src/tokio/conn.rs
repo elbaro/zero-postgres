@@ -489,7 +489,9 @@ impl Conn {
         params_list: &[P],
         chunk_size: usize,
     ) -> Result<()> {
-        let result = self.exec_batch_inner(&statement, params_list, chunk_size).await;
+        let result = self
+            .exec_batch_inner(&statement, params_list, chunk_size)
+            .await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {
@@ -566,7 +568,10 @@ impl Conn {
     }
 
     /// Drive a batch state machine to completion.
-    async fn drive_batch(&mut self, state_machine: &mut crate::state::extended::BatchStateMachine) -> Result<()> {
+    async fn drive_batch(
+        &mut self,
+        state_machine: &mut crate::state::extended::BatchStateMachine,
+    ) -> Result<()> {
         use crate::protocol::backend::{ReadyForQuery, msg_type};
         use crate::state::action::Action;
 
@@ -591,7 +596,8 @@ impl Conn {
                         self.stream.read_message(&mut self.buffer_set).await?;
                         if self.buffer_set.type_byte == msg_type::READY_FOR_QUERY {
                             let ready = ReadyForQuery::parse(&self.buffer_set.read_buffer)?;
-                            self.transaction_status = ready.transaction_status().unwrap_or_default();
+                            self.transaction_status =
+                                ready.transaction_status().unwrap_or_default();
                             break;
                         }
                     }
@@ -709,7 +715,9 @@ impl Conn {
         statement_name: &str,
         params: P,
     ) -> Result<()> {
-        let result = self.lowlevel_bind_inner(portal, statement_name, &params).await;
+        let result = self
+            .lowlevel_bind_inner(portal, statement_name, &params)
+            .await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {

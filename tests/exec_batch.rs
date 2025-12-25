@@ -351,11 +351,8 @@ fn test_exec_batch_update() {
     let table = TestTable::new(&mut conn);
 
     // Insert initial data
-    conn.exec_batch(
-        table.insert_sql().as_str(),
-        &[("a", 1), ("b", 2), ("c", 3)],
-    )
-    .unwrap();
+    conn.exec_batch(table.insert_sql().as_str(), &[("a", 1), ("b", 2), ("c", 3)])
+        .unwrap();
 
     // Batch update
     let update_sql = format!(

@@ -663,7 +663,10 @@ impl Conn {
     }
 
     /// Drive a batch state machine to completion.
-    fn drive_batch(&mut self, state_machine: &mut crate::state::extended::BatchStateMachine) -> Result<()> {
+    fn drive_batch(
+        &mut self,
+        state_machine: &mut crate::state::extended::BatchStateMachine,
+    ) -> Result<()> {
         use crate::protocol::backend::{ReadyForQuery, msg_type};
         use crate::state::action::Action;
 
@@ -688,7 +691,8 @@ impl Conn {
                         self.stream.read_message(&mut self.buffer_set)?;
                         if self.buffer_set.type_byte == msg_type::READY_FOR_QUERY {
                             let ready = ReadyForQuery::parse(&self.buffer_set.read_buffer)?;
-                            self.transaction_status = ready.transaction_status().unwrap_or_default();
+                            self.transaction_status =
+                                ready.transaction_status().unwrap_or_default();
                             break;
                         }
                     }

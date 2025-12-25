@@ -168,7 +168,8 @@ impl ToWireValue for time::PrimitiveDateTime {
         match target_oid {
             oid::TIMESTAMP | oid::TIMESTAMPTZ => {
                 // Calculate microseconds since PostgreSQL epoch (2000-01-01 00:00:00)
-                const PG_EPOCH: time::PrimitiveDateTime = time::macros::datetime!(2000-01-01 00:00:00);
+                const PG_EPOCH: time::PrimitiveDateTime =
+                    time::macros::datetime!(2000-01-01 00:00:00);
                 let duration = *self - PG_EPOCH;
                 let usecs = duration.whole_microseconds() as i64;
                 buf.extend_from_slice(&8_i32.to_be_bytes());
@@ -237,7 +238,8 @@ impl ToWireValue for time::OffsetDateTime {
             oid::TIMESTAMP | oid::TIMESTAMPTZ => {
                 // Convert to UTC and calculate microseconds since PostgreSQL epoch
                 let utc = self.to_offset(time::UtcOffset::UTC);
-                const PG_EPOCH: time::OffsetDateTime = time::macros::datetime!(2000-01-01 00:00:00 UTC);
+                const PG_EPOCH: time::OffsetDateTime =
+                    time::macros::datetime!(2000-01-01 00:00:00 UTC);
                 let duration = utc - PG_EPOCH;
                 let usecs = duration.whole_microseconds() as i64;
                 buf.extend_from_slice(&8_i32.to_be_bytes());

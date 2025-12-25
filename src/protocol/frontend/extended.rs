@@ -3,7 +3,7 @@
 use crate::conversion::ToParams;
 use crate::error::Result;
 use crate::protocol::codec::MessageBuilder;
-use crate::protocol::types::{preferred_format, FormatCode, Oid};
+use crate::protocol::types::{FormatCode, Oid, preferred_format};
 
 /// Write a Parse message to create a prepared statement.
 ///
@@ -41,8 +41,16 @@ pub fn write_bind<P: ToParams>(
 ) -> Result<()> {
     log::debug!(
         "BIND {} {}",
-        if statement_name.is_empty() { "<unnamed statement>" } else { statement_name },
-        if portal.is_empty() { "<unnamed portal>" } else { portal }
+        if statement_name.is_empty() {
+            "<unnamed statement>"
+        } else {
+            statement_name
+        },
+        if portal.is_empty() {
+            "<unnamed portal>"
+        } else {
+            portal
+        }
     );
     let mut msg = MessageBuilder::new(buf, super::msg_type::BIND);
 
@@ -76,7 +84,11 @@ pub fn write_bind<P: ToParams>(
 pub fn write_execute(buf: &mut Vec<u8>, portal: &str, max_rows: u32) {
     log::debug!(
         "EXECUTE {} LIMIT {max_rows}",
-        if portal.is_empty() { "<unnamed portal>" } else { portal }
+        if portal.is_empty() {
+            "<unnamed portal>"
+        } else {
+            portal
+        }
     );
     let mut msg = MessageBuilder::new(buf, super::msg_type::EXECUTE);
     msg.write_cstr(portal);

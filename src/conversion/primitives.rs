@@ -1,7 +1,7 @@
 //! Primitive type implementations (bool, integers, floats).
 
 use crate::error::{Error, Result};
-use crate::protocol::types::{oid, Oid};
+use crate::protocol::types::{Oid, oid};
 
 use super::numeric_util::{numeric_to_f32, numeric_to_f64};
 use super::{FromWireValue, ToWireValue};
