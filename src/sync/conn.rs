@@ -430,11 +430,51 @@ impl Conn {
     /// // Use stmts[0], stmts[1], stmts[2]...
     /// ```
     pub fn prepare_batch(&mut self, queries: &[&str]) -> Result<Vec<PreparedStatement>> {
-        let mut statements = Vec::with_capacity(queries.len());
-        for query in queries {
-            statements.push(self.prepare(query)?);
+        if queries.is_empty() {
+            return Ok(Vec::new());
         }
-        Ok(statements)
+
+        let start_idx = self.name_counter + 1;
+        self.name_counter += queries.len() as u64;
+
+        let result = self.prepare_batch_inner(queries, start_idx);
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
+        }
+        result
+    }
+
+    fn prepare_batch_inner(
+        &mut self,
+        queries: &[&str],
+        start_idx: u64,
+    ) -> Result<Vec<PreparedStatement>> {
+        use crate::state::batch_prepare::BatchPrepareStateMachine;
+
+        let mut state_machine =
+            BatchPrepareStateMachine::new(&mut self.buffer_set, queries, start_idx);
+
+        loop {
+            match state_machine.step(&mut self.buffer_set)? {
+                Action::ReadMessage => {
+                    self.stream.read_message(&mut self.buffer_set)?;
+                }
+                Action::WriteAndReadMessage => {
+                    self.stream.write_all(&self.buffer_set.write_buffer)?;
+                    self.stream.flush()?;
+                    self.stream.read_message(&mut self.buffer_set)?;
+                }
+                Action::Finished => {
+                    self.transaction_status = state_machine.transaction_status();
+                    break;
+                }
+                _ => return Err(Error::Protocol("Unexpected action in batch prepare".into())),
+            }
+        }
+
+        Ok(state_machine.take_statements())
     }
 
     /// Prepare a statement with explicit parameter types.

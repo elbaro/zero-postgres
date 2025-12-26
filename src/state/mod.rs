@@ -4,6 +4,7 @@
 //! They produce `Action` values that tell the caller what to do next.
 
 pub mod action;
+pub mod batch_prepare;
 pub mod connection;
 pub mod extended;
 pub mod simple_query;

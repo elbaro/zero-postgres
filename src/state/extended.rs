@@ -39,7 +39,7 @@ pub struct PreparedStatement {
     /// Parameter type OIDs
     pub param_oids: Vec<Oid>,
     /// Raw RowDescription payload (if the statement returns rows)
-    row_desc_payload: Option<Vec<u8>>,
+    pub(crate) row_desc_payload: Option<Vec<u8>>,
 }
 
 impl PreparedStatement {

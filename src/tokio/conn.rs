@@ -397,6 +397,70 @@ impl Conn {
         result
     }
 
+    /// Prepare multiple statements in a single round-trip.
+    ///
+    /// This is more efficient than calling `prepare()` multiple times when you
+    /// need to prepare several statements, as it batches the network communication.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let stmts = conn.prepare_batch(&[
+    ///     "SELECT id, name FROM users WHERE id = $1",
+    ///     "INSERT INTO users (name) VALUES ($1) RETURNING id",
+    ///     "UPDATE users SET name = $1 WHERE id = $2",
+    /// ]).await?;
+    ///
+    /// // Use stmts[0], stmts[1], stmts[2]...
+    /// ```
+    pub async fn prepare_batch(&mut self, queries: &[&str]) -> Result<Vec<PreparedStatement>> {
+        if queries.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let start_idx = self.name_counter + 1;
+        self.name_counter += queries.len() as u64;
+
+        let result = self.prepare_batch_inner(queries, start_idx).await;
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
+        }
+        result
+    }
+
+    async fn prepare_batch_inner(
+        &mut self,
+        queries: &[&str],
+        start_idx: u64,
+    ) -> Result<Vec<PreparedStatement>> {
+        use crate::state::batch_prepare::BatchPrepareStateMachine;
+
+        let mut state_machine =
+            BatchPrepareStateMachine::new(&mut self.buffer_set, queries, start_idx);
+
+        loop {
+            match state_machine.step(&mut self.buffer_set)? {
+                Action::ReadMessage => {
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Action::WriteAndReadMessage => {
+                    self.stream.write_all(&self.buffer_set.write_buffer).await?;
+                    self.stream.flush().await?;
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Action::Finished => {
+                    self.transaction_status = state_machine.transaction_status();
+                    break;
+                }
+                _ => return Err(Error::Protocol("Unexpected action in batch prepare".into())),
+            }
+        }
+
+        Ok(state_machine.take_statements())
+    }
+
     async fn prepare_inner(
         &mut self,
         idx: u64,
