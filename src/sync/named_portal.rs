@@ -1,5 +1,7 @@
 //! Named portal for iterative row fetching.
 
+use std::marker::PhantomData;
+
 use crate::conversion::FromRow;
 use crate::error::Result;
 use crate::handler::{BinaryHandler, CollectHandler};
@@ -8,14 +10,15 @@ use super::Conn;
 
 /// Handle to a named portal for iterative row fetching.
 ///
-/// Created by [`Conn::exec_portal()`]. Use [`execute()`](Self::execute) to retrieve rows in batches.
-/// Unlike [`UnnamedPortal`](super::UnnamedPortal), named portals can coexist with other operations
-/// on the connection.
+/// Created by [`Transaction::exec_portal()`]. Use [`execute()`](Self::execute) to retrieve rows
+/// in batches. The lifetime parameter ties the portal to the transaction that created it,
+/// preventing the transaction from being committed/rolled back while the portal is alive.
 ///
 /// # Example
 ///
 /// ```ignore
-/// let mut portal = conn.exec_portal(&stmt, ())?;
+/// let tx = conn.begin()?;
+/// let mut portal = tx.exec_portal(&mut conn, &stmt, ())?;
 ///
 /// while !portal.is_complete() {
 ///     let rows: Vec<(i32,)> = portal.execute_collect(&mut conn, 100)?;
@@ -23,18 +26,21 @@ use super::Conn;
 /// }
 ///
 /// portal.close(&mut conn)?;
+/// tx.commit(&mut conn)?;
 /// ```
-pub struct NamedPortal {
+pub struct NamedPortal<'tx> {
     pub(crate) name: String,
     complete: bool,
+    _marker: PhantomData<&'tx ()>,
 }
 
-impl NamedPortal {
+impl<'tx> NamedPortal<'tx> {
     /// Create a new named portal.
     pub(crate) fn new(name: String) -> Self {
         Self {
             name,
             complete: false,
+            _marker: PhantomData,
         }
     }
 

@@ -540,3 +540,35 @@ fn test_p4_named_portal_within_tx_rollback_then_insert() {
         "Expected 0 rows - portal was destroyed by ROLLBACK"
     );
 }
+
+/// SYNC inside explicit transaction does NOT destroy named portals.
+///
+/// This is the key behavior that makes Transaction::exec_portal safe:
+/// portals created within BEGIN/COMMIT survive intermediate SYNC messages.
+#[test]
+fn test_sync_inside_explicit_tx_preserves_portal() {
+    let mut conn = get_conn();
+
+    conn.query_drop("BEGIN").unwrap();
+
+    let stmt = conn.prepare("SELECT 1").unwrap();
+    conn.lowlevel_bind("portal1", &stmt.wire_name(), ())
+        .unwrap();
+
+    // Portal should exist
+    assert!(
+        portal_exists(&mut conn, "portal1"),
+        "Portal should exist after bind"
+    );
+
+    // SYNC while inside explicit transaction - should NOT destroy portal
+    conn.lowlevel_sync().unwrap();
+
+    // Portal should still exist
+    assert!(
+        portal_exists(&mut conn, "portal1"),
+        "Portal was destroyed by SYNC inside explicit transaction!"
+    );
+
+    conn.query_drop("ROLLBACK").unwrap();
+}

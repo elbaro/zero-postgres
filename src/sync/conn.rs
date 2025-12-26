@@ -200,6 +200,58 @@ impl Conn {
         self.is_broken
     }
 
+    /// Generate the next unique portal name.
+    pub(crate) fn next_portal_name(&mut self) -> String {
+        self.name_counter += 1;
+        format!("_zero_p_{}", self.name_counter)
+    }
+
+    /// Create a named portal by binding a statement.
+    ///
+    /// Used internally by Transaction::exec_portal.
+    pub(crate) fn create_named_portal<S: IntoStatement, P: ToParams>(
+        &mut self,
+        portal_name: &str,
+        statement: &S,
+        params: &P,
+    ) -> Result<()> {
+        // Create bind state machine for named portal
+        let mut state_machine = if let Some(sql) = statement.as_sql() {
+            BindStateMachine::bind_sql(&mut self.buffer_set, portal_name, sql, params)?
+        } else {
+            let stmt = statement.as_prepared().unwrap();
+            BindStateMachine::bind_prepared(
+                &mut self.buffer_set,
+                portal_name,
+                &stmt.wire_name(),
+                &stmt.param_oids,
+                params,
+            )?
+        };
+
+        // Drive the state machine to completion (ParseComplete + BindComplete)
+        loop {
+            match state_machine.step(&mut self.buffer_set)? {
+                Action::ReadMessage => {
+                    self.stream.read_message(&mut self.buffer_set)?;
+                }
+                Action::Write => {
+                    self.stream.write_all(&self.buffer_set.write_buffer)?;
+                    self.stream.flush()?;
+                }
+                Action::WriteAndReadMessage => {
+                    self.stream.write_all(&self.buffer_set.write_buffer)?;
+                    self.stream.flush()?;
+                    self.stream.read_message(&mut self.buffer_set)?;
+                }
+                Action::Finished => break,
+                _ => return Err(Error::Protocol("Unexpected action in bind".into())),
+            }
+        }
+
+        Ok(())
+    }
+
     /// Set the async message handler.
     ///
     /// The handler is called when the server sends asynchronous messages:
@@ -730,7 +782,7 @@ impl Conn {
     /// # Errors
     ///
     /// Returns `Error::InvalidUsage` if called while already in a transaction.
-    pub fn run_transaction<F, R>(&mut self, f: F) -> Result<R>
+    pub fn transaction<F, R>(&mut self, f: F) -> Result<R>
     where
         F: FnOnce(&mut Conn, super::transaction::Transaction) -> Result<R>,
     {
@@ -1110,86 +1162,6 @@ impl Conn {
             (Err(e), _) => Err(e),
             (Ok(_), Err(e)) => Err(e),
         }
-    }
-
-    /// Create a named portal for iterative row fetching.
-    ///
-    /// Unlike [`exec_iter()`](Self::exec_iter) which uses an unnamed portal and a closure,
-    /// named portals can coexist with other operations on the connection.
-    ///
-    /// The statement can be either:
-    /// - A `&PreparedStatement` returned from `prepare()`
-    /// - A raw SQL `&str` for one-shot execution
-    ///
-    /// # Example
-    /// ```ignore
-    /// let mut portal = conn.exec_portal(&stmt, ())?;
-    ///
-    /// while !portal.is_complete() {
-    ///     let rows: Vec<(i32,)> = portal.execute_collect(&mut conn, 100)?;
-    ///     process(rows);
-    /// }
-    ///
-    /// portal.close(&mut conn)?;
-    /// ```
-    pub fn exec_portal<S: IntoStatement, P: ToParams>(
-        &mut self,
-        statement: S,
-        params: P,
-    ) -> Result<super::named_portal::NamedPortal> {
-        let result = self.exec_portal_inner(&statement, &params);
-        if let Err(e) = &result
-            && e.is_connection_broken()
-        {
-            self.is_broken = true;
-        }
-        result
-    }
-
-    fn exec_portal_inner<S: IntoStatement, P: ToParams>(
-        &mut self,
-        statement: &S,
-        params: &P,
-    ) -> Result<super::named_portal::NamedPortal> {
-        // Generate unique portal name
-        self.name_counter += 1;
-        let portal_name = format!("_zero_p_{}", self.name_counter);
-
-        // Create bind state machine for named portal
-        let mut state_machine = if let Some(sql) = statement.as_sql() {
-            BindStateMachine::bind_sql(&mut self.buffer_set, &portal_name, sql, params)?
-        } else {
-            let stmt = statement.as_prepared().unwrap();
-            BindStateMachine::bind_prepared(
-                &mut self.buffer_set,
-                &portal_name,
-                &stmt.wire_name(),
-                &stmt.param_oids,
-                params,
-            )?
-        };
-
-        // Drive the state machine to completion (ParseComplete + BindComplete)
-        loop {
-            match state_machine.step(&mut self.buffer_set)? {
-                Action::ReadMessage => {
-                    self.stream.read_message(&mut self.buffer_set)?;
-                }
-                Action::Write => {
-                    self.stream.write_all(&self.buffer_set.write_buffer)?;
-                    self.stream.flush()?;
-                }
-                Action::WriteAndReadMessage => {
-                    self.stream.write_all(&self.buffer_set.write_buffer)?;
-                    self.stream.flush()?;
-                    self.stream.read_message(&mut self.buffer_set)?;
-                }
-                Action::Finished => break,
-                _ => return Err(Error::Protocol("Unexpected action in bind".into())),
-            }
-        }
-
-        Ok(super::named_portal::NamedPortal::new(portal_name))
     }
 
     /// Low-level close portal: send Close(Portal) and receive CloseComplete.
