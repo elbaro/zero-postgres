@@ -501,13 +501,17 @@ pub struct BindStateMachine {
 }
 
 impl BindStateMachine {
-    /// Bind a prepared statement to an unnamed portal.
+    /// Bind a prepared statement to a portal.
     ///
     /// Writes Bind + Flush to `buffer_set.write_buffer`.
     ///
     /// Uses the server-provided parameter OIDs to encode parameters.
+    ///
+    /// # Arguments
+    /// - `portal_name`: Portal name (empty string "" for unnamed portal)
     pub fn bind_prepared<P: ToParams>(
         buffer_set: &mut BufferSet,
+        portal_name: &str,
         statement_name: &str,
         param_oids: &[Oid],
         params: &P,
@@ -515,7 +519,7 @@ impl BindStateMachine {
         buffer_set.write_buffer.clear();
         write_bind(
             &mut buffer_set.write_buffer,
-            "",
+            portal_name,
             statement_name,
             params,
             param_oids,
@@ -528,20 +532,30 @@ impl BindStateMachine {
         })
     }
 
-    /// Parse raw SQL and bind to an unnamed portal.
+    /// Parse raw SQL and bind to a portal.
     ///
     /// Writes Parse + Bind + Flush to `buffer_set.write_buffer`.
     ///
     /// Uses the natural OIDs from the parameters to inform the server about parameter types.
+    ///
+    /// # Arguments
+    /// - `portal_name`: Portal name (empty string "" for unnamed portal)
     pub fn bind_sql<P: ToParams>(
         buffer_set: &mut BufferSet,
+        portal_name: &str,
         sql: &str,
         params: &P,
     ) -> Result<Self> {
         let param_oids = params.natural_oids();
         buffer_set.write_buffer.clear();
         write_parse(&mut buffer_set.write_buffer, "", sql, &param_oids);
-        write_bind(&mut buffer_set.write_buffer, "", "", params, &param_oids)?;
+        write_bind(
+            &mut buffer_set.write_buffer,
+            portal_name,
+            "",
+            params,
+            &param_oids,
+        )?;
         write_flush(&mut buffer_set.write_buffer);
 
         Ok(Self {

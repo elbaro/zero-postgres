@@ -30,7 +30,7 @@ pub struct Conn {
     server_params: Vec<(String, String)>,
     pub(crate) transaction_status: TransactionStatus,
     pub(crate) is_broken: bool,
-    stmt_counter: u64,
+    name_counter: u64,
     async_message_handler: Option<Box<dyn AsyncMessageHandler>>,
 }
 
@@ -111,7 +111,7 @@ impl Conn {
             server_params: state_machine.take_server_params(),
             transaction_status: state_machine.transaction_status(),
             is_broken: false,
-            stmt_counter: 0,
+            name_counter: 0,
             async_message_handler: None,
         };
 
@@ -334,8 +334,8 @@ impl Conn {
         query: &str,
         param_oids: &[u32],
     ) -> Result<PreparedStatement> {
-        self.stmt_counter += 1;
-        let idx = self.stmt_counter;
+        self.name_counter += 1;
+        let idx = self.name_counter;
         let result = self.prepare_inner(idx, query, param_oids).await;
         if let Err(e) = &result
             && e.is_connection_broken()
@@ -931,13 +931,14 @@ impl Conn {
         F: FnOnce(&mut super::unnamed_portal::UnnamedPortal<'_>) -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
     {
-        // Create bind state machine
+        // Create bind state machine for unnamed portal
         let mut state_machine = if let Some(sql) = statement.as_sql() {
-            BindStateMachine::bind_sql(&mut self.buffer_set, sql, params)?
+            BindStateMachine::bind_sql(&mut self.buffer_set, "", sql, params)?
         } else {
             let stmt = statement.as_prepared().unwrap();
             BindStateMachine::bind_prepared(
                 &mut self.buffer_set,
+                "",
                 &stmt.wire_name(),
                 &stmt.param_oids,
                 params,
@@ -976,6 +977,135 @@ impl Conn {
             (Ok(v), Ok(())) => Ok(v),
             (Err(e), _) => Err(e),
             (Ok(_), Err(e)) => Err(e),
+        }
+    }
+
+    /// Create a named portal for iterative row fetching.
+    ///
+    /// Unlike [`exec_iter()`](Self::exec_iter) which uses an unnamed portal and a closure,
+    /// named portals can coexist with other operations on the connection.
+    ///
+    /// The statement can be either:
+    /// - A `&PreparedStatement` returned from `prepare()`
+    /// - A raw SQL `&str` for one-shot execution
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut portal = conn.exec_portal(&stmt, ()).await?;
+    ///
+    /// while !portal.is_complete() {
+    ///     let rows: Vec<(i32,)> = portal.execute_collect(&mut conn, 100).await?;
+    ///     process(rows);
+    /// }
+    ///
+    /// portal.close(&mut conn).await?;
+    /// ```
+    pub async fn exec_portal<S: IntoStatement, P: ToParams>(
+        &mut self,
+        statement: S,
+        params: P,
+    ) -> Result<super::named_portal::NamedPortal> {
+        let result = self.exec_portal_inner(&statement, &params).await;
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
+        }
+        result
+    }
+
+    async fn exec_portal_inner<S: IntoStatement, P: ToParams>(
+        &mut self,
+        statement: &S,
+        params: &P,
+    ) -> Result<super::named_portal::NamedPortal> {
+        // Generate unique portal name
+        self.name_counter += 1;
+        let portal_name = format!("_zero_p_{}", self.name_counter);
+
+        // Create bind state machine for named portal
+        let mut state_machine = if let Some(sql) = statement.as_sql() {
+            BindStateMachine::bind_sql(&mut self.buffer_set, &portal_name, sql, params)?
+        } else {
+            let stmt = statement.as_prepared().unwrap();
+            BindStateMachine::bind_prepared(
+                &mut self.buffer_set,
+                &portal_name,
+                &stmt.wire_name(),
+                &stmt.param_oids,
+                params,
+            )?
+        };
+
+        // Drive the state machine to completion (ParseComplete + BindComplete)
+        loop {
+            match state_machine.step(&mut self.buffer_set)? {
+                Action::ReadMessage => {
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Action::Write => {
+                    self.stream.write_all(&self.buffer_set.write_buffer).await?;
+                    self.stream.flush().await?;
+                }
+                Action::WriteAndReadMessage => {
+                    self.stream.write_all(&self.buffer_set.write_buffer).await?;
+                    self.stream.flush().await?;
+                    self.stream.read_message(&mut self.buffer_set).await?;
+                }
+                Action::Finished => break,
+                _ => return Err(Error::Protocol("Unexpected action in bind".into())),
+            }
+        }
+
+        Ok(super::named_portal::NamedPortal::new(portal_name))
+    }
+
+    /// Low-level close portal: send Close(Portal) and receive CloseComplete.
+    pub async fn lowlevel_close_portal(&mut self, portal: &str) -> Result<()> {
+        let result = self.lowlevel_close_portal_inner(portal).await;
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.is_broken = true;
+        }
+        result
+    }
+
+    async fn lowlevel_close_portal_inner(&mut self, portal: &str) -> Result<()> {
+        use crate::protocol::backend::{CloseComplete, ErrorResponse, RawMessage, msg_type};
+        use crate::protocol::frontend::{write_close_portal, write_flush};
+
+        self.buffer_set.write_buffer.clear();
+        write_close_portal(&mut self.buffer_set.write_buffer, portal);
+        write_flush(&mut self.buffer_set.write_buffer);
+
+        self.stream.write_all(&self.buffer_set.write_buffer).await?;
+        self.stream.flush().await?;
+
+        loop {
+            self.stream.read_message(&mut self.buffer_set).await?;
+            let type_byte = self.buffer_set.type_byte;
+
+            if RawMessage::is_async_type(type_byte) {
+                continue;
+            }
+
+            match type_byte {
+                msg_type::CLOSE_COMPLETE => {
+                    CloseComplete::parse(&self.buffer_set.read_buffer)?;
+                    return Ok(());
+                }
+                msg_type::ERROR_RESPONSE => {
+                    let error = ErrorResponse::parse(&self.buffer_set.read_buffer)?;
+                    return Err(error.into_error());
+                }
+                _ => {
+                    return Err(Error::Protocol(format!(
+                        "Expected CloseComplete or ErrorResponse, got '{}'",
+                        type_byte as char
+                    )));
+                }
+            }
         }
     }
 

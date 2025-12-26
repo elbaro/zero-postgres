@@ -1,4 +1,5 @@
 /target
+.claude
 /.devenv
 /.devenv.flake.nix
 /devenv.nix
