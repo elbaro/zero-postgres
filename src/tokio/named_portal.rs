@@ -17,7 +17,7 @@ use super::Conn;
 /// # Example
 ///
 /// ```ignore
-/// conn.transaction(|conn, tx| async move {
+/// conn.tx(|conn, tx| async move {
 ///     let mut portal = tx.exec_portal(conn, &stmt, ()).await?;
 ///
 ///     while !portal.is_complete() {

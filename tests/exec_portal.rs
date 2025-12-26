@@ -14,7 +14,7 @@ fn test_exec_portal_basic() {
 
     let stmt = conn.prepare("SELECT generate_series(1, 5) as n").unwrap();
 
-    conn.transaction(|conn, tx| {
+    conn.tx(|conn, tx| {
         let mut portal = tx.exec_portal(conn, &stmt, ())?;
         assert!(!portal.is_complete());
 
@@ -37,7 +37,7 @@ fn test_exec_portal_batched() {
 
     let stmt = conn.prepare("SELECT generate_series(1, 10) as n").unwrap();
 
-    conn.transaction(|conn, tx| {
+    conn.tx(|conn, tx| {
         let mut portal = tx.exec_portal(conn, &stmt, ())?;
         let mut all_rows: Vec<i32> = Vec::new();
         let mut batches = 0;
@@ -63,7 +63,7 @@ fn test_exec_portal_empty_result() {
 
     let stmt = conn.prepare("SELECT 1 WHERE false").unwrap();
 
-    conn.transaction(|conn, tx| {
+    conn.tx(|conn, tx| {
         let mut portal = tx.exec_portal(conn, &stmt, ())?;
         let rows: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
 
@@ -82,7 +82,7 @@ fn test_exec_portal_with_params() {
 
     let stmt = conn.prepare("SELECT generate_series(1, $1) as n").unwrap();
 
-    conn.transaction(|conn, tx| {
+    conn.tx(|conn, tx| {
         let mut portal = tx.exec_portal(conn, &stmt, (5i32,))?;
         let rows: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
 
@@ -100,7 +100,7 @@ fn test_exec_portal_with_params() {
 fn test_exec_portal_with_raw_sql() {
     let mut conn = get_conn();
 
-    conn.transaction(|conn, tx| {
+    conn.tx(|conn, tx| {
         let mut portal = tx.exec_portal(conn, "SELECT generate_series(1, 5) as n", ())?;
         let rows: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
 
@@ -118,7 +118,7 @@ fn test_exec_portal_with_raw_sql() {
 fn test_exec_portal_with_raw_sql_and_params() {
     let mut conn = get_conn();
 
-    conn.transaction(|conn, tx| {
+    conn.tx(|conn, tx| {
         let mut portal = tx.exec_portal(conn, "SELECT generate_series(1, $1) as n", (5i32,))?;
         let rows: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
 
@@ -136,7 +136,7 @@ fn test_exec_portal_with_raw_sql_and_params() {
 fn test_exec_portal_portal_name() {
     let mut conn = get_conn();
 
-    conn.transaction(|conn, tx| {
+    conn.tx(|conn, tx| {
         let mut portal1 = tx.exec_portal(conn, "SELECT 1", ())?;
         let mut portal2 = tx.exec_portal(conn, "SELECT 2", ())?;
 
@@ -160,7 +160,7 @@ fn test_exec_portal_portal_name() {
 fn test_exec_portal_multiple_portals() {
     let mut conn = get_conn();
 
-    conn.transaction(|conn, tx| {
+    conn.tx(|conn, tx| {
         // Create two portals
         let mut portal1 = tx.exec_portal(conn, "SELECT generate_series(1, 3) as n", ())?;
         let mut portal2 = tx.exec_portal(conn, "SELECT generate_series(10, 12) as n", ())?;
@@ -193,7 +193,7 @@ fn test_exec_portal_multiple_portals() {
 fn test_exec_portal_is_complete_tracking() {
     let mut conn = get_conn();
 
-    conn.transaction(|conn, tx| {
+    conn.tx(|conn, tx| {
         let mut portal = tx.exec_portal(conn, "SELECT generate_series(1, 5) as n", ())?;
 
         assert!(!portal.is_complete());

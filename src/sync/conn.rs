@@ -822,7 +822,7 @@ impl Conn {
     /// # Errors
     ///
     /// Returns `Error::InvalidUsage` if called while already in a transaction.
-    pub fn transaction<F, R>(&mut self, f: F) -> Result<R>
+    pub fn tx<F, R>(&mut self, f: F) -> Result<R>
     where
         F: FnOnce(&mut Conn, super::transaction::Transaction) -> Result<R>,
     {

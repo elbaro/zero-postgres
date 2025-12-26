@@ -1195,7 +1195,7 @@ impl Conn {
     /// # Errors
     ///
     /// Returns `Error::InvalidUsage` if called while already in a transaction.
-    pub async fn transaction<F, R, Fut>(&mut self, f: F) -> Result<R>
+    pub async fn tx<F, R, Fut>(&mut self, f: F) -> Result<R>
     where
         F: FnOnce(&mut Conn, super::transaction::Transaction) -> Fut,
         Fut: std::future::Future<Output = Result<R>>,
