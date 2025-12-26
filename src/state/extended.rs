@@ -40,33 +40,12 @@ pub struct PreparedStatement {
     pub param_oids: Vec<Oid>,
     /// Raw RowDescription payload (if the statement returns rows)
     row_desc_payload: Option<Vec<u8>>,
-    /// Custom wire name (if set, used instead of default)
-    custom_wire_name: Option<String>,
 }
 
 impl PreparedStatement {
-    /// Create a new prepared statement with custom wire name.
-    pub fn new(
-        idx: u64,
-        param_oids: Vec<Oid>,
-        row_desc_payload: Option<Vec<u8>>,
-        wire_name: String,
-    ) -> Self {
-        Self {
-            idx,
-            param_oids,
-            row_desc_payload,
-            custom_wire_name: Some(wire_name),
-        }
-    }
-
     /// Get the wire protocol statement name.
     pub fn wire_name(&self) -> String {
-        if let Some(name) = &self.custom_wire_name {
-            name.clone()
-        } else {
-            format!("_zero_{}", self.idx)
-        }
+        format!("_zero_s_{}", self.idx)
     }
 
     /// Parse column descriptions from stored RowDescription payload.
@@ -124,7 +103,7 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
         query: &str,
         param_oids: &[Oid],
     ) -> Self {
-        let stmt_name = format!("_zero_{}", idx);
+        let stmt_name = format!("_zero_s_{}", idx);
         buffer_set.write_buffer.clear();
         write_parse(&mut buffer_set.write_buffer, &stmt_name, query, param_oids);
         write_describe_statement(&mut buffer_set.write_buffer, &stmt_name);
@@ -139,7 +118,6 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
                 idx,
                 param_oids: Vec::new(),
                 row_desc_payload: None,
-                custom_wire_name: None,
             }),
         }
     }
