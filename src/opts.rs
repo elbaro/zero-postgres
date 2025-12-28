@@ -70,7 +70,7 @@ pub struct Opts {
     /// When connected via TCP to loopback, upgrade to Unix socket for better performance.
     ///
     /// Default: `true`
-    pub prefer_unix_socket: bool,
+    pub upgrade_to_unix_socket: bool,
 
     /// Maximum number of idle connections in the pool.
     ///
@@ -100,7 +100,7 @@ impl Default for Opts {
             application_name: None,
             ssl_mode: SslMode::Prefer,
             params: Vec::new(),
-            prefer_unix_socket: true,
+            upgrade_to_unix_socket: true,
             pool_max_idle_conn: 100,
             pool_max_concurrency: None,
             buffer_pool: Arc::clone(&GLOBAL_BUFFER_POOL),
@@ -113,18 +113,18 @@ impl TryFrom<&Url> for Opts {
 
     /// Parse a PostgreSQL connection URL.
     ///
-    /// Format: `postgres://[user[:password]@]host[:port][/database][?param1=value1&param2=value2&..]`
+    /// Format: `(pg|postgres|postgresql)://[user[:password]@]host[:port][/database][?param1=value1&param2=value2&..]`
     ///
     /// Supported query parameters:
-    /// - `sslmode`: disable, prefer, require
+    /// - `sslmode` or `ssl_mode`: disable, prefer, require
     /// - `application_name`: application name
-    /// - `prefer_unix_socket`: true/True/1/yes/on or false/False/0/no/off
+    /// - `upgrade_to_unix_socket`: true/True/1/yes/on or false/False/0/no/off
     /// - `pool_max_idle_conn`: maximum idle connections (positive integer)
     /// - `pool_max_concurrency`: maximum concurrent connections (positive integer)
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
-        if !["postgres", "postgresql", "pg"].contains(&url.scheme()) {
+        if !["pg", "postgres", "postgresql"].contains(&url.scheme()) {
             return Err(Error::InvalidUsage(format!(
-                "Invalid scheme: expected 'postgres://', 'postgresql://', or 'pg://', got '{}://'",
+                "Invalid scheme: expected 'pg://', 'postgres://', or 'postgresql://', got '{}://'",
                 url.scheme()
             )));
         }
@@ -146,7 +146,7 @@ impl TryFrom<&Url> for Opts {
 
         for (key, value) in url.query_pairs() {
             match key.as_ref() {
-                "sslmode" => {
+                "sslmode" | "ssl_mode" => {
                     opts.ssl_mode = match value.as_ref() {
                         "disable" => SslMode::Disable,
                         "prefer" => SslMode::Prefer,
@@ -162,13 +162,13 @@ impl TryFrom<&Url> for Opts {
                 "application_name" => {
                     opts.application_name = Some(value.to_string());
                 }
-                "prefer_unix_socket" => {
-                    opts.prefer_unix_socket = match value.as_ref() {
+                "upgrade_to_unix_socket" => {
+                    opts.upgrade_to_unix_socket = match value.as_ref() {
                         "true" | "True" | "1" | "yes" | "on" => true,
                         "false" | "False" | "0" | "no" | "off" => false,
                         _ => {
                             return Err(Error::InvalidUsage(format!(
-                                "Invalid prefer_unix_socket: {}",
+                                "Invalid upgrade_to_unix_socket parameter: {}",
                                 value
                             )));
                         }

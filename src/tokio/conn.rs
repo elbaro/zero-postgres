@@ -116,7 +116,7 @@ impl Conn {
         };
 
         // Upgrade to Unix socket if connected via TCP to loopback
-        let conn = if options.prefer_unix_socket && conn.stream.is_tcp_loopback() {
+        let conn = if options.upgrade_to_unix_socket && conn.stream.is_tcp_loopback() {
             conn.try_upgrade_to_unix_socket(&options).await
         } else {
             conn
@@ -165,7 +165,7 @@ impl Conn {
 
             // Create new connection over Unix socket
             let mut opts_unix = opts.clone();
-            opts_unix.prefer_unix_socket = false;
+            opts_unix.upgrade_to_unix_socket = false;
 
             match Self::new_with_stream(Stream::unix(unix_stream), opts_unix).await {
                 Ok(new_conn) => new_conn,
