@@ -1,6 +1,6 @@
 [package]
 name = "zero-postgres"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "MIT"
 description = "A high-performance PostgreSQL client"
