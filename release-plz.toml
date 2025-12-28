@@ -1,0 +1,3 @@
+[workspace]
+pr_name = "release: v{{ version }}"
+pr_labels = ["release"]
