@@ -27,7 +27,7 @@ repos:
     rev: v3.4.0
     hooks:
       - id: conventional-pre-commit
-        args: [feat, fix, tidy, perf, docs, infra, revert]
+        args: [feat, fix, tidy, perf, docs, infra, revert, release]
   - repo: local
     hooks:
       - id: rustfmt
