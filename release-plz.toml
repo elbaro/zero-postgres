@@ -1,14 +1,64 @@
 [workspace]
 pr_name = "release: v{{ version }}"
 pr_labels = ["release"]
+pr_body = """
+{% macro get_changes(releases, type="text") %}
+{%- for release in releases %}
+{%- if release.title and release.changelog %}{% if releases | length > 1 %}
+## `{{ release.package }}`
+{% endif %}
+<blockquote>
+
+## {{ release.title }}
+
+{{ release.changelog }}
+</blockquote>{% endif %}
+{% endfor %}
+{% endmacro -%}
+
+{% set changes = self::get_changes(releases=releases) %}
+
+{% for release in releases %}
+* `{{ release.package }}`: {% if release.previous_version and release.previous_version != release.next_version %}{{ release.previous_version }} -> {% endif %}{{ release.next_version }}{% if release.semver_check == "incompatible" %} (⚠ API breaking changes){% elif release.semver_check == "compatible" %} (✓ API compatible changes){% endif %}
+{%- endfor %}
+{%- for release in releases %}{% if release.breaking_changes %}
+
+### ⚠ `{{ release.package }}` breaking changes
+
+```text
+{{ release.breaking_changes }}
+```{% endif %}{% endfor %}
+{% if changes %}
+<i><b>Changelog</b></i><p>
+{{ changes }}
+</p>
+{% endif %}
+"""
 
 [changelog]
 header = ""
-footer = ""
 commit_parsers = [
-    { message = "^feat", group = "<!-- 0 -->New features" },
-    { message = "^fix", group = "<!-- 1 -->Bug fixes" },
-    { message = "^perf", group = "<!-- 2 -->Performance" },
-    { message = "^docs", group = "<!-- 3 -->Documentation" },
-    { message = "^.*", group = "<!-- 4 -->Other" },
+  { message = "^feat", group = "<!-- 0 -->New features" },
+  { message = "^fix", group = "<!-- 1 -->Bug fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^docs", group = "<!-- 3 -->Documentation" },
+  { message = "^.*", group = "<!-- 9 -->Other" },
 ]
+body = """
+## [{{ version }}]{%- if release_link -%}({{ release_link }}){% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+{%- if group is containing("Other") -%}
+    {%- set msg = commit.raw_message | split(pat="\n") | first -%}
+{%- else -%}
+    {%- set msg = commit.message -%}
+{%- endif -%}
+{%- if commit.scope -%}
+- *({{commit.scope}})* {% if commit.breaking %}[**breaking**] {% endif %}{{ msg }}{%- if commit.links %} ({% for link in commit.links %}[{{link.text}}]({{link.href}}) {% endfor -%}){% endif %}
+{% else -%}
+- {% if commit.breaking %}[**breaking**] {% endif %}{{ msg }}
+{% endif -%}
+{% endfor -%}
+{% endfor %}
+"""
