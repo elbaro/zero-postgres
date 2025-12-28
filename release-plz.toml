@@ -1,3 +1,14 @@
 [workspace]
 pr_name = "release: v{{ version }}"
 pr_labels = ["release"]
+
+[changelog]
+header = ""
+footer = ""
+commit_parsers = [
+    { message = "^feat", group = "<!-- 0 -->New features" },
+    { message = "^fix", group = "<!-- 1 -->Bug fixes" },
+    { message = "^perf", group = "<!-- 2 -->Performance" },
+    { message = "^docs", group = "<!-- 3 -->Documentation" },
+    { message = "^.*", group = "<!-- 4 -->Other" },
+]
