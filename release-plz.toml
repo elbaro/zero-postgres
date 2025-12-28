@@ -7,12 +7,11 @@ pr_body = """
 {%- if release.title and release.changelog %}{% if releases | length > 1 %}
 ## `{{ release.package }}`
 {% endif %}
-<blockquote>
 
 ## {{ release.title }}
 
 {{ release.changelog }}
-</blockquote>{% endif %}
+{% endif %}
 {% endfor %}
 {% endmacro -%}
 
@@ -29,14 +28,14 @@ pr_body = """
 {{ release.breaking_changes }}
 ```{% endif %}{% endfor %}
 {% if changes %}
-<i><b>Changelog</b></i><p>
 {{ changes }}
-</p>
 {% endif %}
 """
 
 [changelog]
-header = ""
+header = """# Changelog
+
+"""
 commit_parsers = [
   { message = "^feat", group = "<!-- 0 -->New features" },
   { message = "^fix", group = "<!-- 1 -->Bug fixes" },
@@ -45,7 +44,7 @@ commit_parsers = [
   { message = "^.*", group = "<!-- 9 -->Other" },
 ]
 body = """
-## [{{ version }}]{%- if release_link -%}({{ release_link }}){% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
+## [v{{ version }}]{%- if release_link -%}({{ release_link }}){% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | upper_first }}
 {% for commit in commits %}
