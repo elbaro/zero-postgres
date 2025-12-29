@@ -45,6 +45,12 @@ fn get_conn() -> Conn {
     Conn::new(db_url.as_str()).expect("Failed to connect")
 }
 
+/// Verify connection still works after pipeline operations
+fn verify_connection(conn: &mut Conn) {
+    let result: (i32,) = conn.query_first("SELECT 7919").unwrap().unwrap();
+    assert_eq!(result.0, 7919);
+}
+
 // === Basic Pipeline Tests ===
 
 /// Test basic exec flow with raw SQL
@@ -63,6 +69,7 @@ fn test_pipeline_exec() {
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], (42, "hello".to_string()));
+    verify_connection(&mut conn);
 }
 
 /// Test multiple exec calls
@@ -89,6 +96,7 @@ fn test_pipeline_multiple_execs() {
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
     assert_eq!(r3, vec![(3,)]);
+    verify_connection(&mut conn);
 }
 
 /// Test query that returns no rows
@@ -105,6 +113,7 @@ fn test_pipeline_no_rows() {
         .unwrap();
 
     assert!(result.is_empty());
+    verify_connection(&mut conn);
 }
 
 /// Test query with multiple rows
@@ -121,6 +130,7 @@ fn test_pipeline_multiple_rows() {
         .unwrap();
 
     assert_eq!(result, vec![(1,), (2,), (3,)]);
+    verify_connection(&mut conn);
 }
 
 // === Prepared Statement Tests ===
@@ -149,6 +159,7 @@ fn test_pipeline_with_prepared() {
 
     assert_eq!(r1, vec![(10,)]);
     assert_eq!(r2, vec![(20,)]);
+    verify_connection(&mut conn);
 }
 
 // === Error Handling Tests ===
@@ -182,6 +193,7 @@ fn test_pipeline_claim_order_error() {
 
     // The run_pipeline should complete (cleanup handles remaining)
     assert!(result.is_ok());
+    verify_connection(&mut conn);
 }
 
 /// Test SQL error propagation
@@ -208,6 +220,7 @@ fn test_pipeline_sql_error() {
     });
 
     assert!(result.is_ok());
+    verify_connection(&mut conn);
 }
 
 /// Test aborted pipeline state
@@ -244,6 +257,7 @@ fn test_pipeline_aborted_state() {
     });
 
     assert!(result.is_ok());
+    verify_connection(&mut conn);
 }
 
 // === INSERT/UPDATE/DELETE Tests ===
@@ -285,6 +299,7 @@ fn test_pipeline_insert() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0], (1, "alice".to_string()));
     assert_eq!(rows[1], (2, "bob".to_string()));
+    verify_connection(&mut conn);
 }
 
 /// Test INSERT with RETURNING
@@ -323,6 +338,7 @@ fn test_pipeline_insert_returning() {
     assert_eq!(r1.len(), 1);
     assert_eq!(r2.len(), 1);
     assert!(r1[0].0 < r2[0].0, "IDs should be sequential");
+    verify_connection(&mut conn);
 }
 
 // === Edge Cases ===
@@ -338,6 +354,7 @@ fn test_pipeline_empty() {
     })
     .unwrap();
     // Should complete without error
+    verify_connection(&mut conn);
 }
 
 /// Test pending_count tracking
@@ -365,6 +382,7 @@ fn test_pipeline_pending_count() {
         Ok(())
     })
     .unwrap();
+    verify_connection(&mut conn);
 }
 
 /// Test claim_one for single row result
@@ -381,6 +399,7 @@ fn test_pipeline_claim_one() {
         .unwrap();
 
     assert_eq!(result, Some((42,)));
+    verify_connection(&mut conn);
 }
 
 /// Test claim_one returns None for empty result
@@ -397,6 +416,7 @@ fn test_pipeline_claim_one_empty() {
         .unwrap();
 
     assert_eq!(result, None);
+    verify_connection(&mut conn);
 }
 
 // === Auto-Sync Tests ===
@@ -419,6 +439,7 @@ fn test_pipeline_auto_sync_basic() {
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
+    verify_connection(&mut conn);
 }
 
 /// Test interleaved exec/claim pattern without explicit sync
@@ -453,6 +474,7 @@ fn test_pipeline_interleaved_exec_claim() {
     assert_eq!(r2, vec![(2,)]);
     assert_eq!(r3, vec![(3,)]);
     assert_eq!(r4, vec![(4,)]);
+    verify_connection(&mut conn);
 }
 
 /// Test partial claims then more execs before claiming rest
@@ -493,6 +515,7 @@ fn test_pipeline_partial_claim_then_exec() {
     assert_eq!(r3, vec![(3,)]);
     assert_eq!(r4, vec![(4,)]);
     assert_eq!(r5, vec![(5,)]);
+    verify_connection(&mut conn);
 }
 
 /// Test multiple exec/claim batches with error in between
@@ -533,10 +556,7 @@ fn test_pipeline_multiple_batches_with_error() {
 
     // Pipeline should recover after error via cleanup
     assert!(result.is_ok());
-
-    // Connection should still be usable
-    let check: Vec<(i32,)> = conn.query_collect("SELECT 42").unwrap();
-    assert_eq!(check, vec![(42,)]);
+    verify_connection(&mut conn);
 }
 
 /// Test recovery after error - can start new batch
@@ -561,6 +581,7 @@ fn test_pipeline_error_recovery_new_batch() {
         .unwrap();
 
     assert_eq!(result, vec![(100,)]);
+    verify_connection(&mut conn);
 }
 
 /// Test explicit flush then claim (no auto-sync)
@@ -587,6 +608,7 @@ fn test_pipeline_explicit_flush() {
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
+    verify_connection(&mut conn);
 }
 
 /// Test complex interleaving: exec, claim, exec, claim, exec, claim
@@ -609,6 +631,7 @@ fn test_pipeline_complex_interleave() {
         .unwrap();
 
     assert_eq!(results, vec![1, 2, 3, 4, 5]);
+    verify_connection(&mut conn);
 }
 
 /// Test pipeline continues after error batch with new batch
@@ -652,4 +675,5 @@ fn test_pipeline_continue_after_error_batch() {
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r4, vec![(4,)]);
     assert_eq!(r5, vec![(5,)]);
+    verify_connection(&mut conn);
 }

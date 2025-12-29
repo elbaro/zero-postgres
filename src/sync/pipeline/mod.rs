@@ -104,8 +104,8 @@ impl<'a> Pipeline<'a> {
     }
 
     fn cleanup_inner(&mut self) {
-        // Nothing to clean up if no operations were queued
-        if self.queue_seq == 0 {
+        // Nothing to clean up if no operations were queued and no expectations pending
+        if self.queue_seq == 0 && self.expectations.is_empty() {
             return;
         }
 
