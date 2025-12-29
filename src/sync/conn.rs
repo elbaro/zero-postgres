@@ -1,6 +1,7 @@
 //! Synchronous PostgreSQL connection.
 
 use std::net::TcpStream;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
 use crate::buffer_pool::PooledBufferSet;
@@ -44,7 +45,17 @@ impl Conn {
         let opts = opts.try_into()?;
 
         let stream = if let Some(socket_path) = &opts.socket {
-            Stream::unix(UnixStream::connect(socket_path)?)
+            #[cfg(unix)]
+            {
+                Stream::unix(UnixStream::connect(socket_path)?)
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = socket_path;
+                return Err(Error::Unsupported(
+                    "Unix sockets are not supported on this platform".into(),
+                ));
+            }
         } else {
             if opts.host.is_empty() {
                 return Err(Error::InvalidUsage("host is empty".into()));
@@ -117,6 +128,7 @@ impl Conn {
         };
 
         // Upgrade to Unix socket if connected via TCP to loopback
+        #[cfg(unix)]
         let conn = if options.upgrade_to_unix_socket && conn.stream.is_tcp_loopback() {
             conn.try_upgrade_to_unix_socket(&options)
         } else {
@@ -128,6 +140,7 @@ impl Conn {
 
     /// Try to upgrade to Unix socket connection.
     /// Returns upgraded conn on success, original conn on failure.
+    #[cfg(unix)]
     fn try_upgrade_to_unix_socket(mut self, opts: &Opts) -> Self {
         // Query unix_socket_directories from server
         let mut handler = FirstRowHandler::<(String,)>::new();

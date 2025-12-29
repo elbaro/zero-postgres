@@ -1,6 +1,7 @@
 //! Asynchronous PostgreSQL connection.
 
 use tokio::net::TcpStream;
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
 use crate::buffer_pool::PooledBufferSet;
@@ -43,7 +44,17 @@ impl Conn {
         let opts = opts.try_into()?;
 
         let stream = if let Some(socket_path) = &opts.socket {
-            Stream::unix(UnixStream::connect(socket_path).await?)
+            #[cfg(unix)]
+            {
+                Stream::unix(UnixStream::connect(socket_path).await?)
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = socket_path;
+                return Err(Error::Unsupported(
+                    "Unix sockets are not supported on this platform".into(),
+                ));
+            }
         } else {
             if opts.host.is_empty() {
                 return Err(Error::InvalidUsage("host is empty".into()));
@@ -116,6 +127,7 @@ impl Conn {
         };
 
         // Upgrade to Unix socket if connected via TCP to loopback
+        #[cfg(unix)]
         let conn = if options.upgrade_to_unix_socket && conn.stream.is_tcp_loopback() {
             conn.try_upgrade_to_unix_socket(&options).await
         } else {
@@ -127,6 +139,7 @@ impl Conn {
 
     /// Try to upgrade to Unix socket connection.
     /// Returns upgraded conn on success, original conn on failure.
+    #[cfg(unix)]
     fn try_upgrade_to_unix_socket(
         mut self,
         opts: &Opts,

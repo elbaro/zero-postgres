@@ -1,5 +1,6 @@
 use std::io::{BufReader, Read, Write};
 use std::net::TcpStream;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
 #[cfg(feature = "sync-tls")]
@@ -9,6 +10,7 @@ pub enum Stream {
     Tcp(BufReader<TcpStream>),
     #[cfg(feature = "sync-tls")]
     Tls(BufReader<TlsStream<TcpStream>>),
+    #[cfg(unix)]
     Unix(BufReader<UnixStream>),
 }
 
@@ -17,6 +19,7 @@ impl Stream {
         Self::Tcp(BufReader::new(stream))
     }
 
+    #[cfg(unix)]
     pub fn unix(stream: UnixStream) -> Self {
         Self::Unix(BufReader::new(stream))
     }
@@ -44,6 +47,7 @@ impl Stream {
             Stream::Tls(_) => Err(crate::error::Error::InvalidUsage(
                 "Stream is already TLS".into(),
             )),
+            #[cfg(unix)]
             Stream::Unix(_) => Err(crate::error::Error::InvalidUsage(
                 "Cannot upgrade Unix socket to TLS".into(),
             )),
@@ -56,6 +60,7 @@ impl Stream {
             Stream::Tcp(r) => r.read(&mut buf),
             #[cfg(feature = "sync-tls")]
             Stream::Tls(r) => r.read(&mut buf),
+            #[cfg(unix)]
             Stream::Unix(r) => r.read(&mut buf),
         }?;
         if n == 0 {
@@ -88,6 +93,7 @@ impl Stream {
             Stream::Tcp(r) => r.read_exact(buf),
             #[cfg(feature = "sync-tls")]
             Stream::Tls(r) => r.read_exact(buf),
+            #[cfg(unix)]
             Stream::Unix(r) => r.read_exact(buf),
         }
     }
@@ -97,6 +103,7 @@ impl Stream {
             Stream::Tcp(r) => r.get_mut().write_all(buf),
             #[cfg(feature = "sync-tls")]
             Stream::Tls(r) => r.get_mut().write_all(buf),
+            #[cfg(unix)]
             Stream::Unix(r) => r.get_mut().write_all(buf),
         }
     }
@@ -107,6 +114,7 @@ impl Stream {
             Stream::Tcp(r) => r.get_mut().flush(),
             #[cfg(feature = "sync-tls")]
             Stream::Tls(r) => r.get_mut().flush(),
+            #[cfg(unix)]
             Stream::Unix(r) => r.get_mut().flush(),
         }
     }
@@ -125,6 +133,7 @@ impl Stream {
                 .peer_addr()
                 .map(|addr| addr.ip().is_loopback())
                 .unwrap_or(false),
+            #[cfg(unix)]
             Self::Unix(_) => false,
         }
     }

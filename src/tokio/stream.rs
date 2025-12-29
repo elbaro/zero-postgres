@@ -2,6 +2,7 @@
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
 #[cfg(feature = "tokio-tls")]
@@ -11,6 +12,7 @@ pub enum Stream {
     Tcp(BufReader<TcpStream>),
     #[cfg(feature = "tokio-tls")]
     Tls(BufReader<TlsStream<TcpStream>>),
+    #[cfg(unix)]
     Unix(BufReader<UnixStream>),
 }
 
@@ -19,6 +21,7 @@ impl Stream {
         Self::Tcp(BufReader::new(stream))
     }
 
+    #[cfg(unix)]
     pub fn unix(stream: UnixStream) -> Self {
         Self::Unix(BufReader::new(stream))
     }
@@ -42,6 +45,7 @@ impl Stream {
             Stream::Tls(_) => Err(crate::error::Error::InvalidUsage(
                 "Stream is already TLS".into(),
             )),
+            #[cfg(unix)]
             Stream::Unix(_) => Err(crate::error::Error::InvalidUsage(
                 "Cannot upgrade Unix socket to TLS".into(),
             )),
@@ -53,6 +57,7 @@ impl Stream {
             Stream::Tcp(r) => r.read_u8().await,
             #[cfg(feature = "tokio-tls")]
             Stream::Tls(r) => r.read_u8().await,
+            #[cfg(unix)]
             Stream::Unix(r) => r.read_u8().await,
         }
     }
@@ -81,6 +86,7 @@ impl Stream {
             Stream::Tcp(r) => r.read_exact(buf).await.map(|_| ()),
             #[cfg(feature = "tokio-tls")]
             Stream::Tls(r) => r.read_exact(buf).await.map(|_| ()),
+            #[cfg(unix)]
             Stream::Unix(r) => r.read_exact(buf).await.map(|_| ()),
         }
     }
@@ -90,6 +96,7 @@ impl Stream {
             Stream::Tcp(r) => r.get_mut().write_all(buf).await,
             #[cfg(feature = "tokio-tls")]
             Stream::Tls(r) => r.get_mut().write_all(buf).await,
+            #[cfg(unix)]
             Stream::Unix(r) => r.get_mut().write_all(buf).await,
         }
     }
@@ -99,6 +106,7 @@ impl Stream {
             Stream::Tcp(r) => r.get_mut().flush().await,
             #[cfg(feature = "tokio-tls")]
             Stream::Tls(r) => r.get_mut().flush().await,
+            #[cfg(unix)]
             Stream::Unix(r) => r.get_mut().flush().await,
         }
     }
@@ -119,6 +127,7 @@ impl Stream {
                 .peer_addr()
                 .map(|addr| addr.ip().is_loopback())
                 .unwrap_or(false),
+            #[cfg(unix)]
             Self::Unix(_) => false,
         }
     }
