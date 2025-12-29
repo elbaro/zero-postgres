@@ -15,10 +15,12 @@ pub struct Ticket<'a> {
 }
 
 /// What response sequence to expect for a queued operation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Expectation {
     /// Parse + Bind + Execute: ParseComplete + BindComplete + RowDescription/NoData + DataRow* + terminal
     ParseBindExecute,
     /// Bind + Execute with cached RowDescription: BindComplete + DataRow* + terminal
     BindExecute,
+    /// Sync: ReadyForQuery
+    Sync,
 }

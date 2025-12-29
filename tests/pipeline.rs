@@ -398,3 +398,258 @@ fn test_pipeline_claim_one_empty() {
 
     assert_eq!(result, None);
 }
+
+// === Auto-Sync Tests ===
+
+/// Test basic auto-sync: claim without explicit sync()
+#[test]
+fn test_pipeline_auto_sync_basic() {
+    let mut conn = get_conn();
+
+    let (r1, r2) = conn
+        .run_pipeline(|p| {
+            let t1 = p.exec("SELECT $1::int", (1,))?;
+            let t2 = p.exec("SELECT $1::int", (2,))?;
+            // No explicit sync() - claim should auto-sync
+            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+            Ok((r1, r2))
+        })
+        .unwrap();
+
+    assert_eq!(r1, vec![(1,)]);
+    assert_eq!(r2, vec![(2,)]);
+}
+
+/// Test interleaved exec/claim pattern without explicit sync
+/// exec()*n, claim some, exec() more, claim remaining
+#[test]
+fn test_pipeline_interleaved_exec_claim() {
+    let mut conn = get_conn();
+
+    let (r1, r2, r3, r4) = conn
+        .run_pipeline(|p| {
+            // First batch of execs
+            let t1 = p.exec("SELECT $1::int", (1,))?;
+            let t2 = p.exec("SELECT $1::int", (2,))?;
+
+            // Claim first two (auto-syncs)
+            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+
+            // Second batch of execs
+            let t3 = p.exec("SELECT $1::int", (3,))?;
+            let t4 = p.exec("SELECT $1::int", (4,))?;
+
+            // Claim remaining (auto-syncs again)
+            let r3: Vec<(i32,)> = p.claim_collect(t3)?;
+            let r4: Vec<(i32,)> = p.claim_collect(t4)?;
+
+            Ok((r1, r2, r3, r4))
+        })
+        .unwrap();
+
+    assert_eq!(r1, vec![(1,)]);
+    assert_eq!(r2, vec![(2,)]);
+    assert_eq!(r3, vec![(3,)]);
+    assert_eq!(r4, vec![(4,)]);
+}
+
+/// Test partial claims then more execs before claiming rest
+#[test]
+fn test_pipeline_partial_claim_then_exec() {
+    let mut conn = get_conn();
+
+    let (r1, r2, r3, r4, r5) = conn
+        .run_pipeline(|p| {
+            // Queue 3 operations
+            let t1 = p.exec("SELECT $1::int", (1,))?;
+            let t2 = p.exec("SELECT $1::int", (2,))?;
+            let t3 = p.exec("SELECT $1::int", (3,))?;
+
+            // Claim only first one (auto-syncs all 3)
+            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+
+            // Queue more operations before claiming t2, t3
+            let t4 = p.exec("SELECT $1::int", (4,))?;
+            let t5 = p.exec("SELECT $1::int", (5,))?;
+
+            // Claim t2 (no sync needed, was synced with t1)
+            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+
+            // Claim t3 - this should trigger sync for t4, t5
+            let r3: Vec<(i32,)> = p.claim_collect(t3)?;
+
+            // Claim remaining
+            let r4: Vec<(i32,)> = p.claim_collect(t4)?;
+            let r5: Vec<(i32,)> = p.claim_collect(t5)?;
+
+            Ok((r1, r2, r3, r4, r5))
+        })
+        .unwrap();
+
+    assert_eq!(r1, vec![(1,)]);
+    assert_eq!(r2, vec![(2,)]);
+    assert_eq!(r3, vec![(3,)]);
+    assert_eq!(r4, vec![(4,)]);
+    assert_eq!(r5, vec![(5,)]);
+}
+
+/// Test multiple exec/claim batches with error in between
+#[test]
+fn test_pipeline_multiple_batches_with_error() {
+    let mut conn = get_conn();
+
+    let result = conn.run_pipeline(|p| {
+        // First batch - all succeed
+        let t1 = p.exec("SELECT $1::int", (1,))?;
+        let t2 = p.exec("SELECT $1::int", (2,))?;
+
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+
+        assert_eq!(r1, vec![(1,)]);
+        assert_eq!(r2, vec![(2,)]);
+
+        // Second batch - has an error
+        let t3 = p.exec("SELECT $1::int", (3,))?;
+        let t4 = p.exec("SELECT 1/0", ())?; // Error
+        let t5 = p.exec("SELECT $1::int", (5,))?;
+
+        let r3: Vec<(i32,)> = p.claim_collect(t3)?;
+        assert_eq!(r3, vec![(3,)]);
+
+        // t4 fails
+        let result4: Result<Vec<(i32,)>, _> = p.claim_collect(t4);
+        assert!(result4.is_err());
+
+        // t5 should fail due to aborted state
+        let result5: Result<Vec<(i32,)>, _> = p.claim_collect(t5);
+        assert!(result5.is_err());
+        assert!(result5.unwrap_err().to_string().contains("aborted"));
+
+        Ok(())
+    });
+
+    // Pipeline should recover after error via cleanup
+    assert!(result.is_ok());
+
+    // Connection should still be usable
+    let check: Vec<(i32,)> = conn.query_collect("SELECT 42").unwrap();
+    assert_eq!(check, vec![(42,)]);
+}
+
+/// Test recovery after error - can start new batch
+#[test]
+fn test_pipeline_error_recovery_new_batch() {
+    let mut conn = get_conn();
+
+    // First pipeline with error
+    let _ = conn.run_pipeline(|p| {
+        let t1 = p.exec("SELECT 1/0", ())?;
+        let _: Result<Vec<(i32,)>, _> = p.claim_collect(t1);
+        Ok(())
+    });
+
+    // Second pipeline should work fine
+    let result = conn
+        .run_pipeline(|p| {
+            let t1 = p.exec("SELECT $1::int", (100,))?;
+            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+            Ok(r1)
+        })
+        .unwrap();
+
+    assert_eq!(result, vec![(100,)]);
+}
+
+/// Test explicit flush then claim (no auto-sync)
+#[test]
+fn test_pipeline_explicit_flush() {
+    let mut conn = get_conn();
+
+    let (r1, r2) = conn
+        .run_pipeline(|p| {
+            let t1 = p.exec("SELECT $1::int", (1,))?;
+            let t2 = p.exec("SELECT $1::int", (2,))?;
+
+            // Explicit flush - sends FLUSH not SYNC
+            p.flush()?;
+
+            // Claims don't auto-sync (buffer is empty)
+            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+
+            // Cleanup will send SYNC on exit
+            Ok((r1, r2))
+        })
+        .unwrap();
+
+    assert_eq!(r1, vec![(1,)]);
+    assert_eq!(r2, vec![(2,)]);
+}
+
+/// Test complex interleaving: exec, claim, exec, claim, exec, claim
+#[test]
+fn test_pipeline_complex_interleave() {
+    let mut conn = get_conn();
+
+    let results = conn
+        .run_pipeline(|p| {
+            let mut results = Vec::new();
+
+            for i in 1..=5 {
+                let t = p.exec("SELECT $1::int", (i,))?;
+                let r: Vec<(i32,)> = p.claim_collect(t)?;
+                results.push(r[0].0);
+            }
+
+            Ok(results)
+        })
+        .unwrap();
+
+    assert_eq!(results, vec![1, 2, 3, 4, 5]);
+}
+
+/// Test pipeline continues after error batch with new batch
+/// Batch 1: error -> claim all (some fail)
+/// Batch 2: should work normally
+#[test]
+fn test_pipeline_continue_after_error_batch() {
+    let mut conn = get_conn();
+
+    let (r1, r4, r5) = conn
+        .run_pipeline(|p| {
+            // First batch - has an error in the middle
+            let t1 = p.exec("SELECT $1::int", (1,))?;
+            let t2 = p.exec("SELECT 1/0", ())?; // Error
+            let t3 = p.exec("SELECT $1::int", (3,))?;
+
+            // Claim first batch
+            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+            assert_eq!(r1, vec![(1,)]);
+
+            // t2 fails
+            let result2: Result<Vec<(i32,)>, _> = p.claim_collect(t2);
+            assert!(result2.is_err());
+
+            // t3 fails due to aborted
+            let result3: Result<Vec<(i32,)>, _> = p.claim_collect(t3);
+            assert!(result3.is_err());
+
+            // After consuming all claims from error batch (including ReadyForQuery),
+            // pipeline should recover and allow new batch
+            let t4 = p.exec("SELECT $1::int", (4,))?;
+            let t5 = p.exec("SELECT $1::int", (5,))?;
+
+            let r4: Vec<(i32,)> = p.claim_collect(t4)?;
+            let r5: Vec<(i32,)> = p.claim_collect(t5)?;
+
+            Ok((r1, r4, r5))
+        })
+        .unwrap();
+
+    assert_eq!(r1, vec![(1,)]);
+    assert_eq!(r4, vec![(4,)]);
+    assert_eq!(r5, vec![(5,)]);
+}

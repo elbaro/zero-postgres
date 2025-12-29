@@ -29,6 +29,8 @@
 //! })?;
 //! ```
 
+use std::collections::VecDeque;
+
 use crate::pipeline::Expectation;
 use crate::pipeline::Ticket;
 
@@ -60,8 +62,8 @@ pub struct Pipeline<'a> {
     aborted: bool,
     /// Buffer for column descriptions during row processing
     column_buffer: Vec<u8>,
-    /// Expected responses for each queued operation
-    expectations: Vec<Expectation>,
+    /// Expected responses queue (exec operations and Sync points)
+    expectations: VecDeque<Expectation>,
 }
 
 impl<'a> Pipeline<'a> {
@@ -83,7 +85,7 @@ impl<'a> Pipeline<'a> {
             claim_seq: 0,
             aborted: false,
             column_buffer: Vec::new(),
-            expectations: Vec::new(),
+            expectations: VecDeque::new(),
         }
     }
 
@@ -102,37 +104,47 @@ impl<'a> Pipeline<'a> {
     }
 
     fn cleanup_inner(&mut self) {
-        if self.queue_seq == self.claim_seq {
+        // Nothing to clean up if no operations were queued
+        if self.queue_seq == 0 {
             return;
         }
 
-        // Send sync if we have pending operations
+        // Send sync if we have pending operations that weren't synced
         if !self.conn.buffer_set.write_buffer.is_empty() {
+            let _ = self.sync();
+        } else if !self.expectations.iter().any(|e| *e == Expectation::Sync) {
+            // Buffer was flushed but no sync sent - send one now
             let _ = self.sync();
         }
 
-        // Drain remaining tickets
-        while self.claim_seq < self.queue_seq {
-            let _ = self.drain_one();
-            self.claim_seq += 1;
+        // Drain remaining expectations
+        if self.aborted {
+            // In aborted state, server skipped remaining commands - only consume ReadyForQuery(s)
+            while let Some(expectation) = self.expectations.pop_front() {
+                if expectation == Expectation::Sync {
+                    let _ = self.consume_ready_for_query();
+                }
+            }
+        } else {
+            // Normal drain: process all expectations
+            while let Some(expectation) = self.expectations.pop_front() {
+                let _ = self.drain_expectation(expectation);
+            }
         }
 
-        // Consume ReadyForQuery
-        let _ = self.finish();
+        // Reset state
+        self.queue_seq = 0;
+        self.claim_seq = 0;
+        self.aborted = false;
     }
 
-    /// Drain one ticket's worth of messages.
-    fn drain_one(&mut self) {
-        let Some(expectation) = self.expectations.get(self.claim_seq).copied() else {
-            return;
-        };
+    /// Drain a single expectation.
+    fn drain_expectation(&mut self, expectation: Expectation) {
         let mut handler = crate::handler::DropHandler::new();
-
         let _ = match expectation {
             Expectation::ParseBindExecute => self.claim_parse_bind_exec_inner(&mut handler),
-            // When draining, we don't have the statement ref, but we also don't need row desc
-            // since we're just dropping the results
             Expectation::BindExecute => self.claim_bind_exec_inner(&mut handler, None),
+            Expectation::Sync => self.consume_ready_for_query(),
         };
     }
 
@@ -192,7 +204,7 @@ impl<'a> Pipeline<'a> {
         write_bind(buf, "", "", params, &param_oids)?;
         write_describe_portal(buf, "");
         write_execute(buf, "", 0);
-        self.expectations.push(Expectation::ParseBindExecute);
+        self.expectations.push_back(Expectation::ParseBindExecute);
         Ok(())
     }
 
@@ -206,7 +218,7 @@ impl<'a> Pipeline<'a> {
         write_bind(buf, "", stmt_name, params, param_oids)?;
         // Skip write_describe_portal - use cached RowDescription from PreparedStatement
         write_execute(buf, "", 0);
-        self.expectations.push(Expectation::BindExecute);
+        self.expectations.push_back(Expectation::BindExecute);
         Ok(())
     }
 
@@ -229,8 +241,7 @@ impl<'a> Pipeline<'a> {
     /// Send a SYNC message to establish a transaction boundary.
     ///
     /// After calling sync, you must claim all queued operations in order.
-    /// The final ReadyForQuery message will be consumed when all operations
-    /// are claimed.
+    /// The ReadyForQuery message will be consumed automatically after claiming.
     pub fn sync(&mut self) -> Result<()> {
         let result = self.sync_inner();
         if let Err(e) = &result
@@ -243,6 +254,7 @@ impl<'a> Pipeline<'a> {
 
     fn sync_inner(&mut self) -> Result<()> {
         write_sync(&mut self.conn.buffer_set.write_buffer);
+        self.expectations.push_back(Expectation::Sync);
         self.conn
             .stream
             .write_all(&self.conn.buffer_set.write_buffer)?;
@@ -251,19 +263,16 @@ impl<'a> Pipeline<'a> {
         Ok(())
     }
 
-    /// Wait for ReadyForQuery after all operations are claimed.
-    fn finish(&mut self) -> Result<()> {
-        // Wait for ReadyForQuery
+    /// Consume a single ReadyForQuery message.
+    fn consume_ready_for_query(&mut self) -> Result<()> {
         loop {
             self.conn.stream.read_message(&mut self.conn.buffer_set)?;
             let type_byte = self.conn.buffer_set.type_byte;
 
-            // Handle async messages
             if RawMessage::is_async_type(type_byte) {
                 continue;
             }
 
-            // Handle error
             if type_byte == msg_type::ERROR_RESPONSE {
                 let error = ErrorResponse::parse(&self.conn.buffer_set.read_buffer)?;
                 return Err(error.into_error());
@@ -272,14 +281,20 @@ impl<'a> Pipeline<'a> {
             if type_byte == msg_type::READY_FOR_QUERY {
                 let ready = ReadyForQuery::parse(&self.conn.buffer_set.read_buffer)?;
                 self.conn.transaction_status = ready.transaction_status().unwrap_or_default();
-                // Reset pipeline state
-                self.queue_seq = 0;
-                self.claim_seq = 0;
-                self.expectations.clear();
-                self.aborted = false;
                 return Ok(());
             }
         }
+    }
+
+    /// Consume all pending Sync expectations from the front of the queue.
+    fn consume_pending_syncs(&mut self) -> Result<()> {
+        while self.expectations.front() == Some(&Expectation::Sync) {
+            self.expectations.pop_front();
+            self.consume_ready_for_query()?;
+            // Reset aborted state - after ReadyForQuery, pipeline can continue
+            self.aborted = false;
+        }
+        Ok(())
     }
 
     // ========================================================================
@@ -300,22 +315,29 @@ impl<'a> Pipeline<'a> {
         handler: &mut H,
     ) -> Result<()> {
         self.check_sequence(ticket.seq)?;
-        self.flush()?;
+
+        // Auto-sync if buffer has unsent data
+        if !self.conn.buffer_set.write_buffer.is_empty() {
+            self.sync()?;
+        }
 
         if self.aborted {
             self.claim_seq += 1;
-            self.maybe_finish()?;
+            // Pop but don't process the exec expectation (server skipped it)
+            self.expectations.pop_front();
+            self.consume_pending_syncs()?;
             return Err(Error::Protocol(
                 "pipeline aborted due to earlier error".into(),
             ));
         }
 
-        let expectation = self.expectations.get(ticket.seq).copied();
+        let expectation = self.expectations.pop_front();
 
         let result = match expectation {
             Some(Expectation::ParseBindExecute) => self.claim_parse_bind_exec_inner(handler),
             Some(Expectation::BindExecute) => self.claim_bind_exec_inner(handler, ticket.stmt),
-            None => Err(Error::Protocol("unexpected expectation type".into())),
+            Some(Expectation::Sync) => Err(Error::Protocol("unexpected Sync expectation".into())),
+            None => Err(Error::Protocol("no expectation in queue".into())),
         };
 
         if let Err(e) = &result {
@@ -325,7 +347,7 @@ impl<'a> Pipeline<'a> {
             self.aborted = true;
         }
         self.claim_seq += 1;
-        self.maybe_finish()?;
+        self.consume_pending_syncs()?;
         result
     }
 
@@ -362,14 +384,6 @@ impl<'a> Pipeline<'a> {
                 "claim out of order: expected seq {}, got {}",
                 self.claim_seq, seq
             )));
-        }
-        Ok(())
-    }
-
-    /// Check if all operations are claimed and consume ReadyForQuery if so.
-    fn maybe_finish(&mut self) -> Result<()> {
-        if self.claim_seq == self.queue_seq {
-            self.finish()?;
         }
         Ok(())
     }
