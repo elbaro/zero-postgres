@@ -9,8 +9,8 @@ See also the Python binding [pyro-postgres](https://github.com/elbaro/pyro-postg
 
 - `sync` (default) - Synchronous API
 - `tokio` (default) - Asynchronous API using tokio
-- `sync-tls` - TLS support for Synchronous API
-- `tokio-tls` - TLS support for Asynchronous API
+- `sync-tls` - TLS support for Synchronous API (experimental)
+- `tokio-tls` - TLS support for Asynchronous API (experimental)
 
 ## Benchmark
 
