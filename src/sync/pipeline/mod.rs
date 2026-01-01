@@ -60,8 +60,6 @@ pub struct Pipeline<'a> {
     claim_seq: usize,
     /// Whether the pipeline is in aborted state (error occurred)
     aborted: bool,
-    /// Buffer for column descriptions during row processing
-    column_buffer: Vec<u8>,
     /// Expected responses queue (exec operations and Sync points)
     expectations: VecDeque<Expectation>,
 }
@@ -84,7 +82,6 @@ impl<'a> Pipeline<'a> {
             queue_seq: 0,
             claim_seq: 0,
             aborted: false,
-            column_buffer: Vec::new(),
             expectations: VecDeque::new(),
         }
     }
@@ -434,8 +431,10 @@ impl<'a> Pipeline<'a> {
         self.read_next_message()?;
         let has_rows = match self.conn.buffer_set.type_byte {
             msg_type::ROW_DESCRIPTION => {
-                self.column_buffer.clear();
-                self.column_buffer
+                self.conn.buffer_set.column_buffer.clear();
+                self.conn
+                    .buffer_set
+                    .column_buffer
                     .extend_from_slice(&self.conn.buffer_set.read_buffer);
                 true
             }

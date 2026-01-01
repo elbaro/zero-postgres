@@ -2,12 +2,15 @@
 
 A high-performance PostgreSQL client library for Rust.
 
-## Feature flags
+See also the Python binding [pyro-postgres](https://github.com/elbaro/pyro-postgres/).
+
+
+## Feature Flags
 
 - `sync` (default) - Synchronous API
 - `tokio` (default) - Asynchronous API using tokio
-- `sync-tls` - TLS support for sync
-- `tokio-tls` - TLS support for tokio
+- `sync-tls` - TLS support for Synchronous API
+- `tokio-tls` - TLS support for Asynchronous API
 
 ## Benchmark
 
