@@ -377,6 +377,25 @@ impl Conn {
         Ok(handler.into_row())
     }
 
+    /// Execute a simple query and call a closure for each row.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// conn.query_foreach("SELECT id, name FROM users", |row: (i32, String)| {
+    ///     println!("{}: {}", row.0, row.1);
+    /// }).await?;
+    /// ```
+    pub async fn query_foreach<T: for<'a> crate::conversion::FromRow<'a>, F: FnMut(T)>(
+        &mut self,
+        sql: &str,
+        f: F,
+    ) -> Result<()> {
+        let mut handler = crate::handler::ForEachHandler::<T, F>::new(f);
+        self.query(sql, &mut handler).await?;
+        Ok(())
+    }
+
     /// Close the connection gracefully.
     pub async fn close(mut self) -> Result<()> {
         self.buffer_set.write_buffer.clear();
@@ -569,6 +588,51 @@ impl Conn {
         let mut handler = crate::handler::CollectHandler::<T>::new();
         self.exec(statement, params, &mut handler).await?;
         Ok(handler.into_rows())
+    }
+
+    /// Execute a statement and return the first typed row.
+    ///
+    /// The statement can be either a `&PreparedStatement` or a raw SQL `&str`.
+    pub async fn exec_first<
+        T: for<'a> crate::conversion::FromRow<'a>,
+        S: IntoStatement,
+        P: ToParams,
+    >(
+        &mut self,
+        statement: S,
+        params: P,
+    ) -> Result<Option<T>> {
+        let mut handler = crate::handler::FirstRowHandler::<T>::new();
+        self.exec(statement, params, &mut handler).await?;
+        Ok(handler.into_row())
+    }
+
+    /// Execute a statement and call a closure for each row.
+    ///
+    /// The statement can be either a `&PreparedStatement` or a raw SQL `&str`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let stmt = conn.prepare("SELECT id, name FROM users").await?;
+    /// conn.exec_foreach(&stmt, (), |row: (i32, String)| {
+    ///     println!("{}: {}", row.0, row.1);
+    /// }).await?;
+    /// ```
+    pub async fn exec_foreach<
+        T: for<'a> crate::conversion::FromRow<'a>,
+        S: IntoStatement,
+        P: ToParams,
+        F: FnMut(T),
+    >(
+        &mut self,
+        statement: S,
+        params: P,
+        f: F,
+    ) -> Result<()> {
+        let mut handler = crate::handler::ForEachHandler::<T, F>::new(f);
+        self.exec(statement, params, &mut handler).await?;
+        Ok(())
     }
 
     /// Execute a statement with multiple parameter sets in a batch.
@@ -1000,7 +1064,7 @@ impl Conn {
         }
     }
 
-    /// Execute a statement with iterative row fetching.
+    /// Execute a statement with iterative row fetching using a portal.
     ///
     /// Creates an unnamed portal and passes it to the closure. The closure can
     /// call `portal.fetch(n, handler)` multiple times to retrieve rows in batches.
@@ -1014,7 +1078,7 @@ impl Conn {
     /// ```ignore
     /// // Using prepared statement
     /// let stmt = conn.prepare("SELECT * FROM users").await?;
-    /// conn.exec_iter(&stmt, (), |portal| async move {
+    /// conn.exec_portal(&stmt, (), |portal| async move {
     ///     while portal.fetch(100, &mut handler).await? {
     ///         // process handler.into_rows()...
     ///     }
@@ -1022,14 +1086,14 @@ impl Conn {
     /// }).await?;
     ///
     /// // Using raw SQL
-    /// conn.exec_iter("SELECT * FROM users", (), |portal| async move {
+    /// conn.exec_portal("SELECT * FROM users", (), |portal| async move {
     ///     while portal.fetch(100, &mut handler).await? {
     ///         // process handler.into_rows()...
     ///     }
     ///     Ok(())
     /// }).await?;
     /// ```
-    pub async fn exec_iter<S: IntoStatement, P, F, Fut, T>(
+    pub async fn exec_portal<S: IntoStatement, P, F, Fut, T>(
         &mut self,
         statement: S,
         params: P,
@@ -1040,7 +1104,7 @@ impl Conn {
         F: FnOnce(&mut super::unnamed_portal::UnnamedPortal<'_>) -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
     {
-        let result = self.exec_iter_inner(&statement, &params, f).await;
+        let result = self.exec_portal_inner(&statement, &params, f).await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {
@@ -1049,7 +1113,7 @@ impl Conn {
         result
     }
 
-    async fn exec_iter_inner<S: IntoStatement, P, F, Fut, T>(
+    async fn exec_portal_inner<S: IntoStatement, P, F, Fut, T>(
         &mut self,
         statement: &S,
         params: &P,

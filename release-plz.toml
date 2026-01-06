@@ -1,5 +1,6 @@
 [workspace]
-pr_name = "release: v{{ version }}"
+members = ["zero-postgres", "zero-postgres-derive"]
+pr_name = "release: {% for release in releases %}{{ release.package }} v{{ release.next_version }}{% if not loop.last %}, {% endif %}{% endfor %}"
 pr_labels = ["release"]
 pr_body = """
 {% macro get_changes(releases, type="text") %}
@@ -32,6 +33,15 @@ pr_body = """
 {% endif %}
 """
 
+[[package]]
+name = "zero-postgres"
+git_tag_name = "v{{ version }}"
+
+[[package]]
+name = "zero-postgres-derive"
+git_tag_name = "derive-v{{ version }}"
+changelog_path = "CHANGELOG.md"
+
 [changelog]
 header = """# Changelog
 
@@ -44,7 +54,7 @@ commit_parsers = [
   { message = "^.*", group = "<!-- 9 -->Other" },
 ]
 body = """
-## [v{{ version }}]{%- if release_link -%}({{ release_link }}){% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
+## [{{ package }} v{{ version }}]{%- if release_link -%}({{ release_link }}){% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | upper_first }}
 {% for commit in commits %}

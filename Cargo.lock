@@ -1889,7 +1889,17 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+ "zero-postgres-derive",
  "zerocopy",
+]
+
+[[package]]
+name = "zero-postgres-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
 ]
 
 [[package]]

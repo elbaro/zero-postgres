@@ -52,6 +52,9 @@ pub mod sync;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
+#[cfg(feature = "derive")]
+pub use zero_postgres_derive as r#macro;
+
 pub use buffer_pool::BufferPool;
 pub use buffer_set::BufferSet;
 pub use error::{Error, Result, ServerError};

@@ -199,6 +199,41 @@ impl<T: for<'a> FromRow<'a>> BinaryHandler for FirstRowHandler<T> {
     }
 }
 
+/// Handler that calls a closure for each row.
+pub struct ForEachHandler<T, F> {
+    f: F,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T, F> ForEachHandler<T, F>
+where
+    F: FnMut(T),
+{
+    /// Create a new foreach handler.
+    pub fn new(f: F) -> Self {
+        Self {
+            f,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: for<'a> FromRow<'a>, F: FnMut(T)> TextHandler for ForEachHandler<T, F> {
+    fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
+        let typed_row = T::from_row_text(cols.fields(), row)?;
+        (self.f)(typed_row);
+        Ok(())
+    }
+}
+
+impl<T: for<'a> FromRow<'a>, F: FnMut(T)> BinaryHandler for ForEachHandler<T, F> {
+    fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
+        let typed_row = T::from_row_binary(cols.fields(), row)?;
+        (self.f)(typed_row);
+        Ok(())
+    }
+}
+
 /// Handler for asynchronous messages from the server.
 ///
 /// These messages can arrive at any time during query execution:

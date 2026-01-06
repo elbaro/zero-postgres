@@ -8,8 +8,12 @@ repository = "https://github.com/elbaro/zero-postgres"
 keywords = ["postgres", "postgresql", "database", "sql", "async"]
 categories = ["database"]
 
+[workspace]
+members = ["zero-postgres-derive"]
+
 [features]
-default = ["sync", "tokio"]
+default = ["sync", "tokio", "derive"]
+derive = ["dep:zero-postgres-derive"]
 sync = []
 tokio = ["dep:tokio"]
 sync-tls = ["dep:native-tls"]
@@ -52,6 +56,7 @@ chrono = { version = "0.4", optional = true, default-features = false, features 
 rust_decimal = { version = "1", optional = true }
 no-panic = "0.1.35"
 log = "0.4.29"
+zero-postgres-derive = { version = "0.1", path = "zero-postgres-derive", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }
@@ -149,3 +154,7 @@ unwrap_in_result = "warn"
 unwrap_used = "warn"
 use_debug = "warn"
 verbose_file_reads = "warn"
+
+[[test]]
+name = "derive"
+required-features = ["derive"]

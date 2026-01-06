@@ -1,0 +1,15 @@
+[package]
+name = "zero-postgres-derive"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Derive macros for zero-postgres"
+repository = "https://github.com/elbaro/zero-postgres"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

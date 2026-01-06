@@ -22,6 +22,12 @@ impl BufferSet {
             type_byte: 0,
         }
     }
+
+    /// Copy read_buffer to column_buffer.
+    pub fn save_column_buffer(&mut self) {
+        self.column_buffer.clear();
+        self.column_buffer.extend_from_slice(&self.read_buffer);
+    }
 }
 
 impl Default for BufferSet {

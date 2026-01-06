@@ -75,7 +75,7 @@ impl Transaction {
     ///
     /// ```ignore
     /// conn.transaction(|conn, tx| async move {
-    ///     let mut portal = tx.exec_portal(conn, &stmt, ()).await?;
+    ///     let mut portal = tx.exec_portal_named(conn, &stmt, ()).await?;
     ///
     ///     while !portal.is_complete() {
     ///         let rows: Vec<(i32,)> = portal.execute_collect(conn, 100).await?;
@@ -91,7 +91,7 @@ impl Transaction {
     ///
     /// Returns `Error::InvalidUsage` if the connection is not the same
     /// as the one that started the transaction.
-    pub async fn exec_portal<S: IntoStatement, P: ToParams>(
+    pub async fn exec_portal_named<S: IntoStatement, P: ToParams>(
         &self,
         conn: &mut Conn,
         statement: S,

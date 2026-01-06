@@ -431,11 +431,7 @@ impl<'a> Pipeline<'a> {
         self.read_next_message()?;
         let has_rows = match self.conn.buffer_set.type_byte {
             msg_type::ROW_DESCRIPTION => {
-                self.conn.buffer_set.column_buffer.clear();
-                self.conn
-                    .buffer_set
-                    .column_buffer
-                    .extend_from_slice(&self.conn.buffer_set.read_buffer);
+                self.conn.buffer_set.save_column_buffer();
                 true
             }
             msg_type::NO_DATA => {
@@ -463,7 +459,7 @@ impl<'a> Pipeline<'a> {
                             "received DataRow but no RowDescription".into(),
                         ));
                     }
-                    let cols = RowDescription::parse(&self.column_buffer)?;
+                    let cols = RowDescription::parse(&self.conn.buffer_set.column_buffer)?;
                     let row = DataRow::parse(&self.conn.buffer_set.read_buffer)?;
                     handler.row(cols, row)?;
                 }
