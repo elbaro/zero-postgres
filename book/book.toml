@@ -1,0 +1,14 @@
+[book]
+authors = ["elbaro"]
+language = "en"
+src = "src"
+title = "zero-postgres Documentation"
+
+
+[rust]
+edition = "2024"
+
+[output.html]
+git-repository-url = "https://github.com/elbaro/zero-postgres"
+git-repository-icon = "fab-github"
+site-url = "/zero-postgres/"
