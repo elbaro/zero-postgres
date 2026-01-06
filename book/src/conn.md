@@ -6,10 +6,10 @@
 use zero_postgres::sync::Conn;
 
 // Connect using a URL
-let mut conn = Conn::connect("postgres://user:password@localhost/mydb")?;
+let mut conn = Conn::new("postgres://user:password@localhost/mydb")?;
 
 // With options
-let mut conn = Conn::connect("postgres://user:password@localhost/mydb?application_name=myapp")?;
+let mut conn = Conn::new("postgres://user:password@localhost/mydb?application_name=myapp")?;
 ```
 
 ## Asynchronous Connection
@@ -18,7 +18,7 @@ let mut conn = Conn::connect("postgres://user:password@localhost/mydb?applicatio
 use zero_postgres::tokio::Conn;
 
 // Connect using a URL
-let mut conn = Conn::connect("postgres://user:password@localhost/mydb").await?;
+let mut conn = Conn::new("postgres://user:password@localhost/mydb").await?;
 ```
 
 ## Connection Pool

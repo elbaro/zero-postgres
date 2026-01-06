@@ -12,7 +12,7 @@ zero-postgres = "0.4"
 ```rust
 use zero_postgres::sync::Conn;
 
-let mut conn = Conn::connect("postgres://user:password@localhost/mydb")?;
+let mut conn = Conn::new("postgres://user:password@localhost/mydb")?;
 
 // Simple query
 let rows = conn.query("SELECT id, name FROM users")?;
