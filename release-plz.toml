@@ -1,5 +1,4 @@
 [workspace]
-members = ["zero-postgres", "zero-postgres-derive"]
 pr_name = "release: {% for release in releases %}{{ release.package }} v{{ release.next_version }}{% if not loop.last %}, {% endif %}{% endfor %}"
 pr_labels = ["release"]
 pr_body = """
