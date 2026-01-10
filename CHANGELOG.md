@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.0](https://github.com/elbaro/zero-postgres/compare/v0.4.3...v0.5.0) - 2026-01-10
+
+### <!-- 0 -->New features
+- add #[derive(FromRawRow)]
+
+### <!-- 1 -->Bug fixes
+- wrong release-plz config
+- wrong release-plz config
+- use Conn::new instead of Conn::connect in docs
+
+### <!-- 3 -->Documentation
+- add mdbook and documentation links
+- clarify TLS support is experimental
+
+### <!-- 9 -->Other
+- tidy: remove unncessary pipeline's own buffer
+
 ## [v0.4.3](https://github.com/elbaro/zero-postgres/compare/v0.4.2...v0.4.3) - 2025-12-29
 
 ### <!-- 1 -->Bug fixes
