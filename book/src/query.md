@@ -93,6 +93,7 @@ let user: Option<(i32, String)> = conn.exec_first(
 // Process rows one by one
 conn.exec_foreach(&stmt, (42,), |row: (i32, String)| {
     println!("{}: {}", row.0, row.1);
+    Ok(())
 })?;
 ```
 
@@ -174,6 +175,7 @@ let user: Option<User> = conn.exec_first(&stmt, ())?;
 // Process rows one by one
 conn.exec_foreach(&stmt, (), |user: User| {
     println!("{}: {}", user.id, user.name);
+    Ok(())
 })?;
 ```
 
@@ -215,6 +217,7 @@ conn.exec_foreach(&stmt, (), |row: (i32, String)| {
         display_name: format!("User: {}", row.1),
         name: row.1,
     });
+    Ok(())
 })?;
 ```
 

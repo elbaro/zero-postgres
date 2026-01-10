@@ -417,9 +417,12 @@ impl Conn {
     /// ```ignore
     /// conn.query_foreach("SELECT id, name FROM users", |row: (i32, String)| {
     ///     println!("{}: {}", row.0, row.1);
+    ///     Ok(())
     /// })?;
     /// ```
-    pub fn query_foreach<T: for<'a> crate::conversion::FromRow<'a>, F: FnMut(T)>(
+    ///
+    /// The closure can return an error to stop iteration early.
+    pub fn query_foreach<T: for<'a> crate::conversion::FromRow<'a>, F: FnMut(T) -> Result<()>>(
         &mut self,
         sql: &str,
         f: F,
@@ -673,13 +676,16 @@ impl Conn {
     /// let stmt = conn.prepare("SELECT id, name FROM users")?;
     /// conn.exec_foreach(&stmt, (), |row: (i32, String)| {
     ///     println!("{}: {}", row.0, row.1);
+    ///     Ok(())
     /// })?;
     /// ```
+    ///
+    /// The closure can return an error to stop iteration early.
     pub fn exec_foreach<
         T: for<'a> crate::conversion::FromRow<'a>,
         S: IntoStatement,
         P: ToParams,
-        F: FnMut(T),
+        F: FnMut(T) -> Result<()>,
     >(
         &mut self,
         statement: S,

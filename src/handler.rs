@@ -207,7 +207,7 @@ pub struct ForEachHandler<T, F> {
 
 impl<T, F> ForEachHandler<T, F>
 where
-    F: FnMut(T),
+    F: FnMut(T) -> Result<()>,
 {
     /// Create a new foreach handler.
     pub fn new(f: F) -> Self {
@@ -218,19 +218,17 @@ where
     }
 }
 
-impl<T: for<'a> FromRow<'a>, F: FnMut(T)> TextHandler for ForEachHandler<T, F> {
+impl<T: for<'a> FromRow<'a>, F: FnMut(T) -> Result<()>> TextHandler for ForEachHandler<T, F> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         let typed_row = T::from_row_text(cols.fields(), row)?;
-        (self.f)(typed_row);
-        Ok(())
+        (self.f)(typed_row)
     }
 }
 
-impl<T: for<'a> FromRow<'a>, F: FnMut(T)> BinaryHandler for ForEachHandler<T, F> {
+impl<T: for<'a> FromRow<'a>, F: FnMut(T) -> Result<()>> BinaryHandler for ForEachHandler<T, F> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         let typed_row = T::from_row_binary(cols.fields(), row)?;
-        (self.f)(typed_row);
-        Ok(())
+        (self.f)(typed_row)
     }
 }
 
