@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.6.0](https://github.com/elbaro/zero-postgres/compare/v0.5.0...v0.6.0) - 2026-01-10
+
+### <!-- 1 -->Bug fixes
+- [**breaking**] exec_foreach closure returns Result
+
+### <!-- 3 -->Documentation
+- remove api reference
+
 ## [v0.5.0](https://github.com/elbaro/zero-postgres/compare/v0.4.3...v0.5.0) - 2026-01-10
 
 ### <!-- 0 -->New features
