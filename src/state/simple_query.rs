@@ -2,7 +2,7 @@
 
 use crate::buffer_set::BufferSet;
 use crate::error::{Error, Result};
-use crate::handler::TextHandler;
+use crate::handler::SimpleHandler;
 use crate::protocol::backend::{
     CommandComplete, DataRow, EmptyQueryResponse, ErrorResponse, RawMessage, ReadyForQuery,
     RowDescription, msg_type,
@@ -31,7 +31,7 @@ pub struct SimpleQueryStateMachine<'a, 'q, H> {
     transaction_status: TransactionStatus,
 }
 
-impl<'a, 'q, H: TextHandler> SimpleQueryStateMachine<'a, 'q, H> {
+impl<'a, 'q, H: SimpleHandler> SimpleQueryStateMachine<'a, 'q, H> {
     /// Create a new simple query state machine.
     pub fn new(handler: &'a mut H, query: &'q str) -> Self {
         Self {
@@ -163,7 +163,7 @@ impl<'a, 'q, H: TextHandler> SimpleQueryStateMachine<'a, 'q, H> {
     }
 }
 
-impl<H: TextHandler> StateMachine for SimpleQueryStateMachine<'_, '_, H> {
+impl<H: SimpleHandler> StateMachine for SimpleQueryStateMachine<'_, '_, H> {
     fn step(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
         // Initial state: write query to buffer and request send
         if self.state == State::Initial {

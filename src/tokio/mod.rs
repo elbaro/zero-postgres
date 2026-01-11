@@ -1,4 +1,4 @@
-//! Asynchronous PostgreSQL client using Tokio.
+//! Asynchronous PostgreSQL API using Tokio.
 
 mod conn;
 mod named_portal;

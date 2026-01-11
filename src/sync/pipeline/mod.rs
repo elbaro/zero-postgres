@@ -36,7 +36,7 @@ use crate::pipeline::Ticket;
 
 use crate::conversion::{FromRow, ToParams};
 use crate::error::{Error, Result};
-use crate::handler::BinaryHandler;
+use crate::handler::ExtendedHandler;
 use crate::protocol::backend::{
     BindComplete, CommandComplete, DataRow, EmptyQueryResponse, ErrorResponse, NoData,
     ParseComplete, RawMessage, ReadyForQuery, RowDescription, msg_type,
@@ -302,11 +302,11 @@ impl<'a> Pipeline<'a> {
     ///
     /// Results must be claimed in the same order they were queued.
     #[cfg(feature = "lowlevel")]
-    pub fn claim<H: BinaryHandler>(&mut self, ticket: Ticket<'_>, handler: &mut H) -> Result<()> {
+    pub fn claim<H: ExtendedHandler>(&mut self, ticket: Ticket<'_>, handler: &mut H) -> Result<()> {
         self.claim_with_handler(ticket, handler)
     }
 
-    fn claim_with_handler<H: BinaryHandler>(
+    fn claim_with_handler<H: ExtendedHandler>(
         &mut self,
         ticket: Ticket<'_>,
         handler: &mut H,
@@ -386,7 +386,7 @@ impl<'a> Pipeline<'a> {
     }
 
     /// Claim Parse + Bind + Execute (for raw SQL exec() calls).
-    fn claim_parse_bind_exec_inner<H: BinaryHandler>(&mut self, handler: &mut H) -> Result<()> {
+    fn claim_parse_bind_exec_inner<H: ExtendedHandler>(&mut self, handler: &mut H) -> Result<()> {
         // Expect: ParseComplete
         self.read_next_message()?;
         if self.conn.buffer_set.type_byte != msg_type::PARSE_COMPLETE {
@@ -406,7 +406,7 @@ impl<'a> Pipeline<'a> {
     }
 
     /// Claim Bind + Execute (for prepared statement exec() calls).
-    fn claim_bind_exec_inner<H: BinaryHandler>(
+    fn claim_bind_exec_inner<H: ExtendedHandler>(
         &mut self,
         handler: &mut H,
         stmt: Option<&PreparedStatement>,
@@ -426,7 +426,7 @@ impl<'a> Pipeline<'a> {
     }
 
     /// Common row reading logic (reads RowDescription from server).
-    fn claim_rows_inner<H: BinaryHandler>(&mut self, handler: &mut H) -> Result<()> {
+    fn claim_rows_inner<H: ExtendedHandler>(&mut self, handler: &mut H) -> Result<()> {
         // Expect RowDescription or NoData
         self.read_next_message()?;
         let has_rows = match self.conn.buffer_set.type_byte {
@@ -483,7 +483,7 @@ impl<'a> Pipeline<'a> {
     }
 
     /// Row reading logic with cached RowDescription (no server message expected).
-    fn claim_rows_cached_inner<H: BinaryHandler>(
+    fn claim_rows_cached_inner<H: ExtendedHandler>(
         &mut self,
         handler: &mut H,
         row_desc: Option<&[u8]>,

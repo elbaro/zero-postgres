@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::conversion::FromRow;
 use crate::error::Result;
-use crate::handler::{BinaryHandler, CollectHandler};
+use crate::handler::{CollectHandler, ExtendedHandler};
 
 use super::Conn;
 
@@ -59,7 +59,7 @@ impl<'tx> NamedPortal<'tx> {
     ///
     /// Fetches up to `max_rows` rows. Pass 0 to fetch all remaining rows.
     /// Updates internal completion status.
-    pub async fn execute<H: BinaryHandler>(
+    pub async fn execute<H: ExtendedHandler>(
         &mut self,
         conn: &mut Conn,
         max_rows: u32,

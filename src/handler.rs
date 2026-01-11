@@ -1,11 +1,11 @@
-//! Typed result handlers.
+//! Handlers define what to do with received column definition and row packets.
 
 use crate::conversion::FromRow;
 use crate::error::Result;
 use crate::protocol::backend::query::{CommandComplete, DataRow, RowDescription};
 use crate::state::action::AsyncMessage;
 
-/// Handler for simple query results (text format).
+/// Handler for simple query protocol.
 ///
 /// Callback patterns by statement type:
 /// - SELECT with rows: `result_start` → `row*` → `result_end`
@@ -17,7 +17,7 @@ use crate::state::action::AsyncMessage;
 /// result_start → row* → result_end   // SELECT 1
 /// result_end                          // UPDATE
 /// ```
-pub trait TextHandler {
+pub trait SimpleHandler {
     /// Called when a result set begins.
     fn result_start(&mut self, cols: RowDescription<'_>) -> Result<()> {
         let _ = cols;
@@ -34,13 +34,13 @@ pub trait TextHandler {
     }
 }
 
-/// Handler for extended query results (binary format).
+/// Handler for extended query protocol.
 ///
 /// Callback patterns by statement type:
 /// - SELECT with rows: `result_start` → `row*` → `result_end`
 /// - SELECT with 0 rows: `result_start` → `result_end`
 /// - INSERT/UPDATE/DELETE: `result_end` only (with affected row count)
-pub trait BinaryHandler {
+pub trait ExtendedHandler {
     /// Called when a result set begins.
     fn result_start(&mut self, cols: RowDescription<'_>) -> Result<()> {
         let _ = cols;
@@ -75,7 +75,7 @@ impl DropHandler {
     }
 }
 
-impl TextHandler for DropHandler {
+impl SimpleHandler for DropHandler {
     fn row(&mut self, _cols: RowDescription<'_>, _row: DataRow<'_>) -> Result<()> {
         Ok(())
     }
@@ -86,7 +86,7 @@ impl TextHandler for DropHandler {
     }
 }
 
-impl BinaryHandler for DropHandler {
+impl ExtendedHandler for DropHandler {
     fn row(&mut self, _cols: RowDescription<'_>, _row: DataRow<'_>) -> Result<()> {
         Ok(())
     }
@@ -140,7 +140,7 @@ impl<T> CollectHandler<T> {
     }
 }
 
-impl<T: for<'a> FromRow<'a>> TextHandler for CollectHandler<T> {
+impl<T: for<'a> FromRow<'a>> SimpleHandler for CollectHandler<T> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         let typed_row = T::from_row_text(cols.fields(), row)?;
         self.rows.push(typed_row);
@@ -148,7 +148,7 @@ impl<T: for<'a> FromRow<'a>> TextHandler for CollectHandler<T> {
     }
 }
 
-impl<T: for<'a> FromRow<'a>> BinaryHandler for CollectHandler<T> {
+impl<T: for<'a> FromRow<'a>> ExtendedHandler for CollectHandler<T> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         let typed_row = T::from_row_binary(cols.fields(), row)?;
         self.rows.push(typed_row);
@@ -179,7 +179,7 @@ impl<T> FirstRowHandler<T> {
     }
 }
 
-impl<T: for<'a> FromRow<'a>> TextHandler for FirstRowHandler<T> {
+impl<T: for<'a> FromRow<'a>> SimpleHandler for FirstRowHandler<T> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         if self.row.is_none() {
             let typed_row = T::from_row_text(cols.fields(), row)?;
@@ -189,7 +189,7 @@ impl<T: for<'a> FromRow<'a>> TextHandler for FirstRowHandler<T> {
     }
 }
 
-impl<T: for<'a> FromRow<'a>> BinaryHandler for FirstRowHandler<T> {
+impl<T: for<'a> FromRow<'a>> ExtendedHandler for FirstRowHandler<T> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         if self.row.is_none() {
             let typed_row = T::from_row_binary(cols.fields(), row)?;
@@ -218,14 +218,14 @@ where
     }
 }
 
-impl<T: for<'a> FromRow<'a>, F: FnMut(T) -> Result<()>> TextHandler for ForEachHandler<T, F> {
+impl<T: for<'a> FromRow<'a>, F: FnMut(T) -> Result<()>> SimpleHandler for ForEachHandler<T, F> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         let typed_row = T::from_row_text(cols.fields(), row)?;
         (self.f)(typed_row)
     }
 }
 
-impl<T: for<'a> FromRow<'a>, F: FnMut(T) -> Result<()>> BinaryHandler for ForEachHandler<T, F> {
+impl<T: for<'a> FromRow<'a>, F: FnMut(T) -> Result<()>> ExtendedHandler for ForEachHandler<T, F> {
     fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
         let typed_row = T::from_row_binary(cols.fields(), row)?;
         (self.f)(typed_row)

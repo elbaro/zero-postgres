@@ -2,7 +2,7 @@
 
 use crate::conversion::ToParams;
 use crate::error::{Error, Result};
-use crate::handler::BinaryHandler;
+use crate::handler::ExtendedHandler;
 use crate::protocol::backend::{
     BindComplete, CloseComplete, CommandComplete, DataRow, EmptyQueryResponse, ErrorResponse,
     NoData, ParameterDescription, ParseComplete, PortalSuspended, RawMessage, ReadyForQuery,
@@ -87,7 +87,7 @@ pub struct ExtendedQueryStateMachine<'a, H> {
     prepared_stmt: Option<PreparedStatement>,
 }
 
-impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
+impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
     /// Take the prepared statement (after prepare completes).
     pub fn take_prepared_statement(&mut self) -> Option<PreparedStatement> {
         self.prepared_stmt.take()
@@ -407,7 +407,7 @@ impl<'a, H: BinaryHandler> ExtendedQueryStateMachine<'a, H> {
     }
 }
 
-impl<H: BinaryHandler> StateMachine for ExtendedQueryStateMachine<'_, H> {
+impl<H: ExtendedHandler> StateMachine for ExtendedQueryStateMachine<'_, H> {
     fn step(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
         // Initial state: write buffer was pre-filled by constructor
         if self.state == State::Initial {

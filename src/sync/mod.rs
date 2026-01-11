@@ -1,4 +1,4 @@
-//! Synchronous PostgreSQL client.
+//! Synchronous PostgreSQL API.
 
 mod conn;
 mod named_portal;

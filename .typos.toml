@@ -1,0 +1,3 @@
+[default.extend-words]
+# BRIN stands for Block Range Index
+BRIN = "BRIN"

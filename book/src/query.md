@@ -4,12 +4,12 @@ There are two sets of query APIs: Simple Query Protocol and Extended Query Proto
 
 ## Simple Query Protocol
 
-Simple queries use text format and support multiple statements separated by `;`, but do not support parameter binding.
-Use the extended query protocol if you need to send parameters or read typed binary results.
+Simple Protocol supports multiple statements (separated by `;`), but does not support parameter binding.
+Use Extended Protocol if you need to send parameters or read typed binary results.
 
 ```rust,ignore
 impl Conn {
-    fn query<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()>;
+    fn query<H: SimpleHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()>;
     fn query_drop(&mut self, sql: &str) -> Result<Option<u64>>;
     fn query_first<Row>(&mut self, sql: &str) -> Result<Option<Row>>;
     fn query_collect<Row>(&mut self, sql: &str) -> Result<Vec<Row>>;
@@ -43,7 +43,8 @@ conn.query_foreach("SELECT id, name FROM users", |row: (i32, String)| {
 
 ## Extended Query Protocol
 
-Extended queries use prepared statements with binary format and parameter binding. Use `$1`, `$2`, etc. as placeholders.
+Extended Protocol uses a prepared statement and parameter binding. Use `$1`, `$2`, ..`$N` as placeholders.
+Postgres does not support multiple statements in a prepared statement.
 
 ```rust,ignore
 impl Conn {
@@ -70,7 +71,7 @@ impl Conn {
 - `exec_collect`: execute and collect all rows into a Vec
 - `exec_foreach`: execute and call a closure for each row
 - `exec_batch`: execute with multiple parameter sets efficiently
-- `exec_portal`: execute with iterative row fetching (portal-based)
+- `exec_portal`: execute to create an unnamed portal that incrementally fetch rows
 - `close_statement`: close a prepared statement
 
 The `statement` parameter can be either:
@@ -80,11 +81,11 @@ The `statement` parameter can be either:
 ### Example: Basic
 
 ```rust,ignore
-// Using prepared statement (reusable)
+// Using prepared statement
 let stmt = conn.prepare("SELECT * FROM users WHERE id = $1")?;
 let user: Option<(i32, String)> = conn.exec_first(&stmt, (42,))?;
 
-// Using raw SQL (one-shot)
+// Using raw SQL
 let user: Option<(i32, String)> = conn.exec_first(
     "SELECT * FROM users WHERE id = $1",
     (42,)
@@ -99,7 +100,7 @@ conn.exec_foreach(&stmt, (42,), |row: (i32, String)| {
 
 ### Example: Batch Execution
 
-Batch execution sends multiple parameter sets efficiently in a single transaction:
+`exec_batch` sends all parameter sets without waiting for the response for the already-sent parameter sets:
 
 ```rust,ignore
 let stmt = conn.prepare("INSERT INTO users (name, age) VALUES ($1, $2)")?;
@@ -113,14 +114,15 @@ conn.exec_batch(&stmt, &[
 
 ### Example: Portal-based Iteration
 
-For large result sets, use `exec_portal` to fetch rows in batches:
+For large result sets, use `exec_portal` to fetch rows incrementally.
+This is useful to save memory.
 
 ```rust,ignore
 let stmt = conn.prepare("SELECT * FROM large_table")?;
 
-conn.exec_portal(&stmt, (), |portal| {
+conn.exec_portal(&stmt, (), |portal| { // Postgres Server holds the unnamed portal
     loop {
-        let rows: Vec<(i32, String)> = portal.fetch_collect(100)?;
+        let rows: Vec<(i32, String)> = portal.fetch_collect(100)?; // ask the server to send the next 100 rows
         if rows.is_empty() {
             break;
         }
@@ -132,18 +134,13 @@ conn.exec_portal(&stmt, (), |portal| {
 })?;
 ```
 
-## Statement Caching
+## Parameters
 
-Prepared statements are cached per connection. After calling `prepare()`, reuse the `PreparedStatement` for subsequent executions.
+A parameter set (`Params`) is a tuple of primitives.
 
 ```rust,ignore
-// Prepare once
-let stmt = conn.prepare("SELECT * FROM users WHERE id = $1")?;
-
-// Reuse multiple times
-let user1: Option<(i32, String)> = conn.exec_first(&stmt, (1,))?;
-let user2: Option<(i32, String)> = conn.exec_first(&stmt, (2,))?;
-let user3: Option<(i32, String)> = conn.exec_first(&stmt, (3,))?;
+exec_drop(sql, ()) // no parameter
+exec_drop("SELECT $1, $2, $3", (1, 2.0, "String")) // bind 3 parameters
 ```
 
 ## Struct Mapping
@@ -164,7 +161,7 @@ struct User {
     email: Option<String>,
 }
 
-let stmt = conn.prepare("SELECT id, name, email FROM users")?;
+let stmt = conn.prepare("SELECT name, id, email_address as email FROM users")?;
 
 // Collect all rows
 let users: Vec<User> = conn.exec_collect(&stmt, ())?;
@@ -179,10 +176,6 @@ conn.exec_foreach(&stmt, (), |user: User| {
 })?;
 ```
 
-Features:
-- **Column order independence**: Columns are matched by name, not position
-- **Optional fields**: Use `Option<T>` for nullable columns
-- **Skip unknown columns**: Extra columns in the result set are ignored by default
 
 Use `#[from_row(strict)]` to error on unknown columns:
 
@@ -194,12 +187,13 @@ struct User {
     name: String,
 }
 
-// Errors if query returns columns other than `id` and `name`
+// Returns Error if query because `email` column is unknown
+let user: Option<User> = conn.exec_first("SELECT id, name, email FROM users");
 ```
 
 ### Manual Construction with `exec_foreach`
 
-For custom logic or computed fields:
+This has an advantage of reusing `Vec` and being slightly faster because it does not match the column names against struct field names.
 
 ```rust,ignore
 struct User {
@@ -220,13 +214,3 @@ conn.exec_foreach(&stmt, (), |row: (i32, String)| {
     Ok(())
 })?;
 ```
-
-## Result Handlers
-
-zero-postgres uses a handler pattern for processing results. Implement `TextHandler` or `BinaryHandler` to customize how rows are processed.
-
-Built-in handlers:
-- `DropHandler`: Discards all results
-- `FirstRowHandler<Row>`: Stores only the first row
-- `CollectHandler<Row>`: Collects rows into a Vec
-- `ForEachHandler<Row, F>`: Calls a closure for each row

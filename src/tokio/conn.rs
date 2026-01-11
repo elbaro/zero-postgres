@@ -8,7 +8,7 @@ use crate::buffer_pool::PooledBufferSet;
 use crate::conversion::ToParams;
 use crate::error::{Error, Result};
 use crate::handler::{
-    AsyncMessageHandler, BinaryHandler, DropHandler, FirstRowHandler, TextHandler,
+    AsyncMessageHandler, DropHandler, ExtendedHandler, FirstRowHandler, SimpleHandler,
 };
 use crate::opts::Opts;
 use crate::protocol::backend::BackendKeyData;
@@ -335,7 +335,7 @@ impl Conn {
     }
 
     /// Execute a simple query with a handler.
-    pub async fn query<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
+    pub async fn query<H: SimpleHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
         let result = self.query_inner(sql, handler).await;
         if let Err(e) = &result
             && e.is_connection_broken()
@@ -345,7 +345,7 @@ impl Conn {
         result
     }
 
-    async fn query_inner<H: TextHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
+    async fn query_inner<H: SimpleHandler>(&mut self, sql: &str, handler: &mut H) -> Result<()> {
         let mut state_machine = SimpleQueryStateMachine::new(handler, sql);
         self.drive(&mut state_machine).await
     }
@@ -524,7 +524,7 @@ impl Conn {
     /// The statement can be either:
     /// - A `&PreparedStatement` returned from `prepare()`
     /// - A raw SQL `&str` for one-shot execution
-    pub async fn exec<S: IntoStatement, P: ToParams, H: BinaryHandler>(
+    pub async fn exec<S: IntoStatement, P: ToParams, H: ExtendedHandler>(
         &mut self,
         statement: S,
         params: P,
@@ -539,7 +539,7 @@ impl Conn {
         result
     }
 
-    async fn exec_inner<S: IntoStatement, P: ToParams, H: BinaryHandler>(
+    async fn exec_inner<S: IntoStatement, P: ToParams, H: ExtendedHandler>(
         &mut self,
         statement: &S,
         params: &P,
@@ -990,7 +990,7 @@ impl Conn {
     /// # Returns
     /// - `Ok(true)` if more rows available (PortalSuspended received)
     /// - `Ok(false)` if execution completed (CommandComplete received)
-    pub async fn lowlevel_execute<H: BinaryHandler>(
+    pub async fn lowlevel_execute<H: ExtendedHandler>(
         &mut self,
         portal: &str,
         max_rows: u32,
@@ -1005,7 +1005,7 @@ impl Conn {
         result
     }
 
-    async fn lowlevel_execute_inner<H: BinaryHandler>(
+    async fn lowlevel_execute_inner<H: ExtendedHandler>(
         &mut self,
         portal: &str,
         max_rows: u32,

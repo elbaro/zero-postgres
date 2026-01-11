@@ -1,7 +1,7 @@
 //! Unnamed portal for async iterative row fetching.
 
 use crate::error::Result;
-use crate::handler::BinaryHandler;
+use crate::handler::ExtendedHandler;
 
 use super::Conn;
 
@@ -17,7 +17,7 @@ impl<'a> UnnamedPortal<'a> {
     ///
     /// Returns `Ok(true)` if more rows available (PortalSuspended received).
     /// Returns `Ok(false)` if all rows fetched (CommandComplete received).
-    pub async fn fetch<H: BinaryHandler>(
+    pub async fn fetch<H: ExtendedHandler>(
         &mut self,
         max_rows: u32,
         handler: &mut H,
