@@ -4,27 +4,28 @@ zero-postgres is a high-performance PostgreSQL client library for Rust. It provi
 
 ```toml
 [dependencies]
-zero-postgres = "0.4"
+zero-postgres = "*"
 ```
 
 ## Quick Start
 
-```rust
+```rust,ignore
 use zero_postgres::sync::Conn;
 
-let mut conn = Conn::new("postgres://user:password@localhost/mydb")?;
+let mut conn = Conn::new("postgres://user:password@localhost/dbname")?;
 
 // Simple query
-let rows = conn.query("SELECT id, name FROM users")?;
+let rows: Vec<(i32, String)> = conn.query_collect("SELECT id, name FROM users")?;
 
 // Parameterized query
-let rows = conn.query_bind("SELECT * FROM users WHERE id = $1", &[&42i32])?;
+let rows: Vec<(i32, String)> = conn.exec_collect("SELECT * FROM users WHERE id = $1", (42i32,))?;
 
 // Transaction
-conn.begin()?;
-conn.exec_drop_bind("INSERT INTO users (name) VALUES ($1)", &[&"Alice"])?;
-conn.exec_drop_bind("INSERT INTO users (name) VALUES ($1)", &[&"Bob"])?;
-conn.commit()?;
+conn.transaction(|conn, tx| {
+    conn.exec_drop("INSERT INTO users (name) VALUES ($1)", ("Alice",))?;
+    conn.exec_drop("INSERT INTO users (name) VALUES ($1)", ("Bob",))?;
+    tx.commit(conn)
+})?;
 ```
 
 ## Features

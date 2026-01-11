@@ -1245,7 +1245,7 @@ impl Conn {
     ///     "INSERT INTO users (name) VALUES ($1) RETURNING id",
     /// ]).await?;
     ///
-    /// let (active, inactive, count) = conn.run_pipeline(|p| async move {
+    /// let (active, inactive, count) = conn.pipeline(|p| async move {
     ///     // Queue executions
     ///     let t1 = p.exec(&stmts[0], (true,)).await?;
     ///     let t2 = p.exec(&stmts[0], (false,)).await?;
@@ -1261,7 +1261,7 @@ impl Conn {
     ///     Ok((active, inactive, count))
     /// }).await?;
     /// ```
-    pub async fn run_pipeline<T, F, Fut>(&mut self, f: F) -> Result<T>
+    pub async fn pipeline<T, F, Fut>(&mut self, f: F) -> Result<T>
     where
         F: FnOnce(&mut super::pipeline::Pipeline<'_>) -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
@@ -1281,7 +1281,7 @@ impl Conn {
     /// # Errors
     ///
     /// Returns `Error::InvalidUsage` if called while already in a transaction.
-    pub async fn tx<F, R, Fut>(&mut self, f: F) -> Result<R>
+    pub async fn transaction<F, R, Fut>(&mut self, f: F) -> Result<R>
     where
         F: FnOnce(&mut Conn, super::transaction::Transaction) -> Fut,
         Fut: std::future::Future<Output = Result<R>>,

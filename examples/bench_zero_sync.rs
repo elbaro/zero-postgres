@@ -44,7 +44,7 @@ fn main() -> zero_postgres::Result<()> {
         // Use pipeline for bulk inserts - batches of 1000 to avoid too many pending operations
         const BATCH_SIZE: usize = 1000;
         for chunk in rows.chunks(BATCH_SIZE) {
-            conn.run_pipeline(|p| {
+            conn.pipeline(|p| {
                 let mut tickets = Vec::with_capacity(chunk.len());
                 for (username, age, email, score, description) in chunk.iter() {
                     let ticket = p.exec(

@@ -2,32 +2,34 @@
 
 ## Basic Transaction
 
-```rust
-conn.begin()?;
+```rust,ignore
+conn.transaction(|conn, tx| {
+    conn.exec_drop("INSERT INTO users (name) VALUES ($1)", ("Alice",))?;
+    conn.exec_drop("INSERT INTO users (name) VALUES ($1)", ("Bob",))?;
 
-conn.exec_drop_bind("INSERT INTO users (name) VALUES ($1)", &[&"Alice"])?;
-conn.exec_drop_bind("INSERT INTO users (name) VALUES ($1)", &[&"Bob"])?;
-
-conn.commit()?;
+    tx.commit(conn)
+})?;
 ```
 
 ## Rollback
 
-```rust
-conn.begin()?;
+```rust,ignore
+conn.transaction(|conn, tx| {
+    conn.exec_drop("INSERT INTO users (name) VALUES ($1)", ("Alice",))?;
 
-conn.exec_drop_bind("INSERT INTO users (name) VALUES ($1)", &[&"Alice"])?;
-
-// Something went wrong, rollback
-conn.rollback()?;
+    // Something went wrong, rollback
+    tx.rollback(conn)
+})?;
 ```
+
+If the closure returns `Err` or the transaction is not explicitly committed or rolled back, the transaction is automatically rolled back.
 
 ## Async Transaction
 
-```rust
-conn.begin().await?;
+```rust,ignore
+conn.transaction(|conn, tx| async move {
+    conn.exec_drop("INSERT INTO users (name) VALUES ($1)", ("Alice",)).await?;
 
-conn.exec_drop_bind("INSERT INTO users (name) VALUES ($1)", &[&"Alice"]).await?;
-
-conn.commit().await?;
+    tx.commit(conn).await
+}).await?;
 ```

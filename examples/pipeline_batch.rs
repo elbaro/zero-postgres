@@ -46,7 +46,7 @@ fn main() -> zero_postgres::Result<()> {
             "INSERT INTO products (name, price, quantity) VALUES ($1, $2, $3) RETURNING id",
         )?;
 
-        let ids = conn.run_pipeline(|p| {
+        let ids = conn.pipeline(|p| {
             // Queue all inserts
             let mut tickets = Vec::new();
             for (name, price, qty) in &products {
@@ -85,7 +85,7 @@ fn main() -> zero_postgres::Result<()> {
         let update_stmt = conn
             .prepare("UPDATE products SET price = price * $1 WHERE id = $2 RETURNING id, price")?;
 
-        let updated = conn.run_pipeline(|p| {
+        let updated = conn.pipeline(|p| {
             // Queue updates for first 50 products
             let mut tickets = Vec::new();
             for id in 1..=50 {
@@ -123,7 +123,7 @@ fn main() -> zero_postgres::Result<()> {
             "SELECT COUNT(*) FROM products",
         ])?;
 
-        let (id1, id2, expensive, count) = conn.run_pipeline(|p| {
+        let (id1, id2, expensive, count) = conn.pipeline(|p| {
             // Queue mixed operations
             let t_insert1 = p.exec(&stmts[0], ("Special Product A", 999.99, 5))?;
             let t_insert2 = p.exec(&stmts[0], ("Special Product B", 1499.99, 3))?;
@@ -184,7 +184,7 @@ fn main() -> zero_postgres::Result<()> {
         let insert_stmt =
             conn.prepare("INSERT INTO products (name, price, quantity) VALUES ($1, $2, $3)")?;
 
-        conn.run_pipeline(|p| {
+        conn.pipeline(|p| {
             let mut tickets = Vec::new();
             for i in 1..=50 {
                 let name: &'static str = Box::leak(format!("Item {}", i).into_boxed_str());

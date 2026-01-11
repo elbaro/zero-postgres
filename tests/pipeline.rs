@@ -59,7 +59,7 @@ fn test_pipeline_exec() {
     let mut conn = get_conn();
 
     let result = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t = p.exec("SELECT $1::int as num, $2::text as txt", (42, "hello"))?;
             p.sync()?;
             let rows: Vec<(i32, String)> = p.claim_collect(t)?;
@@ -78,7 +78,7 @@ fn test_pipeline_multiple_execs() {
     let mut conn = get_conn();
 
     let (r1, r2, r3) = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t1 = p.exec("SELECT $1::int", (1,))?;
             let t2 = p.exec("SELECT $1::int", (2,))?;
             let t3 = p.exec("SELECT $1::int", (3,))?;
@@ -105,7 +105,7 @@ fn test_pipeline_no_rows() {
     let mut conn = get_conn();
 
     let result: Vec<(i32,)> = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t = p.exec("SELECT 1 WHERE false", ())?;
             p.sync()?;
             p.claim_collect(t)
@@ -122,7 +122,7 @@ fn test_pipeline_multiple_rows() {
     let mut conn = get_conn();
 
     let result: Vec<(i32,)> = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t = p.exec("SELECT * FROM (VALUES (1), (2), (3)) AS t(n)", ())?;
             p.sync()?;
             p.claim_collect(t)
@@ -144,7 +144,7 @@ fn test_pipeline_with_prepared() {
     let stmt = conn.prepare("SELECT $1::int * 2").unwrap();
 
     let (r1, r2) = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t1 = p.exec(&stmt, (5,))?;
             let t2 = p.exec(&stmt, (10,))?;
 
@@ -169,7 +169,7 @@ fn test_pipeline_with_prepared() {
 fn test_pipeline_claim_order_error() {
     let mut conn = get_conn();
 
-    let result = conn.run_pipeline(|p| {
+    let result = conn.pipeline(|p| {
         let t1 = p.exec("SELECT 1", ())?;
         let t2 = p.exec("SELECT 2", ())?;
 
@@ -191,7 +191,7 @@ fn test_pipeline_claim_order_error() {
         Ok(())
     });
 
-    // The run_pipeline should complete (cleanup handles remaining)
+    // The pipeline should complete (cleanup handles remaining)
     assert!(result.is_ok());
     verify_connection(&mut conn);
 }
@@ -201,7 +201,7 @@ fn test_pipeline_claim_order_error() {
 fn test_pipeline_sql_error() {
     let mut conn = get_conn();
 
-    let result = conn.run_pipeline(|p| {
+    let result = conn.pipeline(|p| {
         let t = p.exec("SELECT 1/0", ())?;
 
         p.sync()?;
@@ -228,7 +228,7 @@ fn test_pipeline_sql_error() {
 fn test_pipeline_aborted_state() {
     let mut conn = get_conn();
 
-    let result = conn.run_pipeline(|p| {
+    let result = conn.pipeline(|p| {
         let t1 = p.exec("SELECT 1", ())?;
         let t2 = p.exec("SELECT 1/0", ())?; // This will fail
         let t3 = p.exec("SELECT 2", ())?;
@@ -273,7 +273,7 @@ fn test_pipeline_insert() {
     conn.query_drop("CREATE TEMP TABLE _pipeline_insert_test (id int, name text)")
         .unwrap();
 
-    conn.run_pipeline(|p| {
+    conn.pipeline(|p| {
         let t1 = p.exec(
             "INSERT INTO _pipeline_insert_test VALUES ($1, $2)",
             (1, "alice"),
@@ -316,7 +316,7 @@ fn test_pipeline_insert_returning() {
     .unwrap();
 
     let (r1, r2) = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t1 = p.exec(
                 "INSERT INTO _pipeline_returning_test (name) VALUES ($1) RETURNING id",
                 ("alice",),
@@ -348,7 +348,7 @@ fn test_pipeline_insert_returning() {
 fn test_pipeline_empty() {
     let mut conn = get_conn();
 
-    conn.run_pipeline(|p| {
+    conn.pipeline(|p| {
         p.sync()?;
         Ok(())
     })
@@ -362,7 +362,7 @@ fn test_pipeline_empty() {
 fn test_pipeline_pending_count() {
     let mut conn = get_conn();
 
-    conn.run_pipeline(|p| {
+    conn.pipeline(|p| {
         assert_eq!(p.pending_count(), 0);
 
         let t1 = p.exec("SELECT 1", ())?;
@@ -391,7 +391,7 @@ fn test_pipeline_claim_one() {
     let mut conn = get_conn();
 
     let result = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t = p.exec("SELECT 42::int", ())?;
             p.sync()?;
             p.claim_one::<(i32,)>(t)
@@ -408,7 +408,7 @@ fn test_pipeline_claim_one_empty() {
     let mut conn = get_conn();
 
     let result = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t = p.exec("SELECT 1 WHERE false", ())?;
             p.sync()?;
             p.claim_one::<(i32,)>(t)
@@ -427,7 +427,7 @@ fn test_pipeline_auto_sync_basic() {
     let mut conn = get_conn();
 
     let (r1, r2) = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t1 = p.exec("SELECT $1::int", (1,))?;
             let t2 = p.exec("SELECT $1::int", (2,))?;
             // No explicit sync() - claim should auto-sync
@@ -449,7 +449,7 @@ fn test_pipeline_interleaved_exec_claim() {
     let mut conn = get_conn();
 
     let (r1, r2, r3, r4) = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             // First batch of execs
             let t1 = p.exec("SELECT $1::int", (1,))?;
             let t2 = p.exec("SELECT $1::int", (2,))?;
@@ -483,7 +483,7 @@ fn test_pipeline_partial_claim_then_exec() {
     let mut conn = get_conn();
 
     let (r1, r2, r3, r4, r5) = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             // Queue 3 operations
             let t1 = p.exec("SELECT $1::int", (1,))?;
             let t2 = p.exec("SELECT $1::int", (2,))?;
@@ -523,7 +523,7 @@ fn test_pipeline_partial_claim_then_exec() {
 fn test_pipeline_multiple_batches_with_error() {
     let mut conn = get_conn();
 
-    let result = conn.run_pipeline(|p| {
+    let result = conn.pipeline(|p| {
         // First batch - all succeed
         let t1 = p.exec("SELECT $1::int", (1,))?;
         let t2 = p.exec("SELECT $1::int", (2,))?;
@@ -565,7 +565,7 @@ fn test_pipeline_error_recovery_new_batch() {
     let mut conn = get_conn();
 
     // First pipeline with error
-    let _ = conn.run_pipeline(|p| {
+    let _ = conn.pipeline(|p| {
         let t1 = p.exec("SELECT 1/0", ())?;
         let _: Result<Vec<(i32,)>, _> = p.claim_collect(t1);
         Ok(())
@@ -573,7 +573,7 @@ fn test_pipeline_error_recovery_new_batch() {
 
     // Second pipeline should work fine
     let result = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t1 = p.exec("SELECT $1::int", (100,))?;
             let r1: Vec<(i32,)> = p.claim_collect(t1)?;
             Ok(r1)
@@ -590,7 +590,7 @@ fn test_pipeline_explicit_flush() {
     let mut conn = get_conn();
 
     let (r1, r2) = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let t1 = p.exec("SELECT $1::int", (1,))?;
             let t2 = p.exec("SELECT $1::int", (2,))?;
 
@@ -617,7 +617,7 @@ fn test_pipeline_complex_interleave() {
     let mut conn = get_conn();
 
     let results = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             let mut results = Vec::new();
 
             for i in 1..=5 {
@@ -642,7 +642,7 @@ fn test_pipeline_continue_after_error_batch() {
     let mut conn = get_conn();
 
     let (r1, r4, r5) = conn
-        .run_pipeline(|p| {
+        .pipeline(|p| {
             // First batch - has an error in the middle
             let t1 = p.exec("SELECT $1::int", (1,))?;
             let t2 = p.exec("SELECT 1/0", ())?; // Error

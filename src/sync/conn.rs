@@ -290,7 +290,7 @@ impl Conn {
     /// ```ignore
     /// let stmt = conn.prepare("INSERT INTO users (name) VALUES ($1) RETURNING id")?;
     ///
-    /// let (id1, id2) = conn.run_pipeline(|p| {
+    /// let (id1, id2) = conn.pipeline(|p| {
     ///     let t1 = p.exec(&stmt, ("alice",))?;
     ///     let t2 = p.exec(&stmt, ("bob",))?;
     ///     p.sync()?;
@@ -300,7 +300,7 @@ impl Conn {
     ///     Ok((id1, id2))
     /// })?;
     /// ```
-    pub fn run_pipeline<T, F>(&mut self, f: F) -> Result<T>
+    pub fn pipeline<T, F>(&mut self, f: F) -> Result<T>
     where
         F: FnOnce(&mut super::pipeline::Pipeline<'_>) -> Result<T>,
     {
@@ -888,7 +888,7 @@ impl Conn {
     /// # Errors
     ///
     /// Returns `Error::InvalidUsage` if called while already in a transaction.
-    pub fn tx<F, R>(&mut self, f: F) -> Result<R>
+    pub fn transaction<F, R>(&mut self, f: F) -> Result<R>
     where
         F: FnOnce(&mut Conn, super::transaction::Transaction) -> Result<R>,
     {

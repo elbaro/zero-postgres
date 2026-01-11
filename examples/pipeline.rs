@@ -44,7 +44,7 @@ fn main() -> zero_postgres::Result<()> {
             "SELECT COUNT(*) FROM users",
         ])?;
 
-        let (active, inactive, count) = conn.run_pipeline(|p| {
+        let (active, inactive, count) = conn.pipeline(|p| {
             // Execute with different parameters - all queries are sent together
             let t1 = p.exec(&stmts[0], (true,))?;
             let t2 = p.exec(&stmts[0], (false,))?;
@@ -79,7 +79,7 @@ fn main() -> zero_postgres::Result<()> {
     println!("=== Pipeline with Raw SQL ===\n");
 
     {
-        let (names, alice, bob) = conn.run_pipeline(|p| {
+        let (names, alice, bob) = conn.pipeline(|p| {
             // Execute raw SQL directly (no need to prepare)
             let t1 = p.exec("SELECT name FROM users ORDER BY name", ())?;
             let t2 = p.exec("SELECT name FROM users WHERE id = $1", (1_i32,))?;
@@ -109,7 +109,7 @@ fn main() -> zero_postgres::Result<()> {
     {
         let stmt = conn.prepare("SELECT id, name FROM users WHERE id > $1")?;
 
-        let (all, active_count) = conn.run_pipeline(|p| {
+        let (all, active_count) = conn.pipeline(|p| {
             // Mix prepared statements and raw SQL
             let t1 = p.exec(&stmt, (0_i32,))?;
             let t2 = p.exec("SELECT COUNT(*) FROM users WHERE active = $1", (true,))?;

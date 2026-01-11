@@ -12,7 +12,7 @@
 //!     "INSERT INTO users (name) VALUES ($1) RETURNING id",
 //! ]).await?;
 //!
-//! let (active, inactive, count) = conn.run_pipeline(|p| async move {
+//! let (active, inactive, count) = conn.pipeline(|p| async move {
 //!     // Queue executions
 //!     let t1 = p.exec(&stmts[0], (true,)).await?;
 //!     let t2 = p.exec(&stmts[0], (false,)).await?;
@@ -51,7 +51,7 @@ use super::conn::Conn;
 
 /// Async pipeline mode for batching multiple queries.
 ///
-/// Created by [`Conn::run_pipeline`].
+/// Created by [`Conn::pipeline`].
 pub struct Pipeline<'a> {
     conn: &'a mut Conn,
     /// Monotonically increasing counter for queued operations
@@ -69,7 +69,7 @@ pub struct Pipeline<'a> {
 impl<'a> Pipeline<'a> {
     /// Create a new pipeline.
     ///
-    /// Prefer using [`Conn::run_pipeline`] which handles cleanup automatically.
+    /// Prefer using [`Conn::pipeline`] which handles cleanup automatically.
     /// This constructor is available for advanced use cases.
     #[cfg(feature = "lowlevel")]
     pub fn new(conn: &'a mut Conn) -> Self {
@@ -91,7 +91,7 @@ impl<'a> Pipeline<'a> {
 
     /// Cleanup the pipeline, draining any unclaimed tickets.
     ///
-    /// This is called automatically by [`Conn::run_pipeline`].
+    /// This is called automatically by [`Conn::pipeline`].
     /// Also available with the `lowlevel` feature for manual cleanup.
     #[cfg(feature = "lowlevel")]
     pub async fn cleanup(&mut self) {
@@ -166,7 +166,7 @@ impl<'a> Pipeline<'a> {
     /// ```ignore
     /// let stmt = conn.prepare("SELECT id, name FROM users WHERE id = $1").await?;
     ///
-    /// let (r1, r2) = conn.run_pipeline(|p| async move {
+    /// let (r1, r2) = conn.pipeline(|p| async move {
     ///     let t1 = p.exec(&stmt, (1,))?;
     ///     let t2 = p.exec("SELECT COUNT(*) FROM users", ())?;
     ///     p.sync().await?;
