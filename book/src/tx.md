@@ -22,7 +22,7 @@ conn.transaction(|conn, tx| {
 })?;
 ```
 
-If the closure returns `Err` or the transaction is not explicitly committed or rolled back, the transaction is automatically rolled back.
+If no explicit commit or rollback is called, the transaction is automatically committed on `Ok` and rolled back on `Err`.
 
 ## Async Transaction
 

@@ -1274,9 +1274,9 @@ impl Conn {
 
     /// Execute a closure within a transaction.
     ///
-    /// If the closure returns `Ok`, the transaction is committed.
-    /// If the closure returns `Err` or the transaction is not explicitly
-    /// committed or rolled back, the transaction is rolled back.
+    /// If no explicit commit or rollback is called:
+    /// - If the closure returns `Ok`, the transaction is committed.
+    /// - If the closure returns `Err`, the transaction is rolled back.
     ///
     /// # Errors
     ///
@@ -1296,19 +1296,21 @@ impl Conn {
 
         let tx = super::transaction::Transaction::new(self.connection_id());
 
-        // We need to use unsafe to work around the borrow checker here
-        // because async closures can't capture &mut self properly
         let result = f(self, tx).await;
 
-        // If still in a transaction (not committed or rolled back), roll it back
+        // If still in a transaction (not committed or rolled back explicitly)
         if self.in_transaction() {
-            let rollback_result = self.query_drop("ROLLBACK").await;
-
-            // Return the first error (either from closure or rollback)
-            if let Err(e) = result {
-                return Err(e);
+            match &result {
+                Ok(_) => {
+                    // Clean exit with Ok - commit the transaction
+                    self.query_drop("COMMIT").await?;
+                }
+                Err(_) => {
+                    // Exit with error - rollback the transaction
+                    // Ignore rollback errors to preserve original error
+                    let _ = self.query_drop("ROLLBACK").await;
+                }
             }
-            rollback_result?;
         }
 
         result
