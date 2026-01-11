@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.0](https://github.com/elbaro/zero-postgres/compare/v0.6.0...v0.7.0) - 2026-01-11
+
+### <!-- 1 -->Bug fixes
+- [**breaking**] fix async closure API
+- [**breaking**] change transaction implicit commit/rollback behavior
+
+### <!-- 3 -->Documentation
+- add more explanations
+
+### <!-- 9 -->Other
+- [**breaking**] tidy!: rename conn.tx to conn.transaction
+- [**breaking**] tidy!: rename TextHandler, BinaryHandler to SimpleHandler, ExtendedHander
+
 ## [v0.6.0](https://github.com/elbaro/zero-postgres/compare/v0.5.0...v0.6.0) - 2026-01-10
 
 ### <!-- 1 -->Bug fixes
