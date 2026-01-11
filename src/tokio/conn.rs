@@ -1102,7 +1102,7 @@ impl Conn {
     ///     Ok(())
     /// }).await?;
     /// ```
-    pub async fn exec_portal<S: IntoStatement, P, F, Fut, T>(
+    pub async fn exec_portal<S: IntoStatement, P, F, T>(
         &mut self,
         statement: S,
         params: P,
@@ -1110,8 +1110,7 @@ impl Conn {
     ) -> Result<T>
     where
         P: ToParams,
-        F: FnOnce(&mut super::unnamed_portal::UnnamedPortal<'_>) -> Fut,
-        Fut: std::future::Future<Output = Result<T>>,
+        F: AsyncFnOnce(&mut super::unnamed_portal::UnnamedPortal<'_>) -> Result<T>,
     {
         let result = self.exec_portal_inner(&statement, &params, f).await;
         if let Err(e) = &result
@@ -1122,7 +1121,7 @@ impl Conn {
         result
     }
 
-    async fn exec_portal_inner<S: IntoStatement, P, F, Fut, T>(
+    async fn exec_portal_inner<S: IntoStatement, P, F, T>(
         &mut self,
         statement: &S,
         params: &P,
@@ -1130,8 +1129,7 @@ impl Conn {
     ) -> Result<T>
     where
         P: ToParams,
-        F: FnOnce(&mut super::unnamed_portal::UnnamedPortal<'_>) -> Fut,
-        Fut: std::future::Future<Output = Result<T>>,
+        F: AsyncFnOnce(&mut super::unnamed_portal::UnnamedPortal<'_>) -> Result<T>,
     {
         // Create bind state machine for unnamed portal
         let mut state_machine = if let Some(sql) = statement.as_sql() {
@@ -1261,10 +1259,9 @@ impl Conn {
     ///     Ok((active, inactive, count))
     /// }).await?;
     /// ```
-    pub async fn pipeline<T, F, Fut>(&mut self, f: F) -> Result<T>
+    pub async fn pipeline<T, F>(&mut self, f: F) -> Result<T>
     where
-        F: FnOnce(&mut super::pipeline::Pipeline<'_>) -> Fut,
-        Fut: std::future::Future<Output = Result<T>>,
+        F: AsyncFnOnce(&mut super::pipeline::Pipeline<'_>) -> Result<T>,
     {
         let mut pipeline = super::pipeline::Pipeline::new_inner(self);
         let result = f(&mut pipeline).await;
@@ -1281,10 +1278,9 @@ impl Conn {
     /// # Errors
     ///
     /// Returns `Error::InvalidUsage` if called while already in a transaction.
-    pub async fn transaction<F, R, Fut>(&mut self, f: F) -> Result<R>
+    pub async fn transaction<F, R>(&mut self, f: F) -> Result<R>
     where
-        F: FnOnce(&mut Conn, super::transaction::Transaction) -> Fut,
-        Fut: std::future::Future<Output = Result<R>>,
+        F: AsyncFnOnce(&mut Conn, super::transaction::Transaction) -> Result<R>,
     {
         if self.in_transaction() {
             return Err(Error::InvalidUsage(

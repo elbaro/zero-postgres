@@ -154,7 +154,3 @@ unwrap_in_result = "warn"
 unwrap_used = "warn"
 use_debug = "warn"
 verbose_file_reads = "warn"
-
-[[test]]
-name = "derive"
-required-features = ["derive"]
