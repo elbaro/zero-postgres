@@ -29,7 +29,7 @@ async fn test_exec_portal_basic() {
     let total: i32 = conn
         .exec_portal(&stmt, (), async |portal| {
             let mut handler = CollectHandler::new();
-            let has_more = portal.fetch(0, &mut handler).await?;
+            let has_more = portal.exec(0, &mut handler).await?;
             assert!(!has_more, "Expected all rows fetched");
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows.iter().map(|(n,)| n).sum())
@@ -55,7 +55,7 @@ async fn test_exec_portal_batched() {
             let mut batches = 0;
             loop {
                 let mut handler = CollectHandler::new();
-                let has_more = portal.fetch(3, &mut handler).await?;
+                let has_more = portal.exec(3, &mut handler).await?;
                 let rows: Vec<(i32,)> = handler.into_rows();
                 all_rows.extend(rows.iter().map(|(n,)| *n));
                 batches += 1;
@@ -81,7 +81,7 @@ async fn test_exec_portal_empty_result() {
     let row_count: usize = conn
         .exec_portal(&stmt, (), async |portal| {
             let mut handler = CollectHandler::new();
-            let has_more = portal.fetch(0, &mut handler).await?;
+            let has_more = portal.exec(0, &mut handler).await?;
             assert!(!has_more, "Expected completion on empty result");
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows.len())
@@ -104,7 +104,7 @@ async fn test_exec_portal_with_params() {
     let total: i32 = conn
         .exec_portal(&stmt, (5i32,), async |portal| {
             let mut handler = CollectHandler::new();
-            portal.fetch(0, &mut handler).await?;
+            portal.exec(0, &mut handler).await?;
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows.iter().map(|(n,)| n).sum())
         })
@@ -123,7 +123,7 @@ async fn test_exec_portal_closure_returns_value() {
     let answer: i32 = conn
         .exec_portal(&stmt, (), async |portal| {
             let mut handler = CollectHandler::new();
-            portal.fetch(0, &mut handler).await?;
+            portal.exec(0, &mut handler).await?;
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows[0].0)
         })
@@ -140,7 +140,7 @@ async fn test_exec_portal_with_raw_sql() {
     let total: i32 = conn
         .exec_portal("SELECT generate_series(1, 5) as n", (), async |portal| {
             let mut handler = CollectHandler::new();
-            portal.fetch(0, &mut handler).await?;
+            portal.exec(0, &mut handler).await?;
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows.iter().map(|(n,)| n).sum())
         })
@@ -160,7 +160,7 @@ async fn test_exec_portal_with_raw_sql_and_params() {
             (5i32,),
             async |portal| {
                 let mut handler = CollectHandler::new();
-                portal.fetch(0, &mut handler).await?;
+                portal.exec(0, &mut handler).await?;
                 let rows: Vec<(i32,)> = handler.into_rows();
                 Ok(rows.iter().map(|(n,)| n).sum())
             },
@@ -181,7 +181,7 @@ async fn test_exec_portal_raw_sql_batched() {
             let mut batches = 0;
             loop {
                 let mut handler = CollectHandler::new();
-                let has_more = portal.fetch(3, &mut handler).await?;
+                let has_more = portal.exec(3, &mut handler).await?;
                 let rows: Vec<(i32,)> = handler.into_rows();
                 all_rows.extend(rows.iter().map(|(n,)| *n));
                 batches += 1;
@@ -196,4 +196,65 @@ async fn test_exec_portal_raw_sql_batched() {
 
     assert_eq!(all_rows, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     assert_eq!(batch_count, 4);
+}
+
+#[tokio::test]
+async fn test_exec_portal_foreach_basic() {
+    let mut conn = get_conn().await;
+
+    let stmt = conn
+        .prepare("SELECT generate_series(1, 5) as n")
+        .await
+        .unwrap();
+
+    let total: i32 = conn
+        .exec_portal(&stmt, (), async |portal| {
+            let mut sum = 0i32;
+            let has_more = portal
+                .exec_foreach(0, |row: (i32,)| {
+                    sum += row.0;
+                    Ok(())
+                })
+                .await?;
+            assert!(!has_more, "Expected all rows fetched");
+            Ok(sum)
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(total, 15); // 1+2+3+4+5
+}
+
+#[tokio::test]
+async fn test_exec_portal_foreach_batched() {
+    let mut conn = get_conn().await;
+
+    let stmt = conn
+        .prepare("SELECT generate_series(1, 10) as n")
+        .await
+        .unwrap();
+
+    let (all_rows, batch_count) = conn
+        .exec_portal(&stmt, (), async |portal| {
+            let mut all_rows: Vec<i32> = Vec::new();
+            let mut batches = 0;
+            loop {
+                let has_more = portal
+                    .exec_foreach(3, |row: (i32,)| {
+                        all_rows.push(row.0);
+                        Ok(())
+                    })
+                    .await?;
+                batches += 1;
+                if !has_more {
+                    break;
+                }
+            }
+            Ok((all_rows, batches))
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(all_rows, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert_eq!(batch_count, 4); // 3+3+3+1 rows in 4 batches
 }

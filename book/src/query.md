@@ -60,6 +60,10 @@ impl Conn {
     fn exec_portal<S, P, F, T>(&mut self, statement: S, params: P, f: F) -> Result<T>;
     fn close_statement(&mut self, stmt: &PreparedStatement) -> Result<()>;
 }
+
+impl Transaction<'_> {
+    fn exec_portal_named<S, P>(&self, conn: &mut Conn, statement: S, params: P) -> Result<NamedPortal<'_>>;
+}
 ```
 
 - `prepare`: prepare a statement for execution
@@ -73,6 +77,7 @@ impl Conn {
 - `exec_batch`: execute with multiple parameter sets efficiently
 - `exec_portal`: execute to create an unnamed portal that incrementally fetch rows
 - `close_statement`: close a prepared statement
+- `tx.exec_portal_named`: create a named portal within a transaction for incremental fetching
 
 The `statement` parameter can be either:
 - A `&PreparedStatement` returned from `prepare()`
@@ -114,23 +119,76 @@ conn.exec_batch(&stmt, &[
 
 ### Example: Portal-based Iteration
 
-For large result sets, use `exec_portal` to fetch rows incrementally.
-This is useful to save memory.
+For large result sets, use `exec_portal` to fetch rows incrementally with a handler.
 
 ```rust,ignore
 let stmt = conn.prepare("SELECT * FROM large_table")?;
 
-conn.exec_portal(&stmt, (), |portal| { // Postgres Server holds the unnamed portal
-    loop {
-        let rows: Vec<(i32, String)> = portal.fetch_collect(100)?; // ask the server to send the next 100 rows
-        if rows.is_empty() {
-            break;
-        }
-        for row in rows {
-            process(row);
-        }
+conn.exec_portal(&stmt, (), |portal| {
+    let mut handler = RowCollector::new();
+    while portal.exec(100, &mut handler)? {
+        // process handler.rows and clear for next batch
     }
     Ok(())
+})?;
+```
+
+You can also use `exec_foreach` on the portal to process rows with a closure:
+
+```rust,ignore
+conn.exec_portal(&stmt, (), |portal| {
+    while portal.exec_foreach(100, |row: (i32, String)| {
+        println!("{}: {}", row.0, row.1);
+        Ok(())
+    })? {
+        // continues until all rows processed
+    }
+    Ok(())
+})?;
+```
+
+### Example: Interleaving Two Row Streams
+
+Use `tx.exec_portal_named` to create named portals that can be interleaved within a transaction:
+
+```rust,ignore
+let stmt1 = conn.prepare("SELECT * FROM table1")?;
+let stmt2 = conn.prepare("SELECT * FROM table2")?;
+
+conn.transaction(|conn, tx| {
+    let mut portal1 = tx.exec_portal_named(conn, &stmt1, ())?;
+    let mut portal2 = tx.exec_portal_named(conn, &stmt2, ())?;
+
+    loop {
+        let rows1: Vec<(i32,)> = portal1.exec_collect(conn, 100)?;
+        let rows2: Vec<(i32,)> = portal2.exec_collect(conn, 100)?;
+        process(rows1, rows2);
+        if portal1.is_complete() && portal2.is_complete() {
+            break;
+        }
+    }
+
+    portal1.close(conn)?;
+    portal2.close(conn)?;
+    tx.commit(conn)
+})?;
+```
+
+Named portals also support `exec_foreach` for processing rows with a closure:
+
+```rust,ignore
+conn.transaction(|conn, tx| {
+    let mut portal = tx.exec_portal_named(conn, &stmt, ())?;
+
+    while !portal.is_complete() {
+        portal.exec_foreach(conn, 100, |row: (i32, String)| {
+            println!("{}: {}", row.0, row.1);
+            Ok(())
+        })?;
+    }
+
+    portal.close(conn)?;
+    tx.commit(conn)
 })?;
 ```
 

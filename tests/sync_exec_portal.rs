@@ -18,7 +18,7 @@ fn test_exec_portal_basic() {
         let mut portal = tx.exec_portal_named(conn, &stmt, ())?;
         assert!(!portal.is_complete());
 
-        let rows: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
+        let rows: Vec<(i32,)> = portal.exec_collect(conn, 0)?;
         assert!(portal.is_complete());
         assert_eq!(rows.len(), 5);
 
@@ -43,7 +43,7 @@ fn test_exec_portal_batched() {
         let mut batches = 0;
 
         while !portal.is_complete() {
-            let rows: Vec<(i32,)> = portal.execute_collect(conn, 3)?;
+            let rows: Vec<(i32,)> = portal.exec_collect(conn, 3)?;
             all_rows.extend(rows.iter().map(|(n,)| *n));
             batches += 1;
         }
@@ -65,7 +65,7 @@ fn test_exec_portal_empty_result() {
 
     conn.transaction(|conn, tx| {
         let mut portal = tx.exec_portal_named(conn, &stmt, ())?;
-        let rows: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
+        let rows: Vec<(i32,)> = portal.exec_collect(conn, 0)?;
 
         assert!(portal.is_complete());
         assert_eq!(rows.len(), 0);
@@ -84,7 +84,7 @@ fn test_exec_portal_with_params() {
 
     conn.transaction(|conn, tx| {
         let mut portal = tx.exec_portal_named(conn, &stmt, (5i32,))?;
-        let rows: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
+        let rows: Vec<(i32,)> = portal.exec_collect(conn, 0)?;
 
         assert_eq!(rows.len(), 5);
         let total: i32 = rows.iter().map(|(n,)| n).sum();
@@ -102,7 +102,7 @@ fn test_exec_portal_with_raw_sql() {
 
     conn.transaction(|conn, tx| {
         let mut portal = tx.exec_portal_named(conn, "SELECT generate_series(1, 5) as n", ())?;
-        let rows: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
+        let rows: Vec<(i32,)> = portal.exec_collect(conn, 0)?;
 
         assert_eq!(rows.len(), 5);
         let total: i32 = rows.iter().map(|(n,)| n).sum();
@@ -121,7 +121,7 @@ fn test_exec_portal_with_raw_sql_and_params() {
     conn.transaction(|conn, tx| {
         let mut portal =
             tx.exec_portal_named(conn, "SELECT generate_series(1, $1) as n", (5i32,))?;
-        let rows: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
+        let rows: Vec<(i32,)> = portal.exec_collect(conn, 0)?;
 
         assert_eq!(rows.len(), 5);
         let total: i32 = rows.iter().map(|(n,)| n).sum();
@@ -147,8 +147,8 @@ fn test_exec_portal_portal_name() {
         assert!(portal2.name().starts_with("_zero_p_"));
 
         // Consume the portals
-        let _: Vec<(i32,)> = portal1.execute_collect(conn, 0)?;
-        let _: Vec<(i32,)> = portal2.execute_collect(conn, 0)?;
+        let _: Vec<(i32,)> = portal1.exec_collect(conn, 0)?;
+        let _: Vec<(i32,)> = portal2.exec_collect(conn, 0)?;
 
         portal1.close(conn)?;
         portal2.close(conn)?;
@@ -167,8 +167,8 @@ fn test_exec_portal_multiple_portals() {
         let mut portal2 = tx.exec_portal_named(conn, "SELECT generate_series(10, 12) as n", ())?;
 
         // Interleave fetches from both portals
-        let rows1: Vec<(i32,)> = portal1.execute_collect(conn, 2)?;
-        let rows2: Vec<(i32,)> = portal2.execute_collect(conn, 2)?;
+        let rows1: Vec<(i32,)> = portal1.exec_collect(conn, 2)?;
+        let rows2: Vec<(i32,)> = portal2.exec_collect(conn, 2)?;
 
         assert_eq!(rows1.iter().map(|(n,)| *n).collect::<Vec<_>>(), vec![1, 2]);
         assert_eq!(
@@ -177,8 +177,8 @@ fn test_exec_portal_multiple_portals() {
         );
 
         // Fetch remaining
-        let rows1: Vec<(i32,)> = portal1.execute_collect(conn, 0)?;
-        let rows2: Vec<(i32,)> = portal2.execute_collect(conn, 0)?;
+        let rows1: Vec<(i32,)> = portal1.exec_collect(conn, 0)?;
+        let rows2: Vec<(i32,)> = portal2.exec_collect(conn, 0)?;
 
         assert_eq!(rows1.iter().map(|(n,)| *n).collect::<Vec<_>>(), vec![3]);
         assert_eq!(rows2.iter().map(|(n,)| *n).collect::<Vec<_>>(), vec![12]);
@@ -200,12 +200,60 @@ fn test_exec_portal_is_complete_tracking() {
         assert!(!portal.is_complete());
 
         // Fetch 3 rows, should not be complete
-        let _: Vec<(i32,)> = portal.execute_collect(conn, 3)?;
+        let _: Vec<(i32,)> = portal.exec_collect(conn, 3)?;
         assert!(!portal.is_complete());
 
         // Fetch remaining 2 rows, should be complete
-        let _: Vec<(i32,)> = portal.execute_collect(conn, 0)?;
+        let _: Vec<(i32,)> = portal.exec_collect(conn, 0)?;
         assert!(portal.is_complete());
+
+        portal.close(conn)?;
+        tx.commit(conn)
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_exec_portal_foreach_basic() {
+    let mut conn = get_conn();
+
+    conn.transaction(|conn, tx| {
+        let mut portal = tx.exec_portal_named(conn, "SELECT generate_series(1, 5) as n", ())?;
+        let mut total = 0i32;
+
+        portal.exec_foreach(conn, 0, |row: (i32,)| {
+            total += row.0;
+            Ok(())
+        })?;
+
+        assert!(portal.is_complete());
+        assert_eq!(total, 15); // 1+2+3+4+5
+
+        portal.close(conn)?;
+        tx.commit(conn)
+    })
+    .unwrap();
+}
+
+#[test]
+fn test_exec_portal_foreach_batched() {
+    let mut conn = get_conn();
+
+    conn.transaction(|conn, tx| {
+        let mut portal = tx.exec_portal_named(conn, "SELECT generate_series(1, 10) as n", ())?;
+        let mut all_rows: Vec<i32> = Vec::new();
+        let mut batches = 0;
+
+        while !portal.is_complete() {
+            portal.exec_foreach(conn, 3, |row: (i32,)| {
+                all_rows.push(row.0);
+                Ok(())
+            })?;
+            batches += 1;
+        }
+
+        assert_eq!(all_rows, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert_eq!(batches, 4); // 3+3+3+1 rows in 4 batches
 
         portal.close(conn)?;
         tx.commit(conn)

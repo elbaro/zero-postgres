@@ -78,7 +78,7 @@ impl Transaction {
     /// let mut portal = tx.exec_portal_named(&mut conn, &stmt, ())?;
     ///
     /// while !portal.is_complete() {
-    ///     let rows: Vec<(i32,)> = portal.execute_collect(&mut conn, 100)?;
+    ///     let rows: Vec<(i32,)> = portal.exec_collect(&mut conn, 100)?;
     ///     process(rows);
     /// }
     ///

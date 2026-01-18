@@ -6,5 +6,6 @@
 
 - [Connection](conn.md)
 - [Query](query.md)
+- [Data Type](datatype.md)
 - [Transaction](tx.md)
 - [Pipelining](pipelining.md)

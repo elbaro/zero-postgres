@@ -1170,7 +1170,7 @@ impl Conn {
     /// Execute a statement with iterative row fetching using a portal.
     ///
     /// Creates an unnamed portal and passes it to the closure. The closure can
-    /// call `portal.fetch(n, handler)` multiple times to retrieve rows in batches.
+    /// call `portal.exec(n, handler)` multiple times to retrieve rows in batches.
     /// Sync is called after the closure returns to end the implicit transaction.
     ///
     /// The statement can be either:
@@ -1182,7 +1182,7 @@ impl Conn {
     /// // Using prepared statement
     /// let stmt = conn.prepare("SELECT * FROM users")?;
     /// conn.exec_portal(&stmt, (), |portal| {
-    ///     while portal.fetch(100, &mut handler)? {
+    ///     while portal.exec(100, &mut handler)? {
     ///         // process handler.into_rows()...
     ///     }
     ///     Ok(())
@@ -1190,7 +1190,7 @@ impl Conn {
     ///
     /// // Using raw SQL
     /// conn.exec_portal("SELECT * FROM users", (), |portal| {
-    ///     while portal.fetch(100, &mut handler)? {
+    ///     while portal.exec(100, &mut handler)? {
     ///         // process handler.into_rows()...
     ///     }
     ///     Ok(())

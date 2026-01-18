@@ -4,13 +4,13 @@ use std::marker::PhantomData;
 
 use crate::conversion::FromRow;
 use crate::error::Result;
-use crate::handler::{CollectHandler, ExtendedHandler};
+use crate::handler::{CollectHandler, ExtendedHandler, ForEachHandler};
 
 use super::Conn;
 
 /// Handle to a named portal for async iterative row fetching.
 ///
-/// Created by [`Transaction::exec_portal()`]. Use [`execute()`](Self::execute) to retrieve rows
+/// Created by [`Transaction::exec_portal_named()`]. Use [`exec()`](Self::exec) to retrieve rows
 /// in batches. The lifetime parameter ties the portal to the transaction that created it,
 /// preventing the transaction from being committed/rolled back while the portal is alive.
 ///
@@ -18,10 +18,10 @@ use super::Conn;
 ///
 /// ```ignore
 /// conn.transaction(|conn, tx| async move {
-///     let mut portal = tx.exec_portal(conn, &stmt, ()).await?;
+///     let mut portal = tx.exec_portal_named(conn, &stmt, ()).await?;
 ///
 ///     while !portal.is_complete() {
-///         let rows: Vec<(i32,)> = portal.execute_collect(conn, 100).await?;
+///         let rows: Vec<(i32,)> = portal.exec_collect(conn, 100).await?;
 ///         process(rows);
 ///     }
 ///
@@ -59,7 +59,7 @@ impl<'tx> NamedPortal<'tx> {
     ///
     /// Fetches up to `max_rows` rows. Pass 0 to fetch all remaining rows.
     /// Updates internal completion status.
-    pub async fn execute<H: ExtendedHandler>(
+    pub async fn exec<H: ExtendedHandler>(
         &mut self,
         conn: &mut Conn,
         max_rows: u32,
@@ -73,14 +73,27 @@ impl<'tx> NamedPortal<'tx> {
     /// Execute the portal and collect typed rows.
     ///
     /// Fetches up to `max_rows` rows. Pass 0 to fetch all remaining rows.
-    pub async fn execute_collect<T: for<'a> FromRow<'a>>(
+    pub async fn exec_collect<T: for<'a> FromRow<'a>>(
         &mut self,
         conn: &mut Conn,
         max_rows: u32,
     ) -> Result<Vec<T>> {
         let mut handler = CollectHandler::<T>::new();
-        self.execute(conn, max_rows, &mut handler).await?;
+        self.exec(conn, max_rows, &mut handler).await?;
         Ok(handler.into_rows())
+    }
+
+    /// Execute the portal and call a closure for each row.
+    ///
+    /// Fetches up to `max_rows` rows. Pass 0 to fetch all remaining rows.
+    pub async fn exec_foreach<T: for<'a> FromRow<'a>, F: FnMut(T) -> Result<()>>(
+        &mut self,
+        conn: &mut Conn,
+        max_rows: u32,
+        f: F,
+    ) -> Result<()> {
+        let mut handler = ForEachHandler::<T, F>::new(f);
+        self.exec(conn, max_rows, &mut handler).await
     }
 
     /// Close the portal and sync.
