@@ -181,6 +181,37 @@ impl<T: ToParams + ?Sized> ToParams for &T {
     }
 }
 
+impl<T: ToWireValue> ToParams for [T] {
+    fn param_count(&self) -> usize {
+        self.len()
+    }
+
+    fn natural_oids(&self) -> Vec<Oid> {
+        self.iter().map(|v| v.natural_oid()).collect()
+    }
+
+    fn encode(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()> {
+        for (v, &oid) in self.iter().zip(target_oids) {
+            v.encode(oid, buf)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: ToWireValue> ToParams for Vec<T> {
+    fn param_count(&self) -> usize {
+        self.as_slice().param_count()
+    }
+
+    fn natural_oids(&self) -> Vec<Oid> {
+        self.as_slice().natural_oids()
+    }
+
+    fn encode(&self, target_oids: &[Oid], buf: &mut Vec<u8>) -> Result<()> {
+        self.as_slice().encode(target_oids, buf)
+    }
+}
+
 // Tuple implementations via macro
 macro_rules! impl_to_params {
     ($count:expr, $($idx:tt: $T:ident),+) => {
