@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.8.0](https://github.com/elbaro/zero-postgres/compare/v0.7.0...v0.8.0) - 2026-01-21
+
+### <!-- 0 -->New features
+- add tests for [T], Vec<T> params
+- Support [T], Vec<T> as parameters
+
+### <!-- 3 -->Documentation
+- revise data type page
+- data type conversion
+
 ## [v0.7.0](https://github.com/elbaro/zero-postgres/compare/v0.6.0...v0.7.0) - 2026-01-11
 
 ### <!-- 1 -->Bug fixes
