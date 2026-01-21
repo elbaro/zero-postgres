@@ -252,9 +252,47 @@ impl_to_params!(12, 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7, 8: T
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::types::oid;
 
     #[test]
     fn test_option_null() {
         assert_eq!(Option::<i32>::from_null().unwrap(), None);
+    }
+
+    #[test]
+    fn test_slice_to_params() {
+        let params: &[i32] = &[1, 2, 3];
+        assert_eq!(params.param_count(), 3);
+        assert_eq!(params.natural_oids(), vec![oid::INT4, oid::INT4, oid::INT4]);
+
+        let mut buf = Vec::new();
+        params
+            .encode(&[oid::INT4, oid::INT4, oid::INT4], &mut buf)
+            .unwrap();
+        // Each i32 is encoded as 4-byte length + 4-byte value
+        assert_eq!(buf.len(), 3 * 8);
+    }
+
+    #[test]
+    fn test_vec_to_params() {
+        let params: Vec<i64> = vec![10, 20];
+        assert_eq!(params.param_count(), 2);
+        assert_eq!(params.natural_oids(), vec![oid::INT8, oid::INT8]);
+
+        let mut buf = Vec::new();
+        params.encode(&[oid::INT8, oid::INT8], &mut buf).unwrap();
+        // Each i64 is encoded as 4-byte length + 8-byte value
+        assert_eq!(buf.len(), 2 * 12);
+    }
+
+    #[test]
+    fn test_empty_slice_to_params() {
+        let params: &[i32] = &[];
+        assert_eq!(params.param_count(), 0);
+        assert_eq!(params.natural_oids(), vec![]);
+
+        let mut buf = Vec::new();
+        params.encode(&[], &mut buf).unwrap();
+        assert!(buf.is_empty());
     }
 }
