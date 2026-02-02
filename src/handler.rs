@@ -232,6 +232,42 @@ impl<T: for<'a> FromRow<'a>, F: FnMut(T) -> Result<()>> ExtendedHandler for ForE
     }
 }
 
+/// A handler that calls a closure for each row using zero-copy RefFromRow.
+///
+/// Unlike `ForEachHandler`, this handler uses `RefFromRow` to decode rows
+/// as zero-copy references into the buffer. The closure receives a reference
+/// to the decoded struct.
+///
+/// # Requirements
+///
+/// - The row type must implement `RefFromRow`
+/// - All struct fields must use `LengthPrefixed<T>` with big-endian types
+/// - All columns must be `NOT NULL`
+pub struct ForEachRefHandler<Row, F> {
+    f: F,
+    _marker: std::marker::PhantomData<Row>,
+}
+
+impl<Row, F> ForEachRefHandler<Row, F> {
+    pub fn new(f: F) -> Self {
+        Self {
+            f,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<Row, F> ExtendedHandler for ForEachRefHandler<Row, F>
+where
+    Row: for<'a> crate::conversion::ref_row::RefFromRow<'a>,
+    F: for<'a> FnMut(&'a Row) -> Result<()>,
+{
+    fn row(&mut self, cols: RowDescription<'_>, row: DataRow<'_>) -> Result<()> {
+        let parsed = Row::ref_from_row_binary(cols.fields(), row)?;
+        (self.f)(parsed)
+    }
+}
+
 /// Handler for asynchronous messages from the server.
 ///
 /// These messages can arrive at any time during query execution:

@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, Meta, parse_macro_input};
+use syn::{Data, DeriveInput, Fields, Meta, parse_macro_input, spanned::Spanned};
 
 /// Derive macro for `FromRow` trait.
 ///
@@ -231,6 +231,141 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
                 Ok(Self {
                     #(#field_inits_binary),*
                 })
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+/// Derive macro for `RefFromRow` trait - zero-copy row decoding.
+///
+/// This macro generates a zero-copy implementation that returns a reference
+/// directly into the row buffer. It also derives zerocopy traits automatically.
+///
+/// # Requirements
+///
+/// - Struct must have `#[repr(C, packed)]` attribute
+/// - All fields must be `LengthPrefixed<T>` where `T` implements `FixedWireSize`
+/// - All columns must be `NOT NULL` (no `Option<T>` support)
+/// - Only works with binary format (extended queries)
+///
+/// # PostgreSQL Wire Format
+///
+/// PostgreSQL's binary protocol includes a 4-byte length prefix before each
+/// column value. Use `LengthPrefixed<T>` to account for this in the struct layout.
+///
+/// # Example
+///
+/// ```ignore
+/// use zero_postgres::conversion::ref_row::{RefFromRow, LengthPrefixed, I64BE, I32BE};
+///
+/// #[derive(RefFromRow)]
+/// #[repr(C, packed)]
+/// struct UserStats {
+///     user_id: LengthPrefixed<I64BE>,     // 4 + 8 = 12 bytes
+///     login_count: LengthPrefixed<I32BE>, // 4 + 4 = 8 bytes
+/// }
+/// // Total wire size: 20 bytes
+/// ```
+#[proc_macro_derive(RefFromRow)]
+pub fn derive_ref_from_row(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let name = &input.ident;
+
+    // Check for #[repr(C, packed)]
+    let has_repr_c_packed = input.attrs.iter().any(|attr| {
+        if !attr.path().is_ident("repr") {
+            return false;
+        }
+        let tokens = match &attr.meta {
+            Meta::List(list) => list.tokens.to_string(),
+            _ => return false,
+        };
+        tokens.contains("C") && tokens.contains("packed")
+    });
+
+    if !has_repr_c_packed {
+        return syn::Error::new(
+            input.ident.span(),
+            "RefFromRow requires #[repr(C, packed)] on the struct",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(fields) => &fields.named,
+            _ => {
+                return syn::Error::new(
+                    input.ident.span(),
+                    "RefFromRow only supports structs with named fields",
+                )
+                .to_compile_error()
+                .into();
+            }
+        },
+        _ => {
+            return syn::Error::new(input.ident.span(), "RefFromRow only supports structs")
+                .to_compile_error()
+                .into();
+        }
+    };
+
+    let field_types: Vec<_> = fields.iter().map(|f| &f.ty).collect();
+
+    // Generate compile-time assertions that all fields implement FixedWireSize
+    let wire_size_checks = field_types.iter().map(|ty| {
+        quote! {
+            const _: () = {
+                // This fails to compile if the type doesn't implement FixedWireSize
+                fn __assert_fixed_wire_size<T: ::zero_postgres::conversion::ref_row::FixedWireSize>() {}
+                fn __check() { __assert_fixed_wire_size::<#ty>(); }
+            };
+        }
+    });
+
+    // Calculate total wire size at compile time
+    let wire_size_sum = field_types.iter().map(|ty| {
+        quote! { <#ty as ::zero_postgres::conversion::ref_row::FixedWireSize>::WIRE_SIZE }
+    });
+
+    let expanded = quote! {
+        // Compile-time checks that all fields implement FixedWireSize
+        #(#wire_size_checks)*
+
+        // Derive zerocopy traits for zero-copy access
+        unsafe impl ::zerocopy::KnownLayout for #name {}
+        unsafe impl ::zerocopy::Immutable for #name {}
+        unsafe impl ::zerocopy::FromBytes for #name {}
+
+        impl<'a> ::zero_postgres::conversion::ref_row::RefFromRow<'a> for #name {
+            fn ref_from_row_binary(
+                _cols: &[::zero_postgres::protocol::backend::query::FieldDescription],
+                row: ::zero_postgres::protocol::backend::query::DataRow<'a>,
+            ) -> ::zero_postgres::Result<&'a Self> {
+                // Expected size (includes length prefixes via LengthPrefixed<T>)
+                const EXPECTED_SIZE: usize = 0 #(+ #wire_size_sum)*;
+
+                // Get raw data including length prefixes
+                let data = row.raw_data();
+
+                if data.len() < EXPECTED_SIZE {
+                    return Err(::zero_postgres::Error::Decode(
+                        format!(
+                            "Row data too small: expected {} bytes, got {}",
+                            EXPECTED_SIZE,
+                            data.len()
+                        )
+                    ));
+                }
+
+                ::zerocopy::FromBytes::ref_from_bytes(&data[..EXPECTED_SIZE])
+                    .map_err(|e| ::zero_postgres::Error::Decode(
+                        format!("RefFromRow zerocopy error: {:?}", e)
+                    ))
             }
         }
     };

@@ -173,6 +173,14 @@ impl<'a> DataRow<'a> {
     pub fn get(&self, index: usize) -> Option<Option<&'a [u8]>> {
         self.iter().nth(index)
     }
+
+    /// Get raw column data including length prefixes.
+    ///
+    /// Format: `[len1: i32][data1][len2: i32][data2]...`
+    /// where `len == -1` indicates NULL.
+    pub fn raw_data(&self) -> &'a [u8] {
+        self.columns_data
+    }
 }
 
 /// Iterator over column values in a DataRow.

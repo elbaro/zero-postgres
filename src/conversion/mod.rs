@@ -6,6 +6,7 @@
 mod bytes;
 mod numeric_util;
 mod primitives;
+pub mod ref_row;
 mod row;
 mod string;
 

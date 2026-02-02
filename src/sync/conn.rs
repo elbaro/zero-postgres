@@ -697,6 +697,54 @@ impl Conn {
         Ok(())
     }
 
+    /// Execute a statement and call a closure for each row using zero-copy decoding.
+    ///
+    /// Unlike `exec_foreach`, this method uses `RefFromRow` to decode rows as zero-copy
+    /// references directly into the buffer. The closure receives a reference to the
+    /// decoded struct.
+    ///
+    /// The statement can be either a `&PreparedStatement` or a raw SQL `&str`.
+    ///
+    /// # Requirements
+    ///
+    /// - The row type must derive `RefFromRow`
+    /// - The struct must have `#[repr(C, packed)]`
+    /// - All fields must use `LengthPrefixed<T>` with big-endian types (e.g., `LengthPrefixed<I64BE>`)
+    /// - All columns must be `NOT NULL`
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use zero_postgres::conversion::ref_row::{RefFromRow, LengthPrefixed, I64BE, I32BE};
+    ///
+    /// #[derive(RefFromRow)]
+    /// #[repr(C, packed)]
+    /// struct UserStats {
+    ///     user_id: LengthPrefixed<I64BE>,
+    ///     login_count: LengthPrefixed<I32BE>,
+    /// }
+    ///
+    /// conn.exec_foreach_ref::<UserStats, _, _, _>(&stmt, (), |row| {
+    ///     println!("user_id: {}", row.user_id.get().get());
+    ///     Ok(())
+    /// })?;
+    /// ```
+    pub fn exec_foreach_ref<
+        T: for<'a> crate::conversion::ref_row::RefFromRow<'a>,
+        S: IntoStatement,
+        P: ToParams,
+        F: for<'a> FnMut(&'a T) -> Result<()>,
+    >(
+        &mut self,
+        statement: S,
+        params: P,
+        f: F,
+    ) -> Result<()> {
+        let mut handler = crate::handler::ForEachRefHandler::<T, F>::new(f);
+        self.exec(statement, params, &mut handler)?;
+        Ok(())
+    }
+
     /// Execute a statement with multiple parameter sets in a batch.
     ///
     /// This is more efficient than calling `exec_drop` multiple times as it
