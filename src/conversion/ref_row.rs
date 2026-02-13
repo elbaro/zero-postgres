@@ -17,18 +17,10 @@
 //! - Struct must use `#[repr(C, packed)]` for predictable layout
 //! - Fields must use `LengthPrefixed<T>` with big-endian types
 //!
-//! # Example
+//! # Compile-time Safety
 //!
-//! ```ignore
-//! use zero_postgres::conversion::ref_row::{RefFromRow, LengthPrefixed, I64BE, I32BE};
-//!
-//! #[derive(RefFromRow)]
-//! #[repr(C, packed)]
-//! struct UserStats {
-//!     user_id: LengthPrefixed<I64BE>,   // 4 + 8 = 12 bytes
-//!     login_count: LengthPrefixed<I32BE>, // 4 + 4 = 8 bytes
-//! }
-//! ```
+//! The derive macro enforces that all fields implement `FixedWireSize` at compile time.
+//! Variable-length types like `String` or `Vec<T>` will cause a compilation error.
 
 use zerocopy::{FromBytes, Immutable, KnownLayout};
 
