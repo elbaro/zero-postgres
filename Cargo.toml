@@ -23,6 +23,8 @@ with-time = ["dep:time"]
 with-chrono = ["dep:chrono"]
 with-rust-decimal = ["dep:rust_decimal"]
 lowlevel = []
+experimental-compio = ["dep:compio"]
+compio-tls = ["dep:compio-tls", "dep:native-tls"]
 
 [dependencies]
 thiserror = "2"
@@ -34,6 +36,8 @@ tokio = { version = "1", features = [
 ], optional = true }
 native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
+compio = { version = "0.18", features = ["io", "net", "runtime", "macros"], optional = true }
+compio-tls = { version = "0.9", optional = true }
 zerocopy = { version = "0.8", features = ["derive"] }
 sha2 = "0.10"
 hmac = "0.12"
@@ -63,6 +67,10 @@ tokio = { version = "1", features = ["rt", "macros"] }
 tokio-postgres = "0.7"
 postgres = "0.19"
 trybuild = "1"
+
+[[example]]
+name = "bench_zero_compio"
+required-features = ["experimental-compio"]
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

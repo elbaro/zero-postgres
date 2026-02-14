@@ -13,6 +13,7 @@ Python binding: [pyro-postgres](https://github.com/elbaro/pyro-postgres/).
 - `tokio` (default) - Asynchronous API using tokio
 - `sync-tls` - TLS support for Synchronous API (experimental)
 - `tokio-tls` - TLS support for Asynchronous API (experimental)
+- `experimental-compio` - Experimental feature flag reserved for future compio runtime support
 
 ## Benchmark
 

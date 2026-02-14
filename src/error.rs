@@ -189,7 +189,7 @@ pub enum Error {
     Auth(String),
 
     /// TLS error
-    #[cfg(any(feature = "sync-tls", feature = "tokio-tls"))]
+    #[cfg(any(feature = "sync-tls", feature = "tokio-tls", feature = "compio-tls"))]
     #[error("TLS error: {0}")]
     Tls(#[from] native_tls::Error),
 

@@ -52,6 +52,9 @@ pub mod sync;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
+#[cfg(feature = "experimental-compio")]
+pub mod compio;
+
 #[cfg(feature = "derive")]
 pub use zero_postgres_derive as r#macro;
 

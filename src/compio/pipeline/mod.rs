@@ -1,0 +1,522 @@
+//! Async pipeline mode for batching multiple queries.
+
+use compio::buf::BufResult;
+use std::collections::VecDeque;
+
+use crate::pipeline::Expectation;
+use crate::pipeline::Ticket;
+
+use crate::conversion::{FromRow, ToParams};
+use crate::error::{Error, Result};
+use crate::handler::ExtendedHandler;
+use crate::protocol::backend::{
+    BindComplete, CommandComplete, DataRow, EmptyQueryResponse, ErrorResponse, NoData,
+    ParseComplete, RawMessage, ReadyForQuery, RowDescription, msg_type,
+};
+use crate::protocol::frontend::{
+    write_bind, write_describe_portal, write_execute, write_flush, write_parse, write_sync,
+};
+use crate::state::extended::PreparedStatement;
+use crate::statement::IntoStatement;
+
+use super::conn::Conn;
+
+/// Async pipeline mode for batching multiple queries.
+///
+/// Created by [`Conn::pipeline`].
+pub struct Pipeline<'a> {
+    conn: &'a mut Conn,
+    /// Monotonically increasing counter for queued operations
+    queue_seq: usize,
+    /// Next sequence number to claim
+    claim_seq: usize,
+    /// Whether the pipeline is in aborted state (error occurred)
+    aborted: bool,
+    /// Buffer for column descriptions during row processing
+    column_buffer: Vec<u8>,
+    /// Expected responses queue (exec operations and Sync points)
+    expectations: VecDeque<Expectation>,
+}
+
+impl<'a> Pipeline<'a> {
+    /// Create a new pipeline.
+    ///
+    /// Prefer using [`Conn::pipeline`] which handles cleanup automatically.
+    /// This constructor is available for advanced use cases.
+    #[cfg(feature = "lowlevel")]
+    pub fn new(conn: &'a mut Conn) -> Self {
+        Self::new_inner(conn)
+    }
+
+    /// Create a new pipeline (internal).
+    pub(crate) fn new_inner(conn: &'a mut Conn) -> Self {
+        conn.buffer_set.write_buffer.clear();
+        Self {
+            conn,
+            queue_seq: 0,
+            claim_seq: 0,
+            aborted: false,
+            column_buffer: Vec::new(),
+            expectations: VecDeque::new(),
+        }
+    }
+
+    /// Cleanup the pipeline, draining any unclaimed tickets.
+    #[cfg(feature = "lowlevel")]
+    pub async fn cleanup(&mut self) {
+        self.cleanup_inner().await;
+    }
+
+    #[cfg(not(feature = "lowlevel"))]
+    pub(crate) async fn cleanup(&mut self) {
+        self.cleanup_inner().await;
+    }
+
+    async fn cleanup_inner(&mut self) {
+        // Nothing to clean up if no operations were queued and no expectations pending
+        if self.queue_seq == 0 && self.expectations.is_empty() {
+            return;
+        }
+
+        // Send sync if we have pending operations that weren't synced
+        if !self.conn.buffer_set.write_buffer.is_empty() {
+            let _ = self.sync().await;
+        } else if !self.expectations.iter().any(|e| *e == Expectation::Sync) {
+            // Buffer was flushed but no sync sent - send one now
+            let _ = self.sync().await;
+        }
+
+        // Drain remaining expectations
+        if self.aborted {
+            // In aborted state, server skipped remaining commands - only consume ReadyForQuery(s)
+            while let Some(expectation) = self.expectations.pop_front() {
+                if expectation == Expectation::Sync {
+                    let _ = self.consume_ready_for_query().await;
+                }
+            }
+        } else {
+            // Normal drain: process all expectations
+            while let Some(expectation) = self.expectations.pop_front() {
+                let _ = self.drain_expectation(expectation).await;
+            }
+        }
+
+        // Reset state
+        self.queue_seq = 0;
+        self.claim_seq = 0;
+        self.aborted = false;
+    }
+
+    /// Drain a single expectation.
+    async fn drain_expectation(&mut self, expectation: Expectation) {
+        let mut handler = crate::handler::DropHandler::new();
+        let _ = match expectation {
+            Expectation::ParseBindExecute => self.claim_parse_bind_exec_inner(&mut handler).await,
+            Expectation::BindExecute => self.claim_bind_exec_inner(&mut handler, None).await,
+            Expectation::Sync => self.consume_ready_for_query().await,
+        };
+    }
+
+    // ========================================================================
+    // Queue Operations
+    // ========================================================================
+
+    /// Queue a statement execution.
+    pub fn exec<'s, P: ToParams>(
+        &mut self,
+        statement: &'s (impl IntoStatement + ?Sized),
+        params: P,
+    ) -> Result<Ticket<'s>> {
+        let seq = self.queue_seq;
+        self.queue_seq += 1;
+
+        if statement.needs_parse() {
+            self.exec_sql_inner(statement.as_sql().unwrap(), &params)?;
+            Ok(Ticket { seq, stmt: None })
+        } else {
+            let stmt = statement.as_prepared().unwrap();
+            self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)?;
+            Ok(Ticket {
+                seq,
+                stmt: Some(stmt),
+            })
+        }
+    }
+
+    fn exec_sql_inner<P: ToParams>(&mut self, sql: &str, params: &P) -> Result<()> {
+        let param_oids = params.natural_oids();
+        let buf = &mut self.conn.buffer_set.write_buffer;
+        write_parse(buf, "", sql, &param_oids);
+        write_bind(buf, "", "", params, &param_oids)?;
+        write_describe_portal(buf, "");
+        write_execute(buf, "", 0);
+        self.expectations.push_back(Expectation::ParseBindExecute);
+        Ok(())
+    }
+
+    fn exec_prepared_inner<P: ToParams>(
+        &mut self,
+        stmt_name: &str,
+        param_oids: &[u32],
+        params: &P,
+    ) -> Result<()> {
+        let buf = &mut self.conn.buffer_set.write_buffer;
+        write_bind(buf, "", stmt_name, params, param_oids)?;
+        // Skip write_describe_portal - use cached RowDescription from PreparedStatement
+        write_execute(buf, "", 0);
+        self.expectations.push_back(Expectation::BindExecute);
+        Ok(())
+    }
+
+    /// Send a FLUSH message to trigger server response.
+    pub async fn flush(&mut self) -> Result<()> {
+        if !self.conn.buffer_set.write_buffer.is_empty() {
+            write_flush(&mut self.conn.buffer_set.write_buffer);
+            let buf = std::mem::take(&mut self.conn.buffer_set.write_buffer);
+            let BufResult(result, buf) = self.conn.stream.write_all_owned(buf).await;
+            self.conn.buffer_set.write_buffer = buf;
+            result?;
+            self.conn.stream.flush().await?;
+            self.conn.buffer_set.write_buffer.clear();
+        }
+        Ok(())
+    }
+
+    /// Send a SYNC message to establish a transaction boundary.
+    pub async fn sync(&mut self) -> Result<()> {
+        let result = self.sync_inner().await;
+        if let Err(e) = &result
+            && e.is_connection_broken()
+        {
+            self.conn.is_broken = true;
+        }
+        result
+    }
+
+    async fn sync_inner(&mut self) -> Result<()> {
+        write_sync(&mut self.conn.buffer_set.write_buffer);
+        self.expectations.push_back(Expectation::Sync);
+        let buf = std::mem::take(&mut self.conn.buffer_set.write_buffer);
+        let BufResult(result, buf) = self.conn.stream.write_all_owned(buf).await;
+        self.conn.buffer_set.write_buffer = buf;
+        result?;
+        self.conn.stream.flush().await?;
+        self.conn.buffer_set.write_buffer.clear();
+        Ok(())
+    }
+
+    /// Consume a single ReadyForQuery message.
+    async fn consume_ready_for_query(&mut self) -> Result<()> {
+        loop {
+            self.conn
+                .stream
+                .read_message(&mut self.conn.buffer_set)
+                .await?;
+            let type_byte = self.conn.buffer_set.type_byte;
+
+            if RawMessage::is_async_type(type_byte) {
+                continue;
+            }
+
+            if type_byte == msg_type::ERROR_RESPONSE {
+                let error = ErrorResponse::parse(&self.conn.buffer_set.read_buffer)?;
+                return Err(error.into_error());
+            }
+
+            if type_byte == msg_type::READY_FOR_QUERY {
+                let ready = ReadyForQuery::parse(&self.conn.buffer_set.read_buffer)?;
+                self.conn.transaction_status = ready.transaction_status().unwrap_or_default();
+                return Ok(());
+            }
+        }
+    }
+
+    /// Consume all pending Sync expectations from the front of the queue.
+    async fn consume_pending_syncs(&mut self) -> Result<()> {
+        while self.expectations.front() == Some(&Expectation::Sync) {
+            self.expectations.pop_front();
+            self.consume_ready_for_query().await?;
+            // Reset aborted state - after ReadyForQuery, pipeline can continue
+            self.aborted = false;
+        }
+        Ok(())
+    }
+
+    // ========================================================================
+    // Claim Operations
+    // ========================================================================
+
+    /// Claim with a custom handler.
+    #[cfg(feature = "lowlevel")]
+    pub async fn claim<H: ExtendedHandler>(
+        &mut self,
+        ticket: Ticket<'_>,
+        handler: &mut H,
+    ) -> Result<()> {
+        self.claim_with_handler(ticket, handler).await
+    }
+
+    async fn claim_with_handler<H: ExtendedHandler>(
+        &mut self,
+        ticket: Ticket<'_>,
+        handler: &mut H,
+    ) -> Result<()> {
+        self.check_sequence(ticket.seq)?;
+
+        // Auto-sync if buffer has unsent data
+        if !self.conn.buffer_set.write_buffer.is_empty() {
+            self.sync().await?;
+        }
+
+        if self.aborted {
+            self.claim_seq += 1;
+            // Pop but don't process the exec expectation (server skipped it)
+            self.expectations.pop_front();
+            self.consume_pending_syncs().await?;
+            return Err(Error::Protocol(
+                "pipeline aborted due to earlier error".into(),
+            ));
+        }
+
+        let expectation = self.expectations.pop_front();
+
+        let result = match expectation {
+            Some(Expectation::ParseBindExecute) => self.claim_parse_bind_exec_inner(handler).await,
+            Some(Expectation::BindExecute) => {
+                self.claim_bind_exec_inner(handler, ticket.stmt).await
+            }
+            Some(Expectation::Sync) => Err(Error::Protocol("unexpected Sync expectation".into())),
+            None => Err(Error::Protocol("no expectation in queue".into())),
+        };
+
+        if let Err(e) = &result {
+            if e.is_connection_broken() {
+                self.conn.is_broken = true;
+            }
+            self.aborted = true;
+        }
+        self.claim_seq += 1;
+        self.consume_pending_syncs().await?;
+        result
+    }
+
+    /// Claim and collect all rows.
+    pub async fn claim_collect<T: for<'b> FromRow<'b>>(
+        &mut self,
+        ticket: Ticket<'_>,
+    ) -> Result<Vec<T>> {
+        let mut handler = crate::handler::CollectHandler::<T>::new();
+        self.claim_with_handler(ticket, &mut handler).await?;
+        Ok(handler.into_rows())
+    }
+
+    /// Claim and return just the first row.
+    pub async fn claim_one<T: for<'b> FromRow<'b>>(
+        &mut self,
+        ticket: Ticket<'_>,
+    ) -> Result<Option<T>> {
+        let mut handler = crate::handler::FirstRowHandler::<T>::new();
+        self.claim_with_handler(ticket, &mut handler).await?;
+        Ok(handler.into_row())
+    }
+
+    /// Claim and discard all rows.
+    pub async fn claim_drop(&mut self, ticket: Ticket<'_>) -> Result<()> {
+        let mut handler = crate::handler::DropHandler::new();
+        self.claim_with_handler(ticket, &mut handler).await
+    }
+
+    /// Check that the ticket sequence matches the expected claim sequence.
+    fn check_sequence(&self, seq: usize) -> Result<()> {
+        if seq != self.claim_seq {
+            return Err(Error::InvalidUsage(format!(
+                "claim out of order: expected seq {}, got {}",
+                self.claim_seq, seq
+            )));
+        }
+        Ok(())
+    }
+
+    /// Claim Parse + Bind + Execute (for raw SQL exec() calls).
+    async fn claim_parse_bind_exec_inner<H: ExtendedHandler>(
+        &mut self,
+        handler: &mut H,
+    ) -> Result<()> {
+        // Expect: ParseComplete
+        self.read_next_message().await?;
+        if self.conn.buffer_set.type_byte != msg_type::PARSE_COMPLETE {
+            return self.unexpected_message("ParseComplete");
+        }
+        ParseComplete::parse(&self.conn.buffer_set.read_buffer)?;
+
+        // Expect: BindComplete
+        self.read_next_message().await?;
+        if self.conn.buffer_set.type_byte != msg_type::BIND_COMPLETE {
+            return self.unexpected_message("BindComplete");
+        }
+        BindComplete::parse(&self.conn.buffer_set.read_buffer)?;
+
+        // Now read rows
+        self.claim_rows_inner(handler).await
+    }
+
+    /// Claim Bind + Execute (for prepared statement exec() calls).
+    async fn claim_bind_exec_inner<H: ExtendedHandler>(
+        &mut self,
+        handler: &mut H,
+        stmt: Option<&PreparedStatement>,
+    ) -> Result<()> {
+        // Expect: BindComplete
+        self.read_next_message().await?;
+        if self.conn.buffer_set.type_byte != msg_type::BIND_COMPLETE {
+            return self.unexpected_message("BindComplete");
+        }
+        BindComplete::parse(&self.conn.buffer_set.read_buffer)?;
+
+        // Use cached RowDescription from PreparedStatement (no copy)
+        let row_desc = stmt.and_then(|s| s.row_desc_payload());
+
+        // Now read rows (no RowDescription/NoData expected from server)
+        self.claim_rows_cached_inner(handler, row_desc).await
+    }
+
+    /// Common row reading logic (reads RowDescription from server).
+    async fn claim_rows_inner<H: ExtendedHandler>(&mut self, handler: &mut H) -> Result<()> {
+        // Expect RowDescription or NoData
+        self.read_next_message().await?;
+        let has_rows = match self.conn.buffer_set.type_byte {
+            msg_type::ROW_DESCRIPTION => {
+                self.column_buffer.clear();
+                self.column_buffer
+                    .extend_from_slice(&self.conn.buffer_set.read_buffer);
+                true
+            }
+            msg_type::NO_DATA => {
+                NoData::parse(&self.conn.buffer_set.read_buffer)?;
+                // No rows will follow, but we still need terminal message
+                false
+            }
+            _ => {
+                return Err(Error::Protocol(format!(
+                    "expected RowDescription or NoData, got '{}'",
+                    self.conn.buffer_set.type_byte as char
+                )));
+            }
+        };
+
+        // Read data rows until terminal message
+        loop {
+            self.read_next_message().await?;
+            let type_byte = self.conn.buffer_set.type_byte;
+
+            match type_byte {
+                msg_type::DATA_ROW => {
+                    if !has_rows {
+                        return Err(Error::Protocol(
+                            "received DataRow but no RowDescription".into(),
+                        ));
+                    }
+                    let cols = RowDescription::parse(&self.column_buffer)?;
+                    let row = DataRow::parse(&self.conn.buffer_set.read_buffer)?;
+                    handler.row(cols, row)?;
+                }
+                msg_type::COMMAND_COMPLETE => {
+                    let cmd = CommandComplete::parse(&self.conn.buffer_set.read_buffer)?;
+                    handler.result_end(cmd)?;
+                    return Ok(());
+                }
+                msg_type::EMPTY_QUERY_RESPONSE => {
+                    EmptyQueryResponse::parse(&self.conn.buffer_set.read_buffer)?;
+                    return Ok(());
+                }
+                _ => {
+                    return Err(Error::Protocol(format!(
+                        "unexpected message type in pipeline claim: '{}'",
+                        type_byte as char
+                    )));
+                }
+            }
+        }
+    }
+
+    /// Row reading logic with cached RowDescription (no server message expected).
+    async fn claim_rows_cached_inner<H: ExtendedHandler>(
+        &mut self,
+        handler: &mut H,
+        row_desc: Option<&[u8]>,
+    ) -> Result<()> {
+        // Read data rows until terminal message
+        loop {
+            self.read_next_message().await?;
+            let type_byte = self.conn.buffer_set.type_byte;
+
+            match type_byte {
+                msg_type::DATA_ROW => {
+                    let row_desc = row_desc.ok_or_else(|| {
+                        Error::Protocol("received DataRow but no RowDescription cached".into())
+                    })?;
+                    let cols = RowDescription::parse(row_desc)?;
+                    let row = DataRow::parse(&self.conn.buffer_set.read_buffer)?;
+                    handler.row(cols, row)?;
+                }
+                msg_type::COMMAND_COMPLETE => {
+                    let cmd = CommandComplete::parse(&self.conn.buffer_set.read_buffer)?;
+                    handler.result_end(cmd)?;
+                    return Ok(());
+                }
+                msg_type::EMPTY_QUERY_RESPONSE => {
+                    EmptyQueryResponse::parse(&self.conn.buffer_set.read_buffer)?;
+                    return Ok(());
+                }
+                _ => {
+                    return Err(Error::Protocol(format!(
+                        "unexpected message type in pipeline claim: '{}'",
+                        type_byte as char
+                    )));
+                }
+            }
+        }
+    }
+
+    /// Read the next message, skipping async messages and handling errors.
+    async fn read_next_message(&mut self) -> Result<()> {
+        loop {
+            self.conn
+                .stream
+                .read_message(&mut self.conn.buffer_set)
+                .await?;
+            let type_byte = self.conn.buffer_set.type_byte;
+
+            // Handle async messages
+            if RawMessage::is_async_type(type_byte) {
+                continue;
+            }
+
+            // Handle error
+            if type_byte == msg_type::ERROR_RESPONSE {
+                let error = ErrorResponse::parse(&self.conn.buffer_set.read_buffer)?;
+                return Err(error.into_error());
+            }
+
+            return Ok(());
+        }
+    }
+
+    /// Create an error for unexpected message type.
+    fn unexpected_message<T>(&self, expected: &str) -> Result<T> {
+        Err(Error::Protocol(format!(
+            "expected {}, got '{}'",
+            expected, self.conn.buffer_set.type_byte as char
+        )))
+    }
+
+    /// Returns the number of operations that have been queued but not yet claimed.
+    pub fn pending_count(&self) -> usize {
+        self.queue_seq - self.claim_seq
+    }
+
+    /// Returns true if the pipeline is in aborted state due to an error.
+    pub fn is_aborted(&self) -> bool {
+        self.aborted
+    }
+}
