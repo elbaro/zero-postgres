@@ -55,6 +55,9 @@ pub mod tokio;
 #[cfg(feature = "experimental-compio")]
 pub mod compio;
 
+#[cfg(feature = "experimental-diesel")]
+pub mod diesel;
+
 #[cfg(feature = "derive")]
 pub use zero_postgres_derive as r#macro;
 

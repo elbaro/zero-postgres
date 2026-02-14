@@ -25,6 +25,7 @@ with-rust-decimal = ["dep:rust_decimal"]
 lowlevel = []
 experimental-compio = ["dep:compio"]
 compio-tls = ["dep:compio-tls", "dep:native-tls"]
+experimental-diesel = ["dep:diesel", "sync"]
 
 [dependencies]
 thiserror = "2"
@@ -61,6 +62,10 @@ rust_decimal = { version = "1", optional = true }
 no-panic = "0.1.35"
 log = "0.4.29"
 zero-postgres-derive = { version = "0.1", path = "zero-postgres-derive", optional = true }
+diesel = { version = "2.2", features = [
+  "postgres_backend",
+  "i-implement-a-third-party-backend-and-opt-into-breaking-changes",
+], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }
