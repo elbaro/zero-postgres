@@ -14,6 +14,7 @@ Python binding: [pyro-postgres](https://github.com/elbaro/pyro-postgres/).
 - `sync-tls` - TLS support for Synchronous API (experimental)
 - `tokio-tls` - TLS support for Asynchronous API (experimental)
 - `experimental-compio` - Experimental feature flag reserved for future compio runtime support
+- `experimental-diesel` - Diesel ORM backend using zero-postgres as the underlying connection (experimental)
 
 ## Benchmark
 
