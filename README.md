@@ -14,7 +14,7 @@ Python binding: [pyro-postgres](https://github.com/elbaro/pyro-postgres/).
 - `sync-tls` - TLS support for Synchronous API (experimental)
 - `tokio-tls` - TLS support for Asynchronous API (experimental)
 - `experimental-compio` - Experimental feature flag reserved for future compio runtime support
-- `experimental-diesel` - Diesel ORM backend using zero-postgres as the underlying connection (experimental)
+- `experimental-diesel` - Diesel ORM backend using zero-postgres as the underlying connection
 
 ## Benchmark
 
@@ -28,9 +28,3 @@ Inserting 10,000 rows using prepared statements (average of 10 iterations):
 | postgres (sync)       | 422.61        |
 
 Run benchmarks: `cargo run --release --example bench_zero_sync`
-
-More tests and proper benchmarks will be added via pyro-postgres.
-
-## Status
-
-- todo: cleanup, more tests, more data conversion

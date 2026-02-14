@@ -799,7 +799,7 @@ impl Conn {
 
     /// Low-level sync: send SYNC and receive ReadyForQuery.
     pub async fn lowlevel_sync(&mut self) -> Result<()> {
-        let result = self.lowlevel_sync_inner().await;
+        let result = self.sync_inner().await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {
@@ -808,7 +808,7 @@ impl Conn {
         result
     }
 
-    async fn lowlevel_sync_inner(&mut self) -> Result<()> {
+    pub(crate) async fn sync_inner(&mut self) -> Result<()> {
         use crate::protocol::backend::{ErrorResponse, RawMessage, ReadyForQuery, msg_type};
         use crate::protocol::frontend::write_sync;
 
@@ -858,9 +858,7 @@ impl Conn {
         statement_name: &str,
         params: P,
     ) -> Result<()> {
-        let result = self
-            .lowlevel_bind_inner(portal, statement_name, &params)
-            .await;
+        let result = self.bind_inner(portal, statement_name, &params).await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {
@@ -869,7 +867,7 @@ impl Conn {
         result
     }
 
-    async fn lowlevel_bind_inner<P: ToParams>(
+    pub(crate) async fn bind_inner<P: ToParams>(
         &mut self,
         portal: &str,
         statement_name: &str,
@@ -929,7 +927,7 @@ impl Conn {
         max_rows: u32,
         handler: &mut H,
     ) -> Result<bool> {
-        let result = self.lowlevel_execute_inner(portal, max_rows, handler).await;
+        let result = self.execute_portal_inner(portal, max_rows, handler).await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {
@@ -938,7 +936,7 @@ impl Conn {
         result
     }
 
-    async fn lowlevel_execute_inner<H: ExtendedHandler>(
+    pub(crate) async fn execute_portal_inner<H: ExtendedHandler>(
         &mut self,
         portal: &str,
         max_rows: u32,
@@ -1084,7 +1082,7 @@ impl Conn {
         let result = f(&mut portal).await;
 
         // Always sync to end implicit transaction (even on error)
-        let sync_result = portal.conn.lowlevel_sync().await;
+        let sync_result = portal.conn.sync_inner().await;
 
         // Return closure result, or sync error if closure succeeded but sync failed
         match (result, sync_result) {
@@ -1096,7 +1094,7 @@ impl Conn {
 
     /// Low-level close portal: send Close(Portal) and receive CloseComplete.
     pub async fn lowlevel_close_portal(&mut self, portal: &str) -> Result<()> {
-        let result = self.lowlevel_close_portal_inner(portal).await;
+        let result = self.close_portal_inner(portal).await;
         if let Err(e) = &result
             && e.is_connection_broken()
         {
@@ -1105,7 +1103,7 @@ impl Conn {
         result
     }
 
-    async fn lowlevel_close_portal_inner(&mut self, portal: &str) -> Result<()> {
+    pub(crate) async fn close_portal_inner(&mut self, portal: &str) -> Result<()> {
         use crate::protocol::backend::{CloseComplete, ErrorResponse, RawMessage, msg_type};
         use crate::protocol::frontend::{write_close_portal, write_flush};
 

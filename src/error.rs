@@ -3,6 +3,13 @@
 use std::collections::HashMap;
 use thiserror::Error;
 
+// When only compio-tls is enabled, native_tls is available through compio's re-export.
+#[cfg(all(
+    feature = "compio-tls",
+    not(any(feature = "sync-tls", feature = "tokio-tls"))
+))]
+use compio::native_tls;
+
 /// Result type for zero-postgres operations.
 pub type Result<T> = core::result::Result<T, Error>;
 

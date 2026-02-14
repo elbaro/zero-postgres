@@ -23,7 +23,7 @@ impl<'a> UnnamedPortal<'a> {
         max_rows: u32,
         handler: &mut H,
     ) -> Result<bool> {
-        self.conn.lowlevel_execute("", max_rows, handler).await
+        self.conn.execute_portal_inner("", max_rows, handler).await
     }
 
     /// Execute the portal and call a closure for each row.

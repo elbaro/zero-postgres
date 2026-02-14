@@ -49,7 +49,9 @@ impl<'tx> NamedPortal<'tx> {
         max_rows: u32,
         handler: &mut H,
     ) -> Result<()> {
-        let has_more = conn.lowlevel_execute(&self.name, max_rows, handler).await?;
+        let has_more = conn
+            .execute_portal_inner(&self.name, max_rows, handler)
+            .await?;
         self.complete = !has_more;
         Ok(())
     }
@@ -82,7 +84,7 @@ impl<'tx> NamedPortal<'tx> {
 
     /// Close the portal and sync.
     pub async fn close(self, conn: &mut Conn) -> Result<()> {
-        conn.lowlevel_close_portal(&self.name).await?;
-        conn.lowlevel_sync().await
+        conn.close_portal_inner(&self.name).await?;
+        conn.sync_inner().await
     }
 }
