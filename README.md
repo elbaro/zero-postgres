@@ -9,6 +9,7 @@ Python binding: [pyro-postgres](https://github.com/elbaro/pyro-postgres/).
 
 ## Feature Flags
 
+- `derive` (default): `#[derive(FromRow)]` and `#[derive(RefFromRow)]` macros
 - `sync` (default) - Synchronous API
 - `tokio` (default) - Asynchronous API using tokio
 - `compio` - Asynchronous API using compio (experimental)
