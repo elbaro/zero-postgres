@@ -52,10 +52,10 @@ pub mod sync;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
-#[cfg(feature = "experimental-compio")]
+#[cfg(feature = "compio")]
 pub mod compio;
 
-#[cfg(feature = "experimental-diesel")]
+#[cfg(feature = "diesel")]
 pub mod diesel;
 
 #[cfg(feature = "derive")]

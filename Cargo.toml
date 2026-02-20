@@ -23,9 +23,9 @@ with-time = ["dep:time"]
 with-chrono = ["dep:chrono"]
 with-rust-decimal = ["dep:rust_decimal"]
 lowlevel = []
-experimental-compio = ["dep:compio"]
+compio = ["dep:compio"]
 compio-tls = ["compio/native-tls"]
-experimental-diesel = ["dep:diesel", "sync"]
+diesel = ["dep:diesel", "sync"]
 
 [dependencies]
 thiserror = "2"
@@ -74,7 +74,7 @@ trybuild = "1"
 
 [[example]]
 name = "bench_zero_compio"
-required-features = ["experimental-compio"]
+required-features = ["compio"]
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

@@ -1,6 +1,6 @@
 //! Integration tests for the async Pipeline API (compio).
 
-#![cfg(feature = "experimental-compio")]
+#![cfg(feature = "compio")]
 
 use std::env;
 use zero_postgres::compio::Conn;

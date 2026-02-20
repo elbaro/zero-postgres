@@ -1,6 +1,6 @@
 //! Tests for async transaction behavior (compio)
 
-#![cfg(feature = "experimental-compio")]
+#![cfg(feature = "compio")]
 
 use std::env;
 use std::sync::atomic::{AtomicU32, Ordering};

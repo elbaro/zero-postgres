@@ -1,6 +1,6 @@
 //! Tests for async exec_portal and UnnamedPortal (compio)
 
-#![cfg(feature = "experimental-compio")]
+#![cfg(feature = "compio")]
 
 use std::env;
 use zero_postgres::compio::Conn;

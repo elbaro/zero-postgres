@@ -1,6 +1,6 @@
 //! Tests for the diesel integration.
 
-#![cfg(feature = "experimental-diesel")]
+#![cfg(feature = "diesel")]
 
 use std::env;
 use std::sync::atomic::{AtomicU32, Ordering};
