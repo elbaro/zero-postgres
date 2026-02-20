@@ -37,3 +37,5 @@ Inserting 10,000 rows using prepared statements (average of 10 iterations):
 | postgres (sync)       | 422.61        |
 
 Run benchmarks: `cargo run --release --example bench_zero_sync`
+
+See also [Diesel Benchmarks](https://github.com/diesel-rs/metrics).
