@@ -238,18 +238,13 @@ impl<'a> CommandComplete<'a> {
         // - "UPDATE 10"
         // - "DELETE 3"
         // - "COPY 5"
-        let parts: Vec<&str> = self.tag.split_whitespace().collect();
-
-        match parts.as_slice() {
-            ["SELECT", count] => count.parse().ok(),
-            ["INSERT", _oid, count] => count.parse().ok(),
-            ["UPDATE", count] => count.parse().ok(),
-            ["DELETE", count] => count.parse().ok(),
-            ["COPY", count] => count.parse().ok(),
-            ["MOVE", count] => count.parse().ok(),
-            ["FETCH", count] => count.parse().ok(),
-            _ => None,
+        let mut iter = self.tag.split_whitespace();
+        match iter.next()? {
+            "SELECT" | "UPDATE" | "DELETE" | "COPY" | "MOVE" | "FETCH" => (),
+            "INSERT" => _ = iter.next(), // Skip oid
+            _ => return None,
         }
+        iter.next()?.parse().ok()
     }
 
     /// Get the command name from the tag.
