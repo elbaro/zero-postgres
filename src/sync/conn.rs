@@ -316,10 +316,53 @@ impl Conn {
         Ok(())
     }
 
+    /// Drain server responses until `ReadyForQuery` so the connection can be
+    /// reused safely after an extended-query `ErrorResponse`.
+    fn drain_to_ready_for_query(&mut self) -> Result<()> {
+        use crate::protocol::backend::{ErrorResponse, RawMessage, ReadyForQuery, msg_type};
+
+        loop {
+            self.stream.read_message(&mut self.buffer_set)?;
+            let type_byte = self.buffer_set.type_byte;
+
+            if RawMessage::is_async_type(type_byte) {
+                continue;
+            }
+
+            match type_byte {
+                msg_type::READY_FOR_QUERY => {
+                    let ready = ReadyForQuery::parse(&self.buffer_set.read_buffer)?;
+                    self.transaction_status = ready.transaction_status().unwrap_or_default();
+                    return Ok(());
+                }
+                msg_type::ERROR_RESPONSE => {
+                    // Preserve the original error from the state machine. Any
+                    // additional server errors are drained until ReadyForQuery.
+                    let _ = ErrorResponse::parse(&self.buffer_set.read_buffer)?;
+                }
+                _ => {
+                    // Ignore intermediate protocol messages and continue
+                    // draining to ReadyForQuery.
+                }
+            }
+        }
+    }
+
     /// Drive a state machine to completion.
     fn drive<S: StateMachine>(&mut self, state_machine: &mut S) -> Result<()> {
         loop {
-            match state_machine.step(&mut self.buffer_set)? {
+            let action = match state_machine.step(&mut self.buffer_set) {
+                Ok(action) => action,
+                Err(e) => {
+                    if self.buffer_set.type_byte == crate::protocol::backend::msg_type::ERROR_RESPONSE
+                    {
+                        self.drain_to_ready_for_query()?;
+                    }
+                    return Err(e);
+                }
+            };
+
+            match action {
                 Action::WriteAndReadByte => {
                     return Err(Error::Protocol(
                         "Unexpected WriteAndReadByte in query state machine".into(),
