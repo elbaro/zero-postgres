@@ -1,15 +1,16 @@
 [workspace]
-pr_name = "release: {{ package }} v{{ version }}"
+dependencies_update = true
+pr_name = "release{% if package and version %}: {{ package }} v{{ version }}{% endif %}"
 pr_labels = ["release"]
 pr_body = """
 {% macro get_changes(releases, type="text") %}
 {%- for release in releases %}
-{%- if release.title and release.changelog %}{% if releases | length > 1 %}
+{%- if release.changelog %}{% if releases | length > 1 %}
 ## `{{ release.package }}`
 {% endif %}
-
+{% if release.title %}
 ## {{ release.title }}
-
+{% endif %}
 {{ release.changelog }}
 {% endif %}
 {% endfor %}

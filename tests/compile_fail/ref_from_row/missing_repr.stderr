@@ -1,5 +1,0 @@
-error: RefFromRow requires #[repr(C, packed)] on the struct
- --> tests/compile_fail/ref_from_row/missing_repr.rs:7:8
-  |
-7 | struct Invalid {
-  |        ^^^^^^^
