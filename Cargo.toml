@@ -70,7 +70,6 @@ diesel = { version = "2.2", features = [
 tokio = { version = "1", features = ["rt", "macros"] }
 tokio-postgres = "0.7"
 postgres = "0.19"
-trybuild = "1"
 
 [[example]]
 name = "bench_zero_compio"

@@ -141,6 +141,53 @@ impl<T: Copy> LengthPrefixed<T> {
 /// 3. Struct has `#[repr(C, packed)]` layout
 ///
 /// The derive macro generates zerocopy trait implementations automatically.
+///
+/// # Compile-fail tests
+///
+/// Missing `#[repr(C, packed)]`:
+/// ```compile_fail
+/// use zero_postgres::conversion::ref_row::{LengthPrefixed, I32BE};
+/// use zero_postgres_derive::RefFromRow;
+///
+/// #[derive(RefFromRow)]
+/// struct Invalid {
+///     value: LengthPrefixed<I32BE>,
+/// }
+/// ```
+///
+/// Native integer types (must use big-endian wrappers):
+/// ```compile_fail
+/// use zero_postgres::conversion::ref_row::LengthPrefixed;
+/// use zero_postgres_derive::RefFromRow;
+///
+/// #[derive(RefFromRow)]
+/// #[repr(C, packed)]
+/// struct Invalid {
+///     value: LengthPrefixed<i64>,
+/// }
+/// ```
+///
+/// `String` fields are not allowed:
+/// ```compile_fail
+/// use zero_postgres_derive::RefFromRow;
+///
+/// #[derive(RefFromRow)]
+/// #[repr(C, packed)]
+/// struct Invalid {
+///     name: String,
+/// }
+/// ```
+///
+/// `Vec` fields are not allowed:
+/// ```compile_fail
+/// use zero_postgres_derive::RefFromRow;
+///
+/// #[derive(RefFromRow)]
+/// #[repr(C, packed)]
+/// struct Invalid {
+///     data: Vec<u8>,
+/// }
+/// ```
 pub trait RefFromRow<'a>: Sized {
     /// Decode a row as a zero-copy reference from binary format.
     ///
