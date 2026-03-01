@@ -6,6 +6,9 @@ on:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
 
+permissions:
+  checks: write
+
 jobs:
   audit:
     runs-on: ubuntu-latest
