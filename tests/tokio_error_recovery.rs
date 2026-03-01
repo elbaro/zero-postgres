@@ -1,18 +1,8 @@
-use std::env;
-
 use zero_postgres::tokio::Conn;
 
 async fn get_conn() -> Conn {
-    let mut db_url =
-        env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/postgres".to_string());
-    if !db_url.contains("sslmode=") {
-        if db_url.contains('?') {
-            db_url.push_str("&sslmode=disable");
-        } else {
-            db_url.push_str("?sslmode=disable");
-        }
-    }
-    return Conn::new(db_url.as_str()).await.expect("failed to connect");
+    let db_url = std::env::var("DATABASE_URL").unwrap();
+    Conn::new(db_url.as_str()).await.expect("failed to connect")
 }
 
 #[tokio::test]

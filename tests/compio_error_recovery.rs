@@ -3,19 +3,22 @@
 //! Verifies the state machine drains to ReadyForQuery internally,
 //! so the next query sees a clean protocol state.
 
-use zero_postgres::sync::Conn;
+#![cfg(feature = "compio")]
 
-fn get_conn() -> Conn {
+use zero_postgres::compio::Conn;
+
+async fn get_conn() -> Conn {
     let db_url = std::env::var("DATABASE_URL").unwrap();
-    Conn::new(db_url.as_str()).expect("failed to connect")
+    Conn::new(db_url.as_str()).await.expect("failed to connect")
 }
 
-#[test]
-fn exec_drop_reusable_after_server_error() {
-    let mut conn = get_conn();
+#[compio::test]
+async fn exec_drop_reusable_after_server_error() {
+    let mut conn = get_conn().await;
 
     let first_err = conn
         .exec_drop("SELECT 1 / $1", (0_i32,))
+        .await
         .expect_err("division by zero should fail");
     assert!(
         first_err.to_string().contains("division by zero"),
@@ -24,6 +27,7 @@ fn exec_drop_reusable_after_server_error() {
 
     let second_err = conn
         .exec_drop("SELECT 1 / $1", (0_i32,))
+        .await
         .expect_err("division by zero should fail again");
     assert!(
         second_err.to_string().contains("division by zero"),
@@ -32,6 +36,7 @@ fn exec_drop_reusable_after_server_error() {
 
     let rows: Vec<(i32,)> = conn
         .exec_collect("SELECT $1::int", (42_i32,))
+        .await
         .expect("connection should be reusable after server errors");
     assert_eq!(rows[0].0, 42);
 }
