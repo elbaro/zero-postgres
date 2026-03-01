@@ -1,5 +1,9 @@
-use std::env;
+//! Test that a connection remains usable after an extended-query server error.
+//!
+//! Verifies the state machine drains to ReadyForQuery internally,
+//! so the next query sees a clean protocol state.
 
+use std::env;
 use zero_postgres::sync::Conn;
 
 fn get_conn() -> Conn {
@@ -12,16 +16,16 @@ fn get_conn() -> Conn {
             db_url.push_str("?sslmode=disable");
         }
     }
-    return Conn::new(db_url.as_str()).expect("failed to connect");
+    Conn::new(db_url.as_str()).expect("failed to connect")
 }
 
 #[test]
-fn test_sync_exec_drop_recovers_after_server_error() {
+fn exec_drop_reusable_after_server_error() {
     let mut conn = get_conn();
 
     let first_err = conn
         .exec_drop("SELECT 1 / $1", (0_i32,))
-        .expect_err("first statement should fail");
+        .expect_err("division by zero should fail");
     assert!(
         first_err.to_string().contains("division by zero"),
         "unexpected first error: {first_err}"
@@ -29,9 +33,14 @@ fn test_sync_exec_drop_recovers_after_server_error() {
 
     let second_err = conn
         .exec_drop("SELECT 1 / $1", (0_i32,))
-        .expect_err("second statement should fail");
+        .expect_err("division by zero should fail again");
     assert!(
         second_err.to_string().contains("division by zero"),
-        "unexpected second error: {second_err}"
+        "unexpected second error (protocol desync?): {second_err}"
     );
+
+    let rows: Vec<(i32,)> = conn
+        .exec_collect("SELECT $1::int", (42_i32,))
+        .expect("connection should be reusable after server errors");
+    assert_eq!(rows[0].0, 42);
 }

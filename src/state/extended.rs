@@ -85,6 +85,7 @@ pub struct ExtendedQueryStateMachine<'a, H> {
     operation: Operation,
     transaction_status: TransactionStatus,
     prepared_stmt: Option<PreparedStatement>,
+    pending_error: Option<crate::error::ServerError>,
 }
 
 impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
@@ -119,6 +120,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
                 param_oids: Vec::new(),
                 row_desc_payload: None,
             }),
+            pending_error: None,
         }
     }
 
@@ -153,6 +155,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
             operation: Operation::Execute,
             transaction_status: TransactionStatus::Idle,
             prepared_stmt: None,
+            pending_error: None,
         })
     }
 
@@ -183,6 +186,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
             operation: Operation::ExecuteSql,
             transaction_status: TransactionStatus::Idle,
             prepared_stmt: None,
+            pending_error: None,
         })
     }
 
@@ -200,6 +204,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
             operation: Operation::CloseStatement,
             transaction_status: TransactionStatus::Idle,
             prepared_stmt: None,
+            pending_error: None,
         }
     }
 
@@ -357,7 +362,11 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
                 let ready = ReadyForQuery::parse(payload)?;
                 self.transaction_status = ready.transaction_status().unwrap_or_default();
                 self.state = State::Finished;
-                Ok(Action::Finished)
+                if let Some(err) = self.pending_error.take() {
+                    Ok(Action::Error(err))
+                } else {
+                    Ok(Action::Finished)
+                }
             }
             msg_type::CLOSE_COMPLETE => {
                 CloseComplete::parse(payload)?;
@@ -428,13 +437,12 @@ impl<H: ExtendedHandler> StateMachine for ExtendedQueryStateMachine<'_, H> {
             let msg = RawMessage::new(type_byte, &buffer_set.read_buffer);
             return self.handle_async_message(&msg);
         }
-
         // Handle error response
         if type_byte == msg_type::ERROR_RESPONSE {
             let error = ErrorResponse::parse(&buffer_set.read_buffer)?;
-            // After error, server skips to Sync response
+            self.pending_error = Some(error.0);
             self.state = State::WaitingReady;
-            return Err(error.into_error());
+            return Ok(Action::ReadMessage);
         }
 
         match self.state {
@@ -617,6 +625,7 @@ pub struct BatchStateMachine {
     state: BatchState,
     needs_parse: bool,
     transaction_status: TransactionStatus,
+    pending_error: Option<crate::error::ServerError>,
 }
 
 impl BatchStateMachine {
@@ -631,6 +640,7 @@ impl BatchStateMachine {
             state: BatchState::Initial,
             needs_parse,
             transaction_status: TransactionStatus::Idle,
+            pending_error: None,
         }
     }
 
@@ -657,12 +667,12 @@ impl BatchStateMachine {
         if RawMessage::is_async_type(type_byte) {
             return Ok(Action::ReadMessage);
         }
-
         // Handle error response - continue reading until ReadyForQuery
         if type_byte == msg_type::ERROR_RESPONSE {
             let error = ErrorResponse::parse(&buffer_set.read_buffer)?;
+            self.pending_error = Some(error.0);
             self.state = BatchState::Processing;
-            return Err(error.into_error());
+            return Ok(Action::ReadMessage);
         }
 
         match self.state {
@@ -708,7 +718,11 @@ impl BatchStateMachine {
                         let ready = ReadyForQuery::parse(&buffer_set.read_buffer)?;
                         self.transaction_status = ready.transaction_status().unwrap_or_default();
                         self.state = BatchState::Finished;
-                        Ok(Action::Finished)
+                        if let Some(err) = self.pending_error.take() {
+                            Ok(Action::Error(err))
+                        } else {
+                            Ok(Action::Finished)
+                        }
                     }
                     _ => Err(Error::Protocol(format!(
                         "Unexpected message in batch: '{}'",

@@ -29,6 +29,7 @@ pub struct SimpleQueryStateMachine<'a, 'q, H> {
     handler: &'a mut H,
     query: &'q str,
     transaction_status: TransactionStatus,
+    pending_error: Option<crate::error::ServerError>,
 }
 
 impl<'a, 'q, H: SimpleHandler> SimpleQueryStateMachine<'a, 'q, H> {
@@ -39,6 +40,7 @@ impl<'a, 'q, H: SimpleHandler> SimpleQueryStateMachine<'a, 'q, H> {
             handler,
             query,
             transaction_status: TransactionStatus::Idle,
+            pending_error: None,
         }
     }
 
@@ -124,7 +126,11 @@ impl<'a, 'q, H: SimpleHandler> SimpleQueryStateMachine<'a, 'q, H> {
         let ready = ReadyForQuery::parse(&buffer_set.read_buffer)?;
         self.transaction_status = ready.transaction_status().unwrap_or_default();
         self.state = State::Finished;
-        Ok(Action::Finished)
+        if let Some(err) = self.pending_error.take() {
+            Ok(Action::Error(err))
+        } else {
+            Ok(Action::Finished)
+        }
     }
 
     fn handle_async_message(&self, msg: &RawMessage<'_>) -> Result<Action> {
@@ -184,9 +190,9 @@ impl<H: SimpleHandler> StateMachine for SimpleQueryStateMachine<'_, '_, H> {
         // Handle error response
         if type_byte == msg_type::ERROR_RESPONSE {
             let error = ErrorResponse::parse(&buffer_set.read_buffer)?;
-            // After error, we still need to wait for ReadyForQuery
+            self.pending_error = Some(error.0);
             self.state = State::WaitingReady;
-            return Err(error.into_error());
+            return Ok(Action::ReadMessage);
         }
 
         match self.state {

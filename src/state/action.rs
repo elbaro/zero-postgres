@@ -44,6 +44,10 @@ pub enum Action {
     /// then call `step()` again.
     HandleAsyncMessageAndReadMessage(AsyncMessage),
 
+    /// A server error occurred, but the connection is clean (ReadyForQuery received).
+    /// The driver should return this error to the caller.
+    Error(crate::error::ServerError),
+
     /// The state machine has finished successfully.
     Finished,
 }

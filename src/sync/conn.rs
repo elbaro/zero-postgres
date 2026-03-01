@@ -112,6 +112,11 @@ impl Conn {
                     // Ignore async messages during startup, read next message
                     stream.read_message(&mut buffer_set)?;
                 }
+                Action::Error(_) => {
+                    return Err(Error::Protocol(
+                        "unexpected server error during connection startup".into(),
+                    ));
+                }
                 Action::Finished => break,
             }
         }
@@ -316,51 +321,10 @@ impl Conn {
         Ok(())
     }
 
-    /// Drain server responses until `ReadyForQuery` so the connection can be
-    /// reused safely after an extended-query `ErrorResponse`.
-    fn drain_to_ready_for_query(&mut self) -> Result<()> {
-        use crate::protocol::backend::{ErrorResponse, RawMessage, ReadyForQuery, msg_type};
-
-        loop {
-            self.stream.read_message(&mut self.buffer_set)?;
-            let type_byte = self.buffer_set.type_byte;
-
-            if RawMessage::is_async_type(type_byte) {
-                continue;
-            }
-
-            match type_byte {
-                msg_type::READY_FOR_QUERY => {
-                    let ready = ReadyForQuery::parse(&self.buffer_set.read_buffer)?;
-                    self.transaction_status = ready.transaction_status().unwrap_or_default();
-                    return Ok(());
-                }
-                msg_type::ERROR_RESPONSE => {
-                    // Preserve the original error from the state machine. Any
-                    // additional server errors are drained until ReadyForQuery.
-                    let _ = ErrorResponse::parse(&self.buffer_set.read_buffer)?;
-                }
-                _ => {
-                    // Ignore intermediate protocol messages and continue
-                    // draining to ReadyForQuery.
-                }
-            }
-        }
-    }
-
     /// Drive a state machine to completion.
     fn drive<S: StateMachine>(&mut self, state_machine: &mut S) -> Result<()> {
         loop {
-            let action = match state_machine.step(&mut self.buffer_set) {
-                Ok(action) => action,
-                Err(e) => {
-                    if self.buffer_set.type_byte == crate::protocol::backend::msg_type::ERROR_RESPONSE
-                    {
-                        self.drain_to_ready_for_query()?;
-                    }
-                    return Err(e);
-                }
-            };
+            let action = state_machine.step(&mut self.buffer_set)?;
 
             match action {
                 Action::WriteAndReadByte => {
@@ -391,6 +355,10 @@ impl Conn {
                     }
                     // Read next message after handling async message
                     self.stream.read_message(&mut self.buffer_set)?;
+                }
+                Action::Error(server_error) => {
+                    self.transaction_status = state_machine.transaction_status();
+                    return Err(Error::Server(server_error));
                 }
                 Action::Finished => {
                     self.transaction_status = state_machine.transaction_status();
@@ -916,7 +884,6 @@ impl Conn {
         &mut self,
         state_machine: &mut crate::state::extended::BatchStateMachine,
     ) -> Result<()> {
-        use crate::protocol::backend::{ReadyForQuery, msg_type};
         use crate::state::action::Action;
 
         loop {
@@ -933,20 +900,12 @@ impl Conn {
                 Ok(Action::Finished) => {
                     break;
                 }
-                Ok(_) => return Err(Error::Protocol("Unexpected action in batch".into())),
-                Err(e) => {
-                    // On error, drain to ReadyForQuery to leave connection in clean state
-                    loop {
-                        self.stream.read_message(&mut self.buffer_set)?;
-                        if self.buffer_set.type_byte == msg_type::READY_FOR_QUERY {
-                            let ready = ReadyForQuery::parse(&self.buffer_set.read_buffer)?;
-                            self.transaction_status =
-                                ready.transaction_status().unwrap_or_default();
-                            break;
-                        }
-                    }
-                    return Err(e);
+                Ok(Action::Error(server_error)) => {
+                    self.transaction_status = state_machine.transaction_status();
+                    return Err(Error::Server(server_error));
                 }
+                Ok(_) => return Err(Error::Protocol("Unexpected action in batch".into())),
+                Err(e) => return Err(e),
             }
         }
         Ok(())
