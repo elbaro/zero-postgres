@@ -8,12 +8,28 @@
   "packageRules": [
     {
       "matchUpdateTypes": ["major"],
-      "commitMessagePrefix": "infra!: "
+      "commitMessagePrefix": "infra!: ",
+      "groupName": "breaking dependencies",
+      "groupSlug": "breaking"
     },
     {
       "matchUpdateTypes": ["minor"],
       "matchCurrentVersion": "<1.0.0",
-      "commitMessagePrefix": "infra!: "
+      "commitMessagePrefix": "infra!: ",
+      "groupName": "breaking dependencies",
+      "groupSlug": "breaking"
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchCurrentVersion": ">=1.0.0",
+      "groupName": "non-breaking dependencies",
+      "groupSlug": "non-breaking"
+    },
+    {
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "matchCurrentVersion": "<1.0.0",
+      "groupName": "non-breaking dependencies",
+      "groupSlug": "non-breaking"
     }
   ]
 }
