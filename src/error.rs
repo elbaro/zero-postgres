@@ -234,9 +234,7 @@ impl Error {
             value_oid, target_oid
         ))
     }
-}
 
-impl Error {
     /// Returns true if the error indicates the connection is broken and cannot be reused.
     ///
     /// Conservative: assumes broken unless the error is known to be safe.

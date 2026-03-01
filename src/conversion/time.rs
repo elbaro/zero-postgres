@@ -15,8 +15,7 @@ impl FromWireValue<'_> for time::Date {
         }
         let s = simdutf8::compat::from_utf8(bytes)
             .map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))?;
-        // Parse format: YYYY-MM-DD
-        let format = time::format_description::parse("[year]-[month]-[day]").expect("valid format");
+        let format = time::macros::format_description!("[year]-[month]-[day]");
         time::Date::parse(s, &format).map_err(|e| Error::Decode(format!("invalid date: {}", e)))
     }
 
@@ -58,12 +57,9 @@ impl FromWireValue<'_> for time::Time {
         }
         let s = simdutf8::compat::from_utf8(bytes)
             .map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))?;
-        // Try parsing with microseconds first, then without
         let format_with_micro =
-            time::format_description::parse("[hour]:[minute]:[second].[subsecond]")
-                .expect("valid format");
-        let format_without_micro =
-            time::format_description::parse("[hour]:[minute]:[second]").expect("valid format");
+            time::macros::format_description!("[hour]:[minute]:[second].[subsecond]");
+        let format_without_micro = time::macros::format_description!("[hour]:[minute]:[second]");
         time::Time::parse(s, &format_with_micro)
             .or_else(|_| time::Time::parse(s, &format_without_micro))
             .map_err(|e| Error::Decode(format!("invalid time: {}", e)))
@@ -127,14 +123,11 @@ impl FromWireValue<'_> for time::PrimitiveDateTime {
             .filter(|&pos| pos > 10) // Make sure it's not the date separator
             .map(|pos| &s[..pos])
             .unwrap_or(s);
-        // Try parsing with microseconds first, then without
-        let format_with_micro = time::format_description::parse(
-            "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]",
-        )
-        .expect("valid format");
+        let format_with_micro = time::macros::format_description!(
+            "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]"
+        );
         let format_without_micro =
-            time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
-                .expect("valid format");
+            time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
         time::PrimitiveDateTime::parse(s, &format_with_micro)
             .or_else(|_| time::PrimitiveDateTime::parse(s, &format_without_micro))
             .map_err(|e| Error::Decode(format!("invalid timestamp: {}", e)))

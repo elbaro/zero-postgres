@@ -70,7 +70,6 @@ impl Conn {
     }
 
     /// Connect using an existing stream.
-    #[expect(unused_mut)]
     pub fn new_with_stream(mut stream: Stream, options: Opts) -> Result<Self> {
         let mut buffer_set = options.buffer_pool.get_buffer_set();
         let mut state_machine = ConnectionStateMachine::new(options.clone());
@@ -349,9 +348,9 @@ impl Conn {
                         "Unexpected TlsHandshake in query state machine".into(),
                     ));
                 }
-                Action::HandleAsyncMessageAndReadMessage(ref async_msg) => {
-                    if let Some(ref mut h) = self.async_message_handler {
-                        h.handle(async_msg);
+                Action::HandleAsyncMessageAndReadMessage(async_msg) => {
+                    if let Some(h) = &mut self.async_message_handler {
+                        h.handle(&async_msg);
                     }
                     // Read next message after handling async message
                     self.stream.read_message(&mut self.buffer_set)?;
@@ -970,11 +969,9 @@ impl Conn {
 
         result
     }
-}
 
-// === Low-level Extended Query Protocol ===
+    // === Low-level Extended Query Protocol ===
 
-impl Conn {
     /// Low-level bind: send BIND message and receive BindComplete.
     ///
     /// This allows creating named portals. Unlike `exec()`, this does NOT

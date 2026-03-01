@@ -69,7 +69,6 @@ impl Conn {
     }
 
     /// Connect using an existing stream.
-    #[expect(unused_mut)]
     pub async fn new_with_stream(mut stream: Stream, options: Opts) -> Result<Self> {
         let mut buffer_set = options.buffer_pool.get_buffer_set();
         let mut state_machine = ConnectionStateMachine::new(options.clone());
@@ -347,9 +346,9 @@ impl Conn {
                         "Unexpected TlsHandshake in query state machine".into(),
                     ));
                 }
-                Action::HandleAsyncMessageAndReadMessage(ref async_msg) => {
-                    if let Some(ref mut h) = self.async_message_handler {
-                        h(async_msg);
+                Action::HandleAsyncMessageAndReadMessage(async_msg) => {
+                    if let Some(h) = &mut self.async_message_handler {
+                        h(&async_msg);
                     }
                     // Read next message after handling async message
                     self.stream.read_message(&mut self.buffer_set).await?;

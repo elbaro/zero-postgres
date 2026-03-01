@@ -141,12 +141,10 @@ impl Stream {
         // Read 5-byte header from buffer
         self.ensure(5).await?;
         buffer_set.type_byte = self.read_buf[self.read_pos];
-        let length = u32::from_be_bytes([
-            self.read_buf[self.read_pos + 1],
-            self.read_buf[self.read_pos + 2],
-            self.read_buf[self.read_pos + 3],
-            self.read_buf[self.read_pos + 4],
-        ]) as usize;
+        let (len_bytes, _) = self.read_buf[self.read_pos + 1..]
+            .split_first_chunk::<4>()
+            .ok_or_else(|| std::io::Error::other("protocol: header shorter than 5 bytes"))?;
+        let length = u32::from_be_bytes(*len_bytes) as usize;
         self.read_pos += 5;
 
         let payload_len = length.saturating_sub(4);

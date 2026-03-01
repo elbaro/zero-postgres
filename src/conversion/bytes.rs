@@ -78,6 +78,22 @@ impl ToWireValue for Vec<u8> {
     }
 }
 
+/// Nibble lookup table: ASCII byte → 0x00–0x0F for valid hex, 0xFF for invalid.
+static HEX_LOOKUP: [u8; 256] = {
+    let mut table = [0xFF_u8; 256];
+    let mut i: usize = 0;
+    while i < 256 {
+        table[i] = match i as u8 {
+            b'0'..=b'9' => i as u8 - b'0',
+            b'a'..=b'f' => i as u8 - b'a' + 10,
+            b'A'..=b'F' => i as u8 - b'A' + 10,
+            _ => 0xFF,
+        };
+        i += 1;
+    }
+    table
+};
+
 /// Decode hex string to bytes
 fn decode_hex(hex: &[u8]) -> Result<Vec<u8>> {
     if !hex.len().is_multiple_of(2) {
@@ -85,21 +101,15 @@ fn decode_hex(hex: &[u8]) -> Result<Vec<u8>> {
     }
 
     let mut result = Vec::with_capacity(hex.len() >> 1);
-    for chunk in hex.chunks(2) {
-        let high = hex_digit(chunk[0])?;
-        let low = hex_digit(chunk[1])?;
+    for pair in hex.chunks_exact(2) {
+        let high = HEX_LOOKUP[pair[0] as usize];
+        let low = HEX_LOOKUP[pair[1] as usize];
+        if (high | low) > 0x0F {
+            return Err(Error::Decode("invalid hex digit".into()));
+        }
         result.push((high << 4) | low);
     }
     Ok(result)
-}
-
-fn hex_digit(b: u8) -> Result<u8> {
-    match b {
-        b'0'..=b'9' => Ok(b - b'0'),
-        b'a'..=b'f' => Ok(b - b'a' + 10),
-        b'A'..=b'F' => Ok(b - b'A' + 10),
-        _ => Err(Error::Decode(format!("invalid hex digit: {}", b as char))),
-    }
 }
 
 #[cfg(test)]

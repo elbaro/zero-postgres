@@ -45,17 +45,14 @@ impl FromWireValue<'_> for Decimal {
             )));
         }
 
-        if bytes.len() < 8 {
-            return Err(Error::Decode(format!(
-                "invalid NUMERIC length: {}",
-                bytes.len()
-            )));
-        }
+        let (header, digit_bytes) = bytes
+            .split_first_chunk::<8>()
+            .ok_or_else(|| Error::Decode(format!("invalid NUMERIC length: {}", bytes.len())))?;
 
-        let ndigits = i16::from_be_bytes([bytes[0], bytes[1]]) as usize;
-        let weight = i16::from_be_bytes([bytes[2], bytes[3]]);
-        let sign = u16::from_be_bytes([bytes[4], bytes[5]]);
-        let dscale = u16::from_be_bytes([bytes[6], bytes[7]]);
+        let ndigits = i16::from_be_bytes([header[0], header[1]]) as usize;
+        let weight = i16::from_be_bytes([header[2], header[3]]);
+        let sign = u16::from_be_bytes([header[4], header[5]]);
+        let dscale = u16::from_be_bytes([header[6], header[7]]);
 
         if sign == NUMERIC_NAN {
             return Err(Error::Decode("NaN cannot be represented as Decimal".into()));
@@ -65,21 +62,21 @@ impl FromWireValue<'_> for Decimal {
             return Ok(Decimal::ZERO);
         }
 
-        let expected_len = 8 + ndigits * 2;
-        if bytes.len() < expected_len {
+        if digit_bytes.len() < ndigits * 2 {
             return Err(Error::Decode(format!(
                 "invalid NUMERIC length: {} (expected {})",
                 bytes.len(),
-                expected_len
+                8 + ndigits * 2
             )));
         }
 
         // Read base-10000 digits
         let mut digits = Vec::with_capacity(ndigits);
-        for i in 0..ndigits {
-            let offset = 8 + i * 2;
-            let digit = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
-            digits.push(digit);
+        let mut remaining = digit_bytes;
+        for _ in 0..ndigits {
+            let (pair, rest) = remaining.split_first_chunk::<2>().unwrap();
+            remaining = rest;
+            digits.push(u16::from_be_bytes(*pair));
         }
 
         // Convert from base-10000 to decimal
@@ -136,13 +133,9 @@ impl ToWireValue for Decimal {
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::NUMERIC => {
-                // Use text format for NUMERIC - simple and preserves full precision
-                use std::fmt::Write;
-                let mut text = String::new();
-                write!(&mut text, "{}", self).expect("Decimal formatting cannot fail");
-                let bytes = text.as_bytes();
-                buf.extend_from_slice(&(bytes.len() as i32).to_be_bytes());
-                buf.extend_from_slice(bytes);
+                let text = self.to_string();
+                buf.extend_from_slice(&(text.len() as i32).to_be_bytes());
+                buf.extend_from_slice(text.as_bytes());
                 Ok(())
             }
             _ => Err(Error::type_mismatch(self.natural_oid(), target_oid)),

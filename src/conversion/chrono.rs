@@ -13,6 +13,15 @@ const PG_EPOCH: NaiveDate = match NaiveDate::from_ymd_opt(2000, 1, 1) {
     None => panic!("invalid date"),
 };
 
+/// PostgreSQL epoch as NaiveDateTime (2000-01-01 00:00:00)
+const PG_EPOCH_DT: NaiveDateTime = NaiveDateTime::new(
+    PG_EPOCH,
+    match NaiveTime::from_hms_opt(0, 0, 0) {
+        Some(t) => t,
+        None => panic!("invalid time"),
+    },
+);
+
 /// Microseconds per second
 const USECS_PER_SEC: i64 = 1_000_000;
 
@@ -182,8 +191,7 @@ impl ToWireValue for NaiveDateTime {
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::TIMESTAMP | oid::TIMESTAMPTZ => {
-                let pg_epoch_dt = PG_EPOCH.and_hms_opt(0, 0, 0).expect("valid epoch");
-                let duration = self.signed_duration_since(pg_epoch_dt);
+                let duration = self.signed_duration_since(PG_EPOCH_DT);
                 let usecs = duration.num_microseconds().unwrap_or(i64::MAX);
                 buf.extend_from_slice(&8_i32.to_be_bytes());
                 buf.extend_from_slice(&usecs.to_be_bytes());
@@ -251,11 +259,7 @@ impl ToWireValue for DateTime<Utc> {
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::TIMESTAMP | oid::TIMESTAMPTZ => {
-                let pg_epoch_utc = PG_EPOCH
-                    .and_hms_opt(0, 0, 0)
-                    .expect("valid epoch")
-                    .and_utc();
-                let duration = self.signed_duration_since(pg_epoch_utc);
+                let duration = self.signed_duration_since(PG_EPOCH_DT.and_utc());
                 let usecs = duration.num_microseconds().unwrap_or(i64::MAX);
                 buf.extend_from_slice(&8_i32.to_be_bytes());
                 buf.extend_from_slice(&usecs.to_be_bytes());

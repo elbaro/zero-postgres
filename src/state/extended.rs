@@ -238,7 +238,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
         }
 
         let param_desc = ParameterDescription::parse(&buffer_set.read_buffer)?;
-        if let Some(ref mut stmt) = self.prepared_stmt {
+        if let Some(stmt) = &mut self.prepared_stmt {
             stmt.param_oids = param_desc.oids().to_vec();
         }
 
@@ -251,7 +251,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
 
         match type_byte {
             msg_type::ROW_DESCRIPTION => {
-                if let Some(ref mut stmt) = self.prepared_stmt {
+                if let Some(stmt) = &mut self.prepared_stmt {
                     stmt.row_desc_payload = Some(buffer_set.read_buffer.clone());
                 }
                 self.state = State::WaitingReady;

@@ -107,11 +107,11 @@ impl Transaction {
         let portal_name = conn.next_portal_name();
         let result = conn.create_named_portal(&portal_name, &statement, &params);
 
-        if let Err(e) = &result {
+        if let Err(e) = result {
             if e.is_connection_broken() {
                 conn.is_broken = true;
             }
-            return Err(result.unwrap_err());
+            return Err(e);
         }
 
         Ok(NamedPortal::new(portal_name))

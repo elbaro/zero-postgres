@@ -193,9 +193,9 @@ impl<'a> Iterator for DataRowIter<'a> {
     type Item = Option<&'a [u8]>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let len;
-        (len, self.remaining) = self.remaining.split_at_checked(4)?;
-        let len = i32::from_be_bytes([len[0], len[1], len[2], len[3]]);
+        let (len_bytes, remaining) = self.remaining.split_first_chunk::<4>()?;
+        self.remaining = remaining;
+        let len = i32::from_be_bytes(*len_bytes);
 
         if len == -1 {
             // NULL value

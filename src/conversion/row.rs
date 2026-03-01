@@ -52,9 +52,8 @@ macro_rules! impl_from_row_tuple {
     ($count:literal: $($idx:tt => $T:ident),+) => {
         impl<'a, $($T: FromWireValue<'a>),+> FromRow<'a> for ($($T,)+) {
             fn from_row_text(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
-                if cols.len() < $count {
-                    return Err(Error::Decode("not enough columns for tuple".into()));
-                }
+                let cols = cols.first_chunk::<$count>()
+                    .ok_or_else(|| Error::Decode("not enough columns for tuple".into()))?;
                 let mut iter = row.iter();
                 Ok(($(
                     decode_column_text(&cols[$idx], iter.next().flatten())?,
@@ -62,9 +61,8 @@ macro_rules! impl_from_row_tuple {
             }
 
             fn from_row_binary(cols: &[FieldDescription], row: DataRow<'a>) -> Result<Self> {
-                if cols.len() < $count {
-                    return Err(Error::Decode("not enough columns for tuple".into()));
-                }
+                let cols = cols.first_chunk::<$count>()
+                    .ok_or_else(|| Error::Decode("not enough columns for tuple".into()))?;
                 let mut iter = row.iter();
                 Ok(($(
                     decode_column_binary(&cols[$idx], iter.next().flatten())?,
