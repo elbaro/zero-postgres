@@ -1,0 +1,19 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "commitMessagePrefix": "infra: ",
+  "commitMessageAction": "update",
+  "commitMessageTopic": "{{depName}}",
+  "commitMessageExtra": "to {{#if isPinDigest}}{{{newDigestShort}}}{{else}}{{#if isMajor}}v{{{newMajor}}}{{else}}{{#if isSingleVersion}}v{{{newVersion}}}{{else}}{{{newValue}}}{{/if}}{{/if}}{{/if}}",
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["major"],
+      "commitMessagePrefix": "infra!: "
+    },
+    {
+      "matchUpdateTypes": ["minor"],
+      "matchCurrentVersion": "<1.0.0",
+      "commitMessagePrefix": "infra!: "
+    }
+  ]
+}
