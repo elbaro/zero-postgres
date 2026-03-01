@@ -1,6 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "prHourlyLimit": 0,
   "commitMessagePrefix": "infra: ",
   "commitMessageAction": "update",
   "commitMessageTopic": "{{depName}}",
@@ -10,14 +11,16 @@
       "matchUpdateTypes": ["major"],
       "commitMessagePrefix": "infra!: ",
       "groupName": "breaking dependencies",
-      "groupSlug": "breaking"
+      "groupSlug": "breaking",
+      "separateMajorMinor": false
     },
     {
       "matchUpdateTypes": ["minor"],
       "matchCurrentVersion": "<1.0.0",
       "commitMessagePrefix": "infra!: ",
       "groupName": "breaking dependencies",
-      "groupSlug": "breaking"
+      "groupSlug": "breaking",
+      "separateMajorMinor": false
     },
     {
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
