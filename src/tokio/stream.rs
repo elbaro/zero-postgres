@@ -39,7 +39,7 @@ impl Stream {
                 let tls_stream = connector
                     .connect(host, tcp_stream)
                     .await
-                    .map_err(|e| crate::error::Error::Tls(e.into()))?;
+                    .map_err(crate::error::Error::Tls)?;
                 Ok(Stream::Tls(BufReader::new(tls_stream)))
             }
             Stream::Tls(_) => Err(crate::error::Error::InvalidUsage(

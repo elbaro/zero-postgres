@@ -125,7 +125,7 @@ impl<'a> Pipeline<'a> {
         } else {
             // Normal drain: process all expectations
             while let Some(expectation) = self.expectations.pop_front() {
-                let _ = self.drain_expectation(expectation);
+                self.drain_expectation(expectation);
             }
         }
 

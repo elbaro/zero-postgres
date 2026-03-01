@@ -115,6 +115,12 @@ impl<T: Copy> LengthPrefixed<T> {
         self.len.get()
     }
 
+    /// Check if the length is zero.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len.get() == 0
+    }
+
     /// Check if the length indicates NULL (-1).
     #[inline]
     pub fn is_null(&self) -> bool {

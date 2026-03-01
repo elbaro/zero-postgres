@@ -90,7 +90,7 @@ pub fn numeric_to_string(bytes: &[u8]) -> Result<String> {
             result.push('0');
         }
         // Add all digit groups (each group is 4 decimal digits)
-        let mut frac_digits_written = (-int_digits) as i32;
+        let mut frac_digits_written = -int_digits;
         for (i, &d) in digits.iter().enumerate() {
             let s = format!("{:04}", d);
             if i == ndigits - 1 && dscale > 0 {

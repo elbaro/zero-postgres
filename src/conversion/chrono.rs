@@ -135,7 +135,7 @@ impl FromWireValue<'_> for NaiveDateTime {
             .map_err(|e| Error::Decode(format!("invalid UTF-8: {}", e)))?;
         // Remove timezone suffix if present for TIMESTAMPTZ
         let s = s
-            .find(|c| c == '+' || c == '-')
+            .find(['+', '-'])
             .filter(|&pos| pos > 10)
             .map(|pos| &s[..pos])
             .unwrap_or(s);
