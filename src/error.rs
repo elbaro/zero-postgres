@@ -48,7 +48,7 @@ impl ServerError {
     // Always present (PostgreSQL 9.6+)
 
     /// Severity (localized): ERROR, FATAL, PANIC, WARNING, NOTICE, DEBUG, INFO, LOG
-    pub fn severity(&self) -> &str {
+    pub fn severity_localized(&self) -> &str {
         self.0
             .get(&field_type::SEVERITY)
             .map(|s| s.as_str())
@@ -56,7 +56,7 @@ impl ServerError {
     }
 
     /// Severity (non-localized, never translated)
-    pub fn severity_v(&self) -> &str {
+    pub fn severity_english(&self) -> &str {
         self.0
             .get(&field_type::SEVERITY_V)
             .map(|s| s.as_str())
@@ -162,7 +162,7 @@ impl std::fmt::Display for ServerError {
         write!(
             f,
             "{}: {} (SQLSTATE {})",
-            self.severity(),
+            self.severity_localized(),
             self.message(),
             self.code()
         )?;
@@ -238,14 +238,13 @@ impl Error {
 
 impl Error {
     /// Returns true if the error indicates the connection is broken and cannot be reused.
+    ///
+    /// Conservative: assumes broken unless the error is known to be safe.
     pub fn is_connection_broken(&self) -> bool {
         match self {
-            Error::Io(_) | Error::ConnectionBroken => true,
-            Error::Server(err) => {
-                // FATAL and PANIC errors indicate connection is broken
-                matches!(err.severity_v(), "FATAL" | "PANIC")
-            }
-            _ => false,
+            Error::Server(err) => matches!(err.severity_english(), "FATAL" | "PANIC"),
+            Error::Decode(_) | Error::Encode(_) | Error::InvalidUsage(_) => false,
+            _ => true,
         }
     }
 
