@@ -27,7 +27,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_copy_data() {
+    fn copy_data() {
         let mut buf = Vec::new();
         write_copy_data(&mut buf, b"hello\tworld\n");
 
@@ -37,7 +37,7 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_done() {
+    fn copy_done() {
         let mut buf = Vec::new();
         write_copy_done(&mut buf);
 
@@ -47,7 +47,7 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_fail() {
+    fn copy_fail() {
         let mut buf = Vec::new();
         write_copy_fail(&mut buf, "error occurred");
 

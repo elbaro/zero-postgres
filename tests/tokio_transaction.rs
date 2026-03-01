@@ -60,7 +60,7 @@ impl TestTable {
 }
 
 #[tokio::test]
-async fn test_transaction_explicit_commit() {
+async fn transaction_explicit_commit() {
     let mut conn = get_conn().await;
     let table = TestTable::new(&mut conn).await;
     let sql = table.insert_sql();
@@ -77,7 +77,7 @@ async fn test_transaction_explicit_commit() {
 }
 
 #[tokio::test]
-async fn test_transaction_explicit_rollback() {
+async fn transaction_explicit_rollback() {
     let mut conn = get_conn().await;
     let table = TestTable::new(&mut conn).await;
     let sql = table.insert_sql();
@@ -94,7 +94,7 @@ async fn test_transaction_explicit_rollback() {
 }
 
 #[tokio::test]
-async fn test_transaction_implicit_commit_on_ok() {
+async fn transaction_implicit_commit_on_ok() {
     let mut conn = get_conn().await;
     let table = TestTable::new(&mut conn).await;
     let sql = table.insert_sql();
@@ -113,7 +113,7 @@ async fn test_transaction_implicit_commit_on_ok() {
 }
 
 #[tokio::test]
-async fn test_transaction_implicit_rollback_on_err() {
+async fn transaction_implicit_rollback_on_err() {
     let mut conn = get_conn().await;
     let table = TestTable::new(&mut conn).await;
     let sql = table.insert_sql();
@@ -133,7 +133,7 @@ async fn test_transaction_implicit_rollback_on_err() {
 }
 
 #[tokio::test]
-async fn test_transaction_implicit_commit_with_return_value() {
+async fn transaction_implicit_commit_with_return_value() {
     let mut conn = get_conn().await;
     let table = TestTable::new(&mut conn).await;
     let sql = table.insert_sql();
@@ -153,7 +153,7 @@ async fn test_transaction_implicit_commit_with_return_value() {
 }
 
 #[tokio::test]
-async fn test_transaction_implicit_commit_multiple_inserts() {
+async fn transaction_implicit_commit_multiple_inserts() {
     let mut conn = get_conn().await;
     let table = TestTable::new(&mut conn).await;
     let sql = table.insert_sql();
@@ -172,7 +172,7 @@ async fn test_transaction_implicit_commit_multiple_inserts() {
 }
 
 #[tokio::test]
-async fn test_transaction_implicit_rollback_partial_work() {
+async fn transaction_implicit_rollback_partial_work() {
     let mut conn = get_conn().await;
     let table = TestTable::new(&mut conn).await;
     let sql = table.insert_sql();
@@ -194,7 +194,7 @@ async fn test_transaction_implicit_rollback_partial_work() {
 }
 
 #[tokio::test]
-async fn test_transaction_connection_usable_after_implicit_commit() {
+async fn transaction_connection_usable_after_implicit_commit() {
     let mut conn = get_conn().await;
     let table = TestTable::new(&mut conn).await;
     let sql = table.insert_sql();
@@ -220,7 +220,7 @@ async fn test_transaction_connection_usable_after_implicit_commit() {
 }
 
 #[tokio::test]
-async fn test_transaction_connection_usable_after_implicit_rollback() {
+async fn transaction_connection_usable_after_implicit_rollback() {
     let mut conn = get_conn().await;
     let table = TestTable::new(&mut conn).await;
     let sql = table.insert_sql();
@@ -246,7 +246,7 @@ async fn test_transaction_connection_usable_after_implicit_rollback() {
 }
 
 #[tokio::test]
-async fn test_transaction_not_in_transaction_after_implicit_commit() {
+async fn transaction_not_in_transaction_after_implicit_commit() {
     let mut conn = get_conn().await;
 
     conn.transaction(async |conn, _tx| {
@@ -260,7 +260,7 @@ async fn test_transaction_not_in_transaction_after_implicit_commit() {
 }
 
 #[tokio::test]
-async fn test_transaction_not_in_transaction_after_implicit_rollback() {
+async fn transaction_not_in_transaction_after_implicit_rollback() {
     let mut conn = get_conn().await;
 
     let _: Result<(), Error> = conn

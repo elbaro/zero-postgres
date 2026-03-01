@@ -35,12 +35,12 @@ fn unique_table_name() -> String {
 // --- Connection ---
 
 #[test]
-fn test_establish() {
+fn establish() {
     let _conn = get_conn();
 }
 
 #[test]
-fn test_establish_bad_url() {
+fn establish_bad_url() {
     let result = Connection::establish("postgres://invalid_user_xxx@localhost/nonexistent_db_xxx");
     assert!(result.is_err());
 }
@@ -48,7 +48,7 @@ fn test_establish_bad_url() {
 // --- SimpleConnection::batch_execute ---
 
 #[test]
-fn test_batch_execute() {
+fn batch_execute() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(
@@ -75,7 +75,7 @@ struct CountRow {
 // --- sql_query with bind parameters ---
 
 #[test]
-fn test_sql_query_with_binds() {
+fn sql_query_with_binds() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(
@@ -119,7 +119,7 @@ fn test_sql_query_with_binds() {
 // --- execute_returning_count ---
 
 #[test]
-fn test_execute_returning_count() {
+fn execute_returning_count() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(
@@ -150,7 +150,7 @@ fn test_execute_returning_count() {
 // --- Transactions ---
 
 #[test]
-fn test_transaction_commit() {
+fn transaction_commit() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(
@@ -172,7 +172,7 @@ fn test_transaction_commit() {
 }
 
 #[test]
-fn test_transaction_rollback() {
+fn transaction_rollback() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(
@@ -196,7 +196,7 @@ fn test_transaction_rollback() {
 // --- NULL handling ---
 
 #[test]
-fn test_nullable_values() {
+fn nullable_values() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(
@@ -230,7 +230,7 @@ fn test_nullable_values() {
 // --- Error mapping ---
 
 #[test]
-fn test_unique_violation() {
+fn unique_violation() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!("CREATE TEMP TABLE {} (id INT PRIMARY KEY)", table))
@@ -252,7 +252,7 @@ fn test_unique_violation() {
 }
 
 #[test]
-fn test_not_null_violation() {
+fn not_null_violation() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(
@@ -273,7 +273,7 @@ fn test_not_null_violation() {
 }
 
 #[test]
-fn test_foreign_key_violation() {
+fn foreign_key_violation() {
     let mut conn = get_conn();
     let parent = unique_table_name();
     let child = unique_table_name();
@@ -296,7 +296,7 @@ fn test_foreign_key_violation() {
 }
 
 #[test]
-fn test_check_violation() {
+fn check_violation() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(
@@ -319,7 +319,7 @@ fn test_check_violation() {
 // --- Error info preservation ---
 
 #[test]
-fn test_error_info_details() {
+fn error_info_details() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!("CREATE TEMP TABLE {} (id INT PRIMARY KEY)", table))
@@ -345,7 +345,7 @@ fn test_error_info_details() {
 // --- Multiple types ---
 
 #[test]
-fn test_various_types() {
+fn various_types() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(
@@ -396,7 +396,7 @@ fn test_various_types() {
 // --- Empty result set ---
 
 #[test]
-fn test_empty_result() {
+fn empty_result() {
     let mut conn = get_conn();
     let table = unique_table_name();
     conn.batch_execute(&format!(

@@ -22,7 +22,7 @@ async fn verify_connection(conn: &mut Conn) {
 }
 
 #[tokio::test]
-async fn test_pipeline_exec() {
+async fn pipeline_exec() {
     let mut conn = get_conn().await;
 
     let result = conn
@@ -41,7 +41,7 @@ async fn test_pipeline_exec() {
 }
 
 #[tokio::test]
-async fn test_pipeline_multiple_execs() {
+async fn pipeline_multiple_execs() {
     let mut conn = get_conn().await;
 
     let (r1, r2, r3) = conn
@@ -68,7 +68,7 @@ async fn test_pipeline_multiple_execs() {
 }
 
 #[tokio::test]
-async fn test_pipeline_no_rows() {
+async fn pipeline_no_rows() {
     let mut conn = get_conn().await;
 
     let result: Vec<(i32,)> = conn
@@ -85,7 +85,7 @@ async fn test_pipeline_no_rows() {
 }
 
 #[tokio::test]
-async fn test_pipeline_multiple_rows() {
+async fn pipeline_multiple_rows() {
     let mut conn = get_conn().await;
 
     let result: Vec<(i32,)> = conn
@@ -102,7 +102,7 @@ async fn test_pipeline_multiple_rows() {
 }
 
 #[tokio::test]
-async fn test_pipeline_with_prepared() {
+async fn pipeline_with_prepared() {
     let mut conn = get_conn().await;
 
     let stmt = conn.prepare("SELECT $1::int * 2").await.unwrap();
@@ -128,7 +128,7 @@ async fn test_pipeline_with_prepared() {
 }
 
 #[tokio::test]
-async fn test_pipeline_claim_order_error() {
+async fn pipeline_claim_order_error() {
     let mut conn = get_conn().await;
 
     let result = conn
@@ -155,12 +155,12 @@ async fn test_pipeline_claim_order_error() {
         })
         .await;
 
-    assert!(result.is_ok());
+    result.unwrap();
     verify_connection(&mut conn).await;
 }
 
 #[tokio::test]
-async fn test_pipeline_sql_error() {
+async fn pipeline_sql_error() {
     let mut conn = get_conn().await;
 
     let result = conn
@@ -182,12 +182,12 @@ async fn test_pipeline_sql_error() {
         })
         .await;
 
-    assert!(result.is_ok());
+    result.unwrap();
     verify_connection(&mut conn).await;
 }
 
 #[tokio::test]
-async fn test_pipeline_aborted_state() {
+async fn pipeline_aborted_state() {
     let mut conn = get_conn().await;
 
     let result = conn
@@ -202,7 +202,7 @@ async fn test_pipeline_aborted_state() {
             assert_eq!(r1, vec![(1,)]);
 
             let result: Result<Vec<(i32,)>, _> = p.claim_collect(t2).await;
-            assert!(result.is_err());
+            result.unwrap_err();
 
             let result3: Result<Vec<(i32,)>, _> = p.claim_collect(t3).await;
             assert!(result3.is_err());
@@ -217,12 +217,12 @@ async fn test_pipeline_aborted_state() {
         })
         .await;
 
-    assert!(result.is_ok());
+    result.unwrap();
     verify_connection(&mut conn).await;
 }
 
 #[tokio::test]
-async fn test_pipeline_insert() {
+async fn pipeline_insert() {
     let mut conn = get_conn().await;
 
     conn.query_drop("DROP TABLE IF EXISTS _pipeline_insert_test_async")
@@ -263,7 +263,7 @@ async fn test_pipeline_insert() {
 }
 
 #[tokio::test]
-async fn test_pipeline_insert_returning() {
+async fn pipeline_insert_returning() {
     let mut conn = get_conn().await;
 
     conn.query_drop("DROP TABLE IF EXISTS _pipeline_returning_test_async")
@@ -303,7 +303,7 @@ async fn test_pipeline_insert_returning() {
 }
 
 #[tokio::test]
-async fn test_pipeline_empty() {
+async fn pipeline_empty() {
     let mut conn = get_conn().await;
 
     conn.pipeline(async |p| {
@@ -316,7 +316,7 @@ async fn test_pipeline_empty() {
 }
 
 #[tokio::test]
-async fn test_pipeline_pending_count() {
+async fn pipeline_pending_count() {
     let mut conn = get_conn().await;
 
     conn.pipeline(async |p| {
@@ -344,7 +344,7 @@ async fn test_pipeline_pending_count() {
 }
 
 #[tokio::test]
-async fn test_pipeline_claim_one() {
+async fn pipeline_claim_one() {
     let mut conn = get_conn().await;
 
     let result = conn
@@ -361,7 +361,7 @@ async fn test_pipeline_claim_one() {
 }
 
 #[tokio::test]
-async fn test_pipeline_claim_one_empty() {
+async fn pipeline_claim_one_empty() {
     let mut conn = get_conn().await;
 
     let result = conn
@@ -378,7 +378,7 @@ async fn test_pipeline_claim_one_empty() {
 }
 
 #[tokio::test]
-async fn test_pipeline_auto_sync_basic() {
+async fn pipeline_auto_sync_basic() {
     let mut conn = get_conn().await;
 
     let (r1, r2) = conn
@@ -398,7 +398,7 @@ async fn test_pipeline_auto_sync_basic() {
 }
 
 #[tokio::test]
-async fn test_pipeline_interleaved_exec_claim() {
+async fn pipeline_interleaved_exec_claim() {
     let mut conn = get_conn().await;
 
     let (r1, r2, r3, r4) = conn
@@ -428,7 +428,7 @@ async fn test_pipeline_interleaved_exec_claim() {
 }
 
 #[tokio::test]
-async fn test_pipeline_partial_claim_then_exec() {
+async fn pipeline_partial_claim_then_exec() {
     let mut conn = get_conn().await;
 
     let (r1, r2, r3, r4, r5) = conn
@@ -461,7 +461,7 @@ async fn test_pipeline_partial_claim_then_exec() {
 }
 
 #[tokio::test]
-async fn test_pipeline_multiple_batches_with_error() {
+async fn pipeline_multiple_batches_with_error() {
     let mut conn = get_conn().await;
 
     let result = conn
@@ -483,7 +483,7 @@ async fn test_pipeline_multiple_batches_with_error() {
             assert_eq!(r3, vec![(3,)]);
 
             let result4: Result<Vec<(i32,)>, _> = p.claim_collect(t4).await;
-            assert!(result4.is_err());
+            result4.unwrap_err();
 
             let result5: Result<Vec<(i32,)>, _> = p.claim_collect(t5).await;
             assert!(result5.is_err());
@@ -493,12 +493,12 @@ async fn test_pipeline_multiple_batches_with_error() {
         })
         .await;
 
-    assert!(result.is_ok());
+    result.unwrap();
     verify_connection(&mut conn).await;
 }
 
 #[tokio::test]
-async fn test_pipeline_error_recovery_new_batch() {
+async fn pipeline_error_recovery_new_batch() {
     let mut conn = get_conn().await;
 
     let _ = conn
@@ -523,7 +523,7 @@ async fn test_pipeline_error_recovery_new_batch() {
 }
 
 #[tokio::test]
-async fn test_pipeline_explicit_flush() {
+async fn pipeline_explicit_flush() {
     let mut conn = get_conn().await;
 
     let (r1, r2) = conn
@@ -547,7 +547,7 @@ async fn test_pipeline_explicit_flush() {
 }
 
 #[tokio::test]
-async fn test_pipeline_complex_interleave() {
+async fn pipeline_complex_interleave() {
     let mut conn = get_conn().await;
 
     let results = conn
@@ -570,7 +570,7 @@ async fn test_pipeline_complex_interleave() {
 }
 
 #[tokio::test]
-async fn test_pipeline_continue_after_error_batch() {
+async fn pipeline_continue_after_error_batch() {
     let mut conn = get_conn().await;
 
     let (r1, r4, r5) = conn
@@ -583,10 +583,10 @@ async fn test_pipeline_continue_after_error_batch() {
             assert_eq!(r1, vec![(1,)]);
 
             let result2: Result<Vec<(i32,)>, _> = p.claim_collect(t2).await;
-            assert!(result2.is_err());
+            result2.unwrap_err();
 
             let result3: Result<Vec<(i32,)>, _> = p.claim_collect(t3).await;
-            assert!(result3.is_err());
+            result3.unwrap_err();
 
             let t4 = p.exec("SELECT $1::int", (4,))?;
             let t5 = p.exec("SELECT $1::int", (5,))?;

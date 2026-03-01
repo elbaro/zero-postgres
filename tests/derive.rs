@@ -62,7 +62,7 @@ struct PartialUser {
 // ============================================================================
 
 #[test]
-fn test_exec_collect_basic() {
+fn exec_collect_basic() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_users")
@@ -111,7 +111,7 @@ fn test_exec_collect_basic() {
 }
 
 #[test]
-fn test_exec_first() {
+fn exec_first() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_first")
@@ -153,7 +153,7 @@ fn test_exec_first() {
 }
 
 #[test]
-fn test_exec_foreach() {
+fn exec_foreach() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_foreach")
@@ -192,7 +192,7 @@ fn test_exec_foreach() {
 }
 
 #[test]
-fn test_optional_field() {
+fn optional_field() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_optional")
@@ -227,7 +227,7 @@ fn test_optional_field() {
 }
 
 #[test]
-fn test_skip_unknown_columns() {
+fn skip_unknown_columns() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_skip")
@@ -264,7 +264,7 @@ fn test_skip_unknown_columns() {
 }
 
 #[test]
-fn test_strict_mode_unknown_column() {
+fn strict_mode_unknown_column() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_strict")
@@ -299,7 +299,7 @@ fn test_strict_mode_unknown_column() {
 }
 
 #[test]
-fn test_missing_column() {
+fn missing_column() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_missing")
@@ -332,7 +332,7 @@ fn test_missing_column() {
 }
 
 #[test]
-fn test_column_order_independence() {
+fn column_order_independence() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_order")
@@ -372,7 +372,7 @@ fn test_column_order_independence() {
 }
 
 #[test]
-fn test_int_types() {
+fn int_types() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_ints")
@@ -413,7 +413,7 @@ fn test_int_types() {
 }
 
 #[test]
-fn test_float_types() {
+fn float_types() {
     let mut conn = get_conn();
 
     conn.query_drop("DROP TABLE IF EXISTS test_derive_floats")

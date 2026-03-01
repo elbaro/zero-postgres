@@ -256,12 +256,12 @@ mod tests {
     use crate::protocol::types::oid;
 
     #[test]
-    fn test_option_null() {
+    fn option_null() {
         assert_eq!(Option::<i32>::from_null().unwrap(), None);
     }
 
     #[test]
-    fn test_slice_to_params() {
+    fn slice_to_params() {
         let params: &[i32] = &[1, 2, 3];
         assert_eq!(params.param_count(), 3);
         assert_eq!(params.natural_oids(), vec![oid::INT4, oid::INT4, oid::INT4]);
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_to_params() {
+    fn vec_to_params() {
         let params: Vec<i64> = vec![10, 20];
         assert_eq!(params.param_count(), 2);
         assert_eq!(params.natural_oids(), vec![oid::INT8, oid::INT8]);
@@ -287,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_slice_to_params() {
+    fn empty_slice_to_params() {
         let params: &[i32] = &[];
         assert_eq!(params.param_count(), 0);
         assert_eq!(params.natural_oids(), vec![]);

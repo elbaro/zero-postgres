@@ -45,14 +45,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_uuid_text() {
+    fn uuid_text() {
         let uuid_str = b"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
         let uuid = uuid::Uuid::from_text(oid::UUID, uuid_str).unwrap();
         assert_eq!(uuid.to_string(), "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11");
     }
 
     #[test]
-    fn test_uuid_binary() {
+    fn uuid_binary() {
         let bytes: [u8; 16] = [
             0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38,
             0x0a, 0x11,
@@ -62,7 +62,7 @@ mod tests {
     }
 
     #[test]
-    fn test_uuid_roundtrip() {
+    fn uuid_roundtrip() {
         let original = uuid::Uuid::parse_str("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11").unwrap();
         let mut buf = Vec::new();
         original.encode(original.natural_oid(), &mut buf).unwrap();

@@ -156,25 +156,25 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn test_decimal_text_decode() {
+    fn decimal_text_decode() {
         let dec = Decimal::from_text(oid::NUMERIC, b"123.45").unwrap();
         assert_eq!(dec, Decimal::from_str("123.45").unwrap());
     }
 
     #[test]
-    fn test_decimal_text_negative() {
+    fn decimal_text_negative() {
         let dec = Decimal::from_text(oid::NUMERIC, b"-999.999").unwrap();
         assert_eq!(dec, Decimal::from_str("-999.999").unwrap());
     }
 
     #[test]
-    fn test_decimal_zero() {
+    fn decimal_zero() {
         let dec = Decimal::from_text(oid::NUMERIC, b"0").unwrap();
         assert_eq!(dec, Decimal::ZERO);
     }
 
     #[test]
-    fn test_decimal_encode_text_format() {
+    fn decimal_encode_text_format() {
         // encode() now produces text format for NUMERIC
         let original = Decimal::from_str("12345.6789").unwrap();
         let mut buf = Vec::new();
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decimal_encode_zero() {
+    fn decimal_encode_zero() {
         let original = Decimal::ZERO;
         let mut buf = Vec::new();
         original.encode(original.natural_oid(), &mut buf).unwrap();
@@ -194,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decimal_encode_negative() {
+    fn decimal_encode_negative() {
         let original = Decimal::from_str("-123.456").unwrap();
         let mut buf = Vec::new();
         original.encode(original.natural_oid(), &mut buf).unwrap();
@@ -203,8 +203,8 @@ mod tests {
     }
 
     #[test]
-    fn test_decimal_nan_text() {
+    fn decimal_nan_text() {
         let result = Decimal::from_text(oid::NUMERIC, b"NaN");
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }

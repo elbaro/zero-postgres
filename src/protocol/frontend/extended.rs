@@ -167,7 +167,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse() {
+    fn parse() {
         let mut buf = Vec::new();
         write_parse(&mut buf, "stmt1", "SELECT $1::int", &[0]);
 
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sync() {
+    fn sync() {
         let mut buf = Vec::new();
         write_sync(&mut buf);
 
@@ -189,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn test_flush() {
+    fn flush() {
         let mut buf = Vec::new();
         write_flush(&mut buf);
 
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute() {
+    fn execute() {
         let mut buf = Vec::new();
         write_execute(&mut buf, "", 0);
 

@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_string_zero() {
+    fn numeric_to_string_zero() {
         let bytes = make_numeric(0, 0, 0x0000, 0, &[]);
         assert_eq!(numeric_to_string(&bytes).unwrap(), "0");
 
@@ -317,35 +317,35 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_string_simple() {
+    fn numeric_to_string_simple() {
         // 12345 = 1 * 10000 + 2345, weight=1
         let bytes = make_numeric(2, 1, 0x0000, 0, &[1, 2345]);
         assert_eq!(numeric_to_string(&bytes).unwrap(), "12345");
     }
 
     #[test]
-    fn test_numeric_to_string_decimal() {
+    fn numeric_to_string_decimal() {
         // 123.45: weight=0, dscale=2, digits=[123, 4500]
         let bytes = make_numeric(2, 0, 0x0000, 2, &[123, 4500]);
         assert_eq!(numeric_to_string(&bytes).unwrap(), "123.45");
     }
 
     #[test]
-    fn test_numeric_to_string_negative() {
+    fn numeric_to_string_negative() {
         // -123.45
         let bytes = make_numeric(2, 0, 0x4000, 2, &[123, 4500]);
         assert_eq!(numeric_to_string(&bytes).unwrap(), "-123.45");
     }
 
     #[test]
-    fn test_numeric_to_string_small_decimal() {
+    fn numeric_to_string_small_decimal() {
         // 0.0001: weight=-1, digits=[1]
         let bytes = make_numeric(1, -1, 0x0000, 4, &[1]);
         assert_eq!(numeric_to_string(&bytes).unwrap(), "0.0001");
     }
 
     #[test]
-    fn test_numeric_to_string_special_values() {
+    fn numeric_to_string_special_values() {
         // NaN
         let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
         assert_eq!(numeric_to_string(&bytes).unwrap(), "NaN");
@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f64() {
+    fn numeric_to_f64_basic() {
         // 123.45
         let bytes = make_numeric(2, 0, 0x0000, 2, &[123, 4500]);
         let result = numeric_to_f64(&bytes).unwrap();
@@ -368,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f64_negative() {
+    fn numeric_to_f64_negative() {
         // -123.45
         let bytes = make_numeric(2, 0, 0x4000, 2, &[123, 4500]);
         let result = numeric_to_f64(&bytes).unwrap();
@@ -376,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f64_special() {
+    fn numeric_to_f64_special() {
         // NaN
         let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
         assert!(numeric_to_f64(&bytes).unwrap().is_nan());
@@ -391,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f32() {
+    fn numeric_to_f32_basic() {
         // 123.45
         let bytes = make_numeric(2, 0, 0x0000, 2, &[123, 4500]);
         let result = numeric_to_f32(&bytes).unwrap();
@@ -399,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f32_special() {
+    fn numeric_to_f32_special() {
         // NaN
         let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
         assert!(numeric_to_f32(&bytes).unwrap().is_nan());

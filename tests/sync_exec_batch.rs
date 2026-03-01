@@ -51,7 +51,7 @@ impl TestTable {
 }
 
 #[test]
-fn test_exec_batch_with_raw_sql() {
+fn exec_batch_with_raw_sql() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -78,7 +78,7 @@ fn test_exec_batch_with_raw_sql() {
 }
 
 #[test]
-fn test_exec_batch_with_prepared_statement() {
+fn exec_batch_with_prepared_statement() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -94,7 +94,7 @@ fn test_exec_batch_with_prepared_statement() {
 }
 
 #[test]
-fn test_exec_batch_empty_params() {
+fn exec_batch_empty_params() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -109,7 +109,7 @@ fn test_exec_batch_empty_params() {
 }
 
 #[test]
-fn test_exec_batch_single_item() {
+fn exec_batch_single_item() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -123,7 +123,7 @@ fn test_exec_batch_single_item() {
 }
 
 #[test]
-fn test_exec_batch_chunked() {
+fn exec_batch_chunked() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -147,7 +147,7 @@ fn test_exec_batch_chunked() {
 }
 
 #[test]
-fn test_exec_batch_chunked_exact_multiple() {
+fn exec_batch_chunked_exact_multiple() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -164,7 +164,7 @@ fn test_exec_batch_chunked_exact_multiple() {
 }
 
 #[test]
-fn test_exec_batch_chunked_size_one() {
+fn exec_batch_chunked_size_one() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -183,7 +183,7 @@ fn test_exec_batch_chunked_size_one() {
 }
 
 #[test]
-fn test_exec_batch_chunked_size_larger_than_items() {
+fn exec_batch_chunked_size_larger_than_items() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -198,7 +198,7 @@ fn test_exec_batch_chunked_size_larger_than_items() {
 }
 
 #[test]
-fn test_exec_batch_with_transaction() {
+fn exec_batch_with_transaction() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -217,7 +217,7 @@ fn test_exec_batch_with_transaction() {
 }
 
 #[test]
-fn test_exec_batch_with_transaction_rollback() {
+fn exec_batch_with_transaction_rollback() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -236,7 +236,7 @@ fn test_exec_batch_with_transaction_rollback() {
 }
 
 #[test]
-fn test_exec_batch_error_recovery() {
+fn exec_batch_error_recovery() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -266,7 +266,7 @@ fn test_exec_batch_error_recovery() {
 }
 
 #[test]
-fn test_exec_batch_multiple_batches_same_connection() {
+fn exec_batch_multiple_batches_same_connection() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -291,7 +291,7 @@ fn test_exec_batch_multiple_batches_same_connection() {
 }
 
 #[test]
-fn test_exec_batch_with_null_values() {
+fn exec_batch_with_null_values() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -329,7 +329,7 @@ fn test_exec_batch_with_null_values() {
 }
 
 #[test]
-fn test_exec_batch_large_batch() {
+fn exec_batch_large_batch() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -346,7 +346,7 @@ fn test_exec_batch_large_batch() {
 }
 
 #[test]
-fn test_exec_batch_update() {
+fn exec_batch_update() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 
@@ -376,7 +376,7 @@ fn test_exec_batch_update() {
 }
 
 #[test]
-fn test_exec_batch_delete() {
+fn exec_batch_delete() {
     let mut conn = get_conn();
     let table = TestTable::new(&mut conn);
 

@@ -92,13 +92,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_string_text() {
+    fn string_text() {
         assert_eq!(String::from_text(oid::TEXT, b"hello").unwrap(), "hello");
     }
 
     #[test]
-    fn test_type_mismatch() {
+    fn type_mismatch() {
         // Trying to decode INT4 as String should fail
-        assert!(String::from_binary(oid::INT4, &[0, 0, 0, 1]).is_err());
+        String::from_binary(oid::INT4, &[0, 0, 0, 1]).unwrap_err();
     }
 }

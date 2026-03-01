@@ -55,7 +55,7 @@ fn verify_connection(conn: &mut Conn) {
 
 /// Test basic exec flow with raw SQL
 #[test]
-fn test_pipeline_exec() {
+fn pipeline_exec() {
     let mut conn = get_conn();
 
     let result = conn
@@ -74,7 +74,7 @@ fn test_pipeline_exec() {
 
 /// Test multiple exec calls
 #[test]
-fn test_pipeline_multiple_execs() {
+fn pipeline_multiple_execs() {
     let mut conn = get_conn();
 
     let (r1, r2, r3) = conn
@@ -101,7 +101,7 @@ fn test_pipeline_multiple_execs() {
 
 /// Test query that returns no rows
 #[test]
-fn test_pipeline_no_rows() {
+fn pipeline_no_rows() {
     let mut conn = get_conn();
 
     let result: Vec<(i32,)> = conn
@@ -118,7 +118,7 @@ fn test_pipeline_no_rows() {
 
 /// Test query with multiple rows
 #[test]
-fn test_pipeline_multiple_rows() {
+fn pipeline_multiple_rows() {
     let mut conn = get_conn();
 
     let result: Vec<(i32,)> = conn
@@ -137,7 +137,7 @@ fn test_pipeline_multiple_rows() {
 
 /// Test using prepared statements in pipeline
 #[test]
-fn test_pipeline_with_prepared() {
+fn pipeline_with_prepared() {
     let mut conn = get_conn();
 
     // Prepare statement outside pipeline
@@ -166,7 +166,7 @@ fn test_pipeline_with_prepared() {
 
 /// Test claim order validation
 #[test]
-fn test_pipeline_claim_order_error() {
+fn pipeline_claim_order_error() {
     let mut conn = get_conn();
 
     let result = conn.pipeline(|p| {
@@ -192,13 +192,13 @@ fn test_pipeline_claim_order_error() {
     });
 
     // The pipeline should complete (cleanup handles remaining)
-    assert!(result.is_ok());
+    result.unwrap();
     verify_connection(&mut conn);
 }
 
 /// Test SQL error propagation
 #[test]
-fn test_pipeline_sql_error() {
+fn pipeline_sql_error() {
     let mut conn = get_conn();
 
     let result = conn.pipeline(|p| {
@@ -219,13 +219,13 @@ fn test_pipeline_sql_error() {
         Ok(())
     });
 
-    assert!(result.is_ok());
+    result.unwrap();
     verify_connection(&mut conn);
 }
 
 /// Test aborted pipeline state
 #[test]
-fn test_pipeline_aborted_state() {
+fn pipeline_aborted_state() {
     let mut conn = get_conn();
 
     let result = conn.pipeline(|p| {
@@ -241,7 +241,7 @@ fn test_pipeline_aborted_state() {
 
         // t2 fails - pipeline becomes aborted
         let result: Result<Vec<(i32,)>, _> = p.claim_collect(t2);
-        assert!(result.is_err());
+        result.unwrap_err();
 
         // Subsequent claims should also fail due to aborted state
         let result3: Result<Vec<(i32,)>, _> = p.claim_collect(t3);
@@ -256,7 +256,7 @@ fn test_pipeline_aborted_state() {
         Ok(())
     });
 
-    assert!(result.is_ok());
+    result.unwrap();
     verify_connection(&mut conn);
 }
 
@@ -264,7 +264,7 @@ fn test_pipeline_aborted_state() {
 
 /// Test INSERT in pipeline
 #[test]
-fn test_pipeline_insert() {
+fn pipeline_insert() {
     let mut conn = get_conn();
 
     // Setup
@@ -304,7 +304,7 @@ fn test_pipeline_insert() {
 
 /// Test INSERT with RETURNING
 #[test]
-fn test_pipeline_insert_returning() {
+fn pipeline_insert_returning() {
     let mut conn = get_conn();
 
     // Setup
@@ -345,7 +345,7 @@ fn test_pipeline_insert_returning() {
 
 /// Test empty pipeline (just sync)
 #[test]
-fn test_pipeline_empty() {
+fn pipeline_empty() {
     let mut conn = get_conn();
 
     conn.pipeline(|p| {
@@ -359,7 +359,7 @@ fn test_pipeline_empty() {
 
 /// Test pending_count tracking
 #[test]
-fn test_pipeline_pending_count() {
+fn pipeline_pending_count() {
     let mut conn = get_conn();
 
     conn.pipeline(|p| {
@@ -387,7 +387,7 @@ fn test_pipeline_pending_count() {
 
 /// Test claim_one for single row result
 #[test]
-fn test_pipeline_claim_one() {
+fn pipeline_claim_one() {
     let mut conn = get_conn();
 
     let result = conn
@@ -404,7 +404,7 @@ fn test_pipeline_claim_one() {
 
 /// Test claim_one returns None for empty result
 #[test]
-fn test_pipeline_claim_one_empty() {
+fn pipeline_claim_one_empty() {
     let mut conn = get_conn();
 
     let result = conn
@@ -423,7 +423,7 @@ fn test_pipeline_claim_one_empty() {
 
 /// Test basic auto-sync: claim without explicit sync()
 #[test]
-fn test_pipeline_auto_sync_basic() {
+fn pipeline_auto_sync_basic() {
     let mut conn = get_conn();
 
     let (r1, r2) = conn
@@ -445,7 +445,7 @@ fn test_pipeline_auto_sync_basic() {
 /// Test interleaved exec/claim pattern without explicit sync
 /// exec()*n, claim some, exec() more, claim remaining
 #[test]
-fn test_pipeline_interleaved_exec_claim() {
+fn pipeline_interleaved_exec_claim() {
     let mut conn = get_conn();
 
     let (r1, r2, r3, r4) = conn
@@ -479,7 +479,7 @@ fn test_pipeline_interleaved_exec_claim() {
 
 /// Test partial claims then more execs before claiming rest
 #[test]
-fn test_pipeline_partial_claim_then_exec() {
+fn pipeline_partial_claim_then_exec() {
     let mut conn = get_conn();
 
     let (r1, r2, r3, r4, r5) = conn
@@ -520,7 +520,7 @@ fn test_pipeline_partial_claim_then_exec() {
 
 /// Test multiple exec/claim batches with error in between
 #[test]
-fn test_pipeline_multiple_batches_with_error() {
+fn pipeline_multiple_batches_with_error() {
     let mut conn = get_conn();
 
     let result = conn.pipeline(|p| {
@@ -544,7 +544,7 @@ fn test_pipeline_multiple_batches_with_error() {
 
         // t4 fails
         let result4: Result<Vec<(i32,)>, _> = p.claim_collect(t4);
-        assert!(result4.is_err());
+        result4.unwrap_err();
 
         // t5 should fail due to aborted state
         let result5: Result<Vec<(i32,)>, _> = p.claim_collect(t5);
@@ -555,13 +555,13 @@ fn test_pipeline_multiple_batches_with_error() {
     });
 
     // Pipeline should recover after error via cleanup
-    assert!(result.is_ok());
+    result.unwrap();
     verify_connection(&mut conn);
 }
 
 /// Test recovery after error - can start new batch
 #[test]
-fn test_pipeline_error_recovery_new_batch() {
+fn pipeline_error_recovery_new_batch() {
     let mut conn = get_conn();
 
     // First pipeline with error
@@ -586,7 +586,7 @@ fn test_pipeline_error_recovery_new_batch() {
 
 /// Test explicit flush then claim (no auto-sync)
 #[test]
-fn test_pipeline_explicit_flush() {
+fn pipeline_explicit_flush() {
     let mut conn = get_conn();
 
     let (r1, r2) = conn
@@ -613,7 +613,7 @@ fn test_pipeline_explicit_flush() {
 
 /// Test complex interleaving: exec, claim, exec, claim, exec, claim
 #[test]
-fn test_pipeline_complex_interleave() {
+fn pipeline_complex_interleave() {
     let mut conn = get_conn();
 
     let results = conn
@@ -638,7 +638,7 @@ fn test_pipeline_complex_interleave() {
 /// Batch 1: error -> claim all (some fail)
 /// Batch 2: should work normally
 #[test]
-fn test_pipeline_continue_after_error_batch() {
+fn pipeline_continue_after_error_batch() {
     let mut conn = get_conn();
 
     let (r1, r4, r5) = conn
@@ -654,11 +654,11 @@ fn test_pipeline_continue_after_error_batch() {
 
             // t2 fails
             let result2: Result<Vec<(i32,)>, _> = p.claim_collect(t2);
-            assert!(result2.is_err());
+            result2.unwrap_err();
 
             // t3 fails due to aborted
             let result3: Result<Vec<(i32,)>, _> = p.claim_collect(t3);
-            assert!(result3.is_err());
+            result3.unwrap_err();
 
             // After consuming all claims from error batch (including ReadyForQuery),
             // pipeline should recover and allow new batch

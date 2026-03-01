@@ -274,7 +274,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_md5_password() {
+    fn md5_password_hash() {
         // Test vector from PostgreSQL
         let result = md5_password("postgres", "password", &[0x01, 0x02, 0x03, 0x04]);
         assert!(result.starts_with("md5"));
@@ -282,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn test_password_message() {
+    fn password_message() {
         let mut buf = Vec::new();
         write_password(&mut buf, "secret");
 

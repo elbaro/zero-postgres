@@ -59,7 +59,7 @@ fn portal_exists(conn: &mut Conn, portal: &str) -> bool {
 
 /// EN0a: Named portal in implicit tx, then SYNC -> portal should be gone
 #[test]
-fn test_en0a_named_portal_implicit_tx_sync() {
+fn en0a_named_portal_implicit_tx_sync() {
     let mut conn = get_conn();
 
     let stmt1 = conn.prepare("SELECT 1").unwrap();
@@ -86,7 +86,7 @@ fn test_en0a_named_portal_implicit_tx_sync() {
 
 /// EN0b: Named portal in implicit tx, then FLUSH -> portal still exists
 #[test]
-fn test_en0b_named_portal_implicit_tx_flush() {
+fn en0b_named_portal_implicit_tx_flush() {
     let mut conn = get_conn();
 
     let stmt1 = conn.prepare("SELECT 1").unwrap();
@@ -108,7 +108,7 @@ fn test_en0b_named_portal_implicit_tx_flush() {
 
 /// EN1: Named portal created BEFORE BEGIN, then COMMIT -> portal should be gone
 #[test]
-fn test_en1_named_portal_before_begin_commit() {
+fn en1_named_portal_before_begin_commit() {
     let mut conn = get_conn();
 
     // Prepare statement
@@ -142,7 +142,7 @@ fn test_en1_named_portal_before_begin_commit() {
 
 /// EN2: Named portal created BEFORE BEGIN, then ROLLBACK -> portal should be gone
 #[test]
-fn test_en2_named_portal_before_begin_rollback() {
+fn en2_named_portal_before_begin_rollback() {
     let mut conn = get_conn();
 
     // Prepare statement
@@ -175,7 +175,7 @@ fn test_en2_named_portal_before_begin_rollback() {
 
 /// EN3: Named portal created BEFORE BEGIN, ERROR occurs -> portal should be gone
 #[test]
-fn test_en3_named_portal_before_begin_error() {
+fn en3_named_portal_before_begin_error() {
     let mut conn = get_conn();
 
     // Prepare statement
@@ -217,7 +217,7 @@ fn test_en3_named_portal_before_begin_error() {
 
 /// EN4: Named portal created WITHIN explicit tx + COMMIT -> portal should be gone
 #[test]
-fn test_en4_named_portal_within_tx_commit() {
+fn en4_named_portal_within_tx_commit() {
     let mut conn = get_conn();
 
     conn.query_drop("BEGIN").unwrap();
@@ -237,7 +237,7 @@ fn test_en4_named_portal_within_tx_commit() {
 
 /// EN5: Named portal created WITHIN explicit tx + ROLLBACK -> portal should be gone
 #[test]
-fn test_en5_named_portal_within_tx_rollback() {
+fn en5_named_portal_within_tx_rollback() {
     let mut conn = get_conn();
 
     conn.query_drop("BEGIN").unwrap();
@@ -257,7 +257,7 @@ fn test_en5_named_portal_within_tx_rollback() {
 
 /// EN6: Named portal created WITHIN tx + ERROR -> portal unusable, gone after rollback
 #[test]
-fn test_en6_named_portal_within_tx_error() {
+fn en6_named_portal_within_tx_error() {
     let mut conn = get_conn();
 
     conn.query_drop("BEGIN").unwrap();
@@ -290,7 +290,7 @@ fn test_en6_named_portal_within_tx_error() {
 
 /// EU1: Unnamed portal in implicit tx, then SYNC -> portal gone
 #[test]
-fn test_eu1_unnamed_portal_implicit_tx_sync() {
+fn eu1_unnamed_portal_implicit_tx_sync() {
     let mut conn = get_conn();
 
     let stmt1 = conn.prepare("SELECT 1").unwrap();
@@ -310,7 +310,7 @@ fn test_eu1_unnamed_portal_implicit_tx_sync() {
 
 /// EU3: Unnamed portal in implicit tx, then FLUSH -> portal still exists
 #[test]
-fn test_eu3_unnamed_portal_implicit_tx_flush() {
+fn eu3_unnamed_portal_implicit_tx_flush() {
     let mut conn = get_conn();
 
     let stmt1 = conn.prepare("SELECT 1").unwrap();
@@ -331,7 +331,7 @@ fn test_eu3_unnamed_portal_implicit_tx_flush() {
 
 /// EU2: Unnamed portal in implicit tx + ERROR -> portal gone
 #[test]
-fn test_eu2_unnamed_portal_implicit_tx_error() {
+fn eu2_unnamed_portal_implicit_tx_error() {
     let mut conn = get_conn();
 
     // Create a table with zero to force runtime evaluation
@@ -366,7 +366,7 @@ fn test_eu2_unnamed_portal_implicit_tx_error() {
 
 /// EU4: Unnamed portal + new BIND -> old portal replaced
 #[test]
-fn test_eu4_unnamed_portal_replaced_by_new_bind() {
+fn eu4_unnamed_portal_replaced_by_new_bind() {
     let mut conn = get_conn();
 
     let stmt1 = conn.prepare("SELECT 1 as a").unwrap();
@@ -395,7 +395,7 @@ fn test_eu4_unnamed_portal_replaced_by_new_bind() {
 
 /// P1: INSERT via portal + COMMIT -> rows persist
 #[test]
-fn test_p1_insert_commit_persists() {
+fn p1_insert_commit_persists() {
     let mut conn = get_conn();
 
     // Setup
@@ -425,7 +425,7 @@ fn test_p1_insert_commit_persists() {
 
 /// P2: INSERT via portal + ROLLBACK -> rows gone
 #[test]
-fn test_p2_insert_rollback_gone() {
+fn p2_insert_rollback_gone() {
     let mut conn = get_conn();
 
     // Setup
@@ -455,7 +455,7 @@ fn test_p2_insert_rollback_gone() {
 
 /// P3: INSERT via portal + ERROR + ROLLBACK -> rows gone
 #[test]
-fn test_p3_insert_error_rollback_gone() {
+fn p3_insert_error_rollback_gone() {
     let mut conn = get_conn();
 
     // Setup
@@ -492,7 +492,7 @@ fn test_p3_insert_error_rollback_gone() {
 
 /// P4: Named portal created WITHIN tx, ROLLBACK, then try to INSERT -> portal gone, insert fails
 #[test]
-fn test_p4_named_portal_within_tx_rollback_then_insert() {
+fn p4_named_portal_within_tx_rollback_then_insert() {
     let mut conn = get_conn();
 
     // Setup
@@ -546,7 +546,7 @@ fn test_p4_named_portal_within_tx_rollback_then_insert() {
 /// This is the key behavior that makes Transaction::exec_portal safe:
 /// portals created within BEGIN/COMMIT survive intermediate SYNC messages.
 #[test]
-fn test_sync_inside_explicit_tx_preserves_portal() {
+fn sync_inside_explicit_tx_preserves_portal() {
     let mut conn = get_conn();
 
     conn.query_drop("BEGIN").unwrap();

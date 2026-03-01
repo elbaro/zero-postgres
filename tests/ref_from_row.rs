@@ -7,7 +7,7 @@ use zerocopy::{FromBytes, Immutable, KnownLayout};
 
 /// Test that FixedWireSize is implemented for all expected types.
 #[test]
-fn test_fixed_wire_size_primitives() {
+fn fixed_wire_size_primitives() {
     assert_eq!(<i8 as FixedWireSize>::WIRE_SIZE, 1);
     assert_eq!(<u8 as FixedWireSize>::WIRE_SIZE, 1);
     assert_eq!(<I16BE as FixedWireSize>::WIRE_SIZE, 2);
@@ -20,7 +20,7 @@ fn test_fixed_wire_size_primitives() {
 
 /// Test LengthPrefixed wire sizes.
 #[test]
-fn test_length_prefixed_wire_size() {
+fn length_prefixed_wire_size() {
     // LengthPrefixed adds 4 bytes for the length prefix
     assert_eq!(<LengthPrefixed<I16BE> as FixedWireSize>::WIRE_SIZE, 6);
     assert_eq!(<LengthPrefixed<I32BE> as FixedWireSize>::WIRE_SIZE, 8);
@@ -30,7 +30,7 @@ fn test_length_prefixed_wire_size() {
 
 /// Test zerocopy parsing of big-endian integers.
 #[test]
-fn test_big_endian_parsing() {
+fn big_endian_parsing() {
     // i32 value 0x12345678 in big-endian
     let data: [u8; 4] = [0x12, 0x34, 0x56, 0x78];
     let value: &I32BE = FromBytes::ref_from_bytes(&data).unwrap();
@@ -44,7 +44,7 @@ fn test_big_endian_parsing() {
 
 /// Test LengthPrefixed parsing.
 #[test]
-fn test_length_prefixed_parsing() {
+fn length_prefixed_parsing() {
     // Wire format: [len=4 (BE)][value=42 (BE)]
     let mut data = [0u8; 8];
     data[0..4].copy_from_slice(&4_i32.to_be_bytes()); // length = 4
@@ -58,7 +58,7 @@ fn test_length_prefixed_parsing() {
 
 /// Test LengthPrefixed with i64.
 #[test]
-fn test_length_prefixed_i64() {
+fn length_prefixed_i64() {
     let value: i64 = 0x0102030405060708;
     let mut data = [0u8; 12];
     data[0..4].copy_from_slice(&8_i32.to_be_bytes()); // length = 8
@@ -71,7 +71,7 @@ fn test_length_prefixed_i64() {
 
 /// Test a packed struct with multiple LengthPrefixed fields.
 #[test]
-fn test_packed_struct_with_length_prefixed() {
+fn packed_struct_with_length_prefixed() {
     #[derive(Debug, FromBytes, KnownLayout, Immutable)]
     #[repr(C, packed)]
     struct TestRow {
@@ -100,7 +100,7 @@ fn test_packed_struct_with_length_prefixed() {
 
 /// Test packed struct alignment.
 #[test]
-fn test_packed_alignment() {
+fn packed_alignment() {
     #[derive(Debug, FromBytes, KnownLayout, Immutable)]
     #[repr(C, packed)]
     struct MixedRow {
@@ -116,7 +116,7 @@ fn test_packed_alignment() {
 
 /// Test unsigned integers with LengthPrefixed.
 #[test]
-fn test_unsigned_integers() {
+fn unsigned_integers() {
     #[derive(Debug, FromBytes, KnownLayout, Immutable)]
     #[repr(C, packed)]
     struct UnsignedRow {
@@ -139,7 +139,7 @@ fn test_unsigned_integers() {
 
 /// Test negative values.
 #[test]
-fn test_negative_values() {
+fn negative_values() {
     let mut data = [0u8; 8];
     data[0..4].copy_from_slice(&4_i32.to_be_bytes());
     data[4..8].copy_from_slice(&(-12345_i32).to_be_bytes());
@@ -150,7 +150,7 @@ fn test_negative_values() {
 
 /// Test that zerocopy correctly rejects wrong-sized data.
 #[test]
-fn test_size_validation() {
+fn size_validation() {
     #[derive(Debug, FromBytes, KnownLayout, Immutable)]
     #[repr(C, packed)]
     struct TestRow {
@@ -160,16 +160,16 @@ fn test_size_validation() {
 
     // Too small
     let data = [0u8; 19];
-    assert!(<TestRow as FromBytes>::ref_from_bytes(&data).is_err());
+    <TestRow as FromBytes>::ref_from_bytes(&data).unwrap_err();
 
     // Correct size
     let data = [0u8; 20];
-    assert!(<TestRow as FromBytes>::ref_from_bytes(&data).is_ok());
+    <TestRow as FromBytes>::ref_from_bytes(&data).unwrap();
 }
 
 /// Test simulating a real PostgreSQL row with multiple columns.
 #[test]
-fn test_simulated_row() {
+fn simulated_row() {
     #[derive(Debug, FromBytes, KnownLayout, Immutable)]
     #[repr(C, packed)]
     struct UserRow {

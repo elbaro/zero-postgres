@@ -9,7 +9,7 @@ async fn get_conn() -> Conn {
 }
 
 #[tokio::test]
-async fn test_exec_portal_basic() {
+async fn exec_portal_basic() {
     let mut conn = get_conn().await;
 
     let stmt = conn
@@ -36,7 +36,7 @@ async fn test_exec_portal_basic() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_batched() {
+async fn exec_portal_batched() {
     let mut conn = get_conn().await;
 
     let stmt = conn
@@ -66,7 +66,7 @@ async fn test_exec_portal_batched() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_empty_result() {
+async fn exec_portal_empty_result() {
     let mut conn = get_conn().await;
 
     let stmt = conn.prepare("SELECT 1 WHERE false").await.unwrap();
@@ -86,7 +86,7 @@ async fn test_exec_portal_empty_result() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_with_params() {
+async fn exec_portal_with_params() {
     let mut conn = get_conn().await;
 
     let stmt = conn
@@ -110,7 +110,7 @@ async fn test_exec_portal_with_params() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_with_raw_sql() {
+async fn exec_portal_with_raw_sql() {
     let mut conn = get_conn().await;
 
     conn.transaction(async |conn, tx| {
@@ -131,7 +131,7 @@ async fn test_exec_portal_with_raw_sql() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_with_raw_sql_and_params() {
+async fn exec_portal_with_raw_sql_and_params() {
     let mut conn = get_conn().await;
 
     conn.transaction(async |conn, tx| {
@@ -152,7 +152,7 @@ async fn test_exec_portal_with_raw_sql_and_params() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_portal_name() {
+async fn exec_portal_portal_name() {
     let mut conn = get_conn().await;
 
     conn.transaction(async |conn, tx| {
@@ -175,7 +175,7 @@ async fn test_exec_portal_portal_name() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_multiple_portals() {
+async fn exec_portal_multiple_portals() {
     let mut conn = get_conn().await;
 
     conn.transaction(async |conn, tx| {
@@ -210,7 +210,7 @@ async fn test_exec_portal_multiple_portals() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_is_complete_tracking() {
+async fn exec_portal_is_complete_tracking() {
     let mut conn = get_conn().await;
 
     conn.transaction(async |conn, tx| {
@@ -234,7 +234,7 @@ async fn test_exec_portal_is_complete_tracking() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_foreach_basic() {
+async fn exec_portal_foreach_basic() {
     let mut conn = get_conn().await;
 
     conn.transaction(async |conn, tx| {
@@ -261,7 +261,7 @@ async fn test_exec_portal_foreach_basic() {
 }
 
 #[tokio::test]
-async fn test_exec_portal_foreach_batched() {
+async fn exec_portal_foreach_batched() {
     let mut conn = get_conn().await;
 
     conn.transaction(async |conn, tx| {

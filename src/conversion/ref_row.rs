@@ -210,7 +210,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_length_prefixed_i32() {
+    fn length_prefixed_i32() {
         // Wire format: length=4 (BE), value=42 (BE)
         let data: &[u8] = &[0, 0, 0, 4, 0, 0, 0, 42];
         let prefixed: &LengthPrefixed<I32BE> = zerocopy::FromBytes::ref_from_bytes(data).unwrap();
@@ -221,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn test_length_prefixed_i64() {
+    fn length_prefixed_i64() {
         // Wire format: length=8 (BE), value=12345678901234 (BE)
         let value: i64 = 12345678901234;
         let mut data = [0u8; 12];
@@ -235,14 +235,14 @@ mod tests {
     }
 
     #[test]
-    fn test_wire_size() {
+    fn wire_size() {
         assert_eq!(<LengthPrefixed<I32BE> as FixedWireSize>::WIRE_SIZE, 8);
         assert_eq!(<LengthPrefixed<I64BE> as FixedWireSize>::WIRE_SIZE, 12);
         assert_eq!(<LengthPrefixed<I16BE> as FixedWireSize>::WIRE_SIZE, 6);
     }
 
     #[test]
-    fn test_contiguous_struct() {
+    fn contiguous_struct() {
         // Simulate a row with two columns: INT4 (42) and INT8 (12345)
         // Wire format: [len=4][val=42][len=8][val=12345]
         let mut data = [0u8; 20]; // 8 + 12 = 20 bytes

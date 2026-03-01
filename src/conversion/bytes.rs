@@ -107,7 +107,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_bytea_hex() {
+    fn bytea_hex() {
         assert_eq!(
             Vec::<u8>::from_text(oid::BYTEA, b"\\xDEADBEEF").unwrap(),
             vec![0xDE, 0xAD, 0xBE, 0xEF]

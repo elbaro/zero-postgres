@@ -511,7 +511,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_bool_text() {
+    fn bool_text() {
         assert!(bool::from_text(oid::BOOL, b"t").unwrap());
         assert!(bool::from_text(oid::BOOL, b"true").unwrap());
         assert!(!bool::from_text(oid::BOOL, b"f").unwrap());
@@ -519,19 +519,19 @@ mod tests {
     }
 
     #[test]
-    fn test_bool_binary() {
+    fn bool_binary() {
         assert!(bool::from_binary(oid::BOOL, &[1]).unwrap());
         assert!(!bool::from_binary(oid::BOOL, &[0]).unwrap());
     }
 
     #[test]
-    fn test_i32_text() {
+    fn i32_text() {
         assert_eq!(i32::from_text(oid::INT4, b"12345").unwrap(), 12345);
         assert_eq!(i32::from_text(oid::INT4, b"-12345").unwrap(), -12345);
     }
 
     #[test]
-    fn test_i32_binary() {
+    fn i32_binary() {
         assert_eq!(
             i32::from_binary(oid::INT4, &[0, 0, 0x30, 0x39]).unwrap(),
             12345
@@ -539,12 +539,12 @@ mod tests {
     }
 
     #[test]
-    fn test_f64_text() {
+    fn f64_text() {
         assert_eq!(f64::from_text(oid::FLOAT8, b"3.14").unwrap(), 3.14);
     }
 
     #[test]
-    fn test_widening() {
+    fn widening() {
         // i32 can decode INT2
         assert_eq!(i32::from_binary(oid::INT2, &[0, 42]).unwrap(), 42);
         // i64 can decode INT4
@@ -555,13 +555,13 @@ mod tests {
     }
 
     #[test]
-    fn test_type_mismatch() {
+    fn type_mismatch() {
         // Trying to decode TEXT as i32 should fail
-        assert!(i32::from_text(oid::TEXT, b"123").is_err());
+        i32::from_text(oid::TEXT, b"123").unwrap_err();
     }
 
     #[test]
-    fn test_i8_encoding() {
+    fn i8_encoding() {
         let mut buf = Vec::new();
         42i8.encode(oid::INT2, &mut buf).unwrap();
         // Length prefix (4 bytes) + i16 value (2 bytes)
@@ -571,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u8_encoding() {
+    fn u8_encoding() {
         let mut buf = Vec::new();
         200u8.encode(oid::INT2, &mut buf).unwrap();
         assert_eq!(buf.len(), 6);
@@ -580,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u16_encoding() {
+    fn u16_encoding() {
         let mut buf = Vec::new();
         50000u16.encode(oid::INT4, &mut buf).unwrap();
         // u16 encodes as INT4
@@ -590,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u16_overflow_to_int2() {
+    fn u16_overflow_to_int2() {
         // 50000 > i16::MAX, should fail when encoding to INT2
         let result = 50000u16.encode(oid::INT2, &mut Vec::new());
         assert!(result.is_err());
@@ -602,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u32_encoding() {
+    fn u32_encoding() {
         let mut buf = Vec::new();
         3_000_000_000u32.encode(oid::INT8, &mut buf).unwrap();
         // u32 encodes as INT8
@@ -612,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u32_overflow_to_int4() {
+    fn u32_overflow_to_int4() {
         // 3 billion > i32::MAX, should fail when encoding to INT4
         let result = 3_000_000_000u32.encode(oid::INT4, &mut Vec::new());
         assert!(result.is_err());
@@ -624,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u64_encoding() {
+    fn u64_encoding() {
         let mut buf = Vec::new();
         1000u64.encode(oid::INT8, &mut buf).unwrap();
         assert_eq!(buf.len(), 12);
@@ -633,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn test_u64_overflow() {
+    fn u64_overflow() {
         // u64::MAX > i64::MAX, should fail
         let result = u64::MAX.encode(oid::INT8, &mut Vec::new());
         assert!(result.is_err());
@@ -658,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f64() {
+    fn numeric_to_f64_basic() {
         // 123.45
         let bytes = make_numeric(2, 0, 0x0000, 2, &[123, 4500]);
         let result = f64::from_binary(oid::NUMERIC, &bytes).unwrap();
@@ -666,7 +666,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f64_negative() {
+    fn numeric_to_f64_negative() {
         // -123.45
         let bytes = make_numeric(2, 0, 0x4000, 2, &[123, 4500]);
         let result = f64::from_binary(oid::NUMERIC, &bytes).unwrap();
@@ -674,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f64_special() {
+    fn numeric_to_f64_special() {
         // NaN
         let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
         assert!(f64::from_binary(oid::NUMERIC, &bytes).unwrap().is_nan());
@@ -695,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f32() {
+    fn numeric_to_f32_basic() {
         // 123.45
         let bytes = make_numeric(2, 0, 0x0000, 2, &[123, 4500]);
         let result = f32::from_binary(oid::NUMERIC, &bytes).unwrap();
@@ -703,7 +703,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_to_f32_special() {
+    fn numeric_to_f32_special() {
         // NaN
         let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
         assert!(f32::from_binary(oid::NUMERIC, &bytes).unwrap().is_nan());
@@ -724,7 +724,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f64_from_text_special() {
+    fn f64_from_text_special() {
         assert!(f64::from_text(oid::NUMERIC, b"NaN").unwrap().is_nan());
         assert_eq!(
             f64::from_text(oid::NUMERIC, b"Infinity").unwrap(),
@@ -737,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_from_text_special() {
+    fn f32_from_text_special() {
         assert!(f32::from_text(oid::NUMERIC, b"NaN").unwrap().is_nan());
         assert_eq!(
             f32::from_text(oid::NUMERIC, b"Infinity").unwrap(),

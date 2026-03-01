@@ -88,7 +88,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ssl_request() {
+    fn ssl_request() {
         let mut buf = Vec::new();
         write_ssl_request(&mut buf);
 
@@ -98,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn test_startup() {
+    fn startup() {
         let mut buf = Vec::new();
         write_startup(&mut buf, &[("user", "postgres"), ("database", "test")]);
 
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn test_terminate() {
+    fn terminate() {
         let mut buf = Vec::new();
         write_terminate(&mut buf);
 

@@ -17,7 +17,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_query() {
+    fn query() {
         let mut buf = Vec::new();
         write_query(&mut buf, "SELECT 1");
 

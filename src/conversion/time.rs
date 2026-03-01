@@ -256,7 +256,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_date_text() {
+    fn date_text() {
         let date = time::Date::from_text(oid::DATE, b"2024-01-15").unwrap();
         assert_eq!(date.year(), 2024);
         assert_eq!(date.month() as u8, 1);
@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn test_date_binary() {
+    fn date_binary() {
         // 2024-01-15 is 8780 days since 2000-01-01
         let days: i32 = 8780;
         let bytes = days.to_be_bytes();
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_date_roundtrip() {
+    fn date_roundtrip() {
         let original = time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap();
         let mut buf = Vec::new();
         original.encode(original.natural_oid(), &mut buf).unwrap();
@@ -284,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn test_time_text() {
+    fn time_text() {
         let time = time::Time::from_text(oid::TIME, b"10:30:45").unwrap();
         assert_eq!(time.hour(), 10);
         assert_eq!(time.minute(), 30);
@@ -292,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_time_text_with_micros() {
+    fn time_text_with_micros() {
         let time = time::Time::from_text(oid::TIME, b"10:30:45.123456").unwrap();
         assert_eq!(time.hour(), 10);
         assert_eq!(time.minute(), 30);
@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn test_time_binary() {
+    fn time_binary() {
         // 10:30:45 = (10*3600 + 30*60 + 45) * 1_000_000 microseconds
         let usecs: i64 = (10 * 3600 + 30 * 60 + 45) * 1_000_000;
         let bytes = usecs.to_be_bytes();
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn test_time_roundtrip() {
+    fn time_roundtrip() {
         let original = time::Time::from_hms_micro(10, 30, 45, 123456).unwrap();
         let mut buf = Vec::new();
         original.encode(original.natural_oid(), &mut buf).unwrap();
@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_text() {
+    fn timestamp_text() {
         let ts =
             time::PrimitiveDateTime::from_text(oid::TIMESTAMP, b"2024-01-15 10:30:45").unwrap();
         assert_eq!(ts.year(), 2024);
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_binary() {
+    fn timestamp_binary() {
         // 2024-01-15 10:30:45 UTC
         // Days since 2000-01-01: 8780
         // Time: 10:30:45 = 37845 seconds = 37845000000 microseconds
@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_roundtrip() {
+    fn timestamp_roundtrip() {
         let date = time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap();
         let time = time::Time::from_hms_micro(10, 30, 45, 123456).unwrap();
         let original = time::PrimitiveDateTime::new(date, time);
@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamptz_binary() {
+    fn timestamptz_binary() {
         // Same as timestamp but with timezone
         let day_usecs: i64 = 8780 * 24 * 3600 * 1_000_000;
         let time_usecs: i64 = (10 * 3600 + 30 * 60 + 45) * 1_000_000;
@@ -378,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamptz_roundtrip() {
+    fn timestamptz_roundtrip() {
         let original = time::OffsetDateTime::now_utc();
         // Truncate to microseconds (PostgreSQL precision)
         let original = original

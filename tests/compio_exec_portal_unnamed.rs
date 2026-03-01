@@ -20,7 +20,7 @@ async fn get_conn() -> Conn {
 }
 
 #[compio::test]
-async fn test_exec_portal_basic() {
+async fn exec_portal_basic() {
     let mut conn = get_conn().await;
 
     let stmt = conn
@@ -43,7 +43,7 @@ async fn test_exec_portal_basic() {
 }
 
 #[compio::test]
-async fn test_exec_portal_batched() {
+async fn exec_portal_batched() {
     let mut conn = get_conn().await;
 
     let stmt = conn
@@ -75,7 +75,7 @@ async fn test_exec_portal_batched() {
 }
 
 #[compio::test]
-async fn test_exec_portal_empty_result() {
+async fn exec_portal_empty_result() {
     let mut conn = get_conn().await;
 
     let stmt = conn.prepare("SELECT 1 WHERE false").await.unwrap();
@@ -95,7 +95,7 @@ async fn test_exec_portal_empty_result() {
 }
 
 #[compio::test]
-async fn test_exec_portal_with_params() {
+async fn exec_portal_with_params() {
     let mut conn = get_conn().await;
 
     let stmt = conn
@@ -117,7 +117,7 @@ async fn test_exec_portal_with_params() {
 }
 
 #[compio::test]
-async fn test_exec_portal_closure_returns_value() {
+async fn exec_portal_closure_returns_value() {
     let mut conn = get_conn().await;
 
     let stmt = conn.prepare("SELECT 42 as answer").await.unwrap();
@@ -136,7 +136,7 @@ async fn test_exec_portal_closure_returns_value() {
 }
 
 #[compio::test]
-async fn test_exec_portal_with_raw_sql() {
+async fn exec_portal_with_raw_sql() {
     let mut conn = get_conn().await;
 
     let total: i32 = conn
@@ -153,7 +153,7 @@ async fn test_exec_portal_with_raw_sql() {
 }
 
 #[compio::test]
-async fn test_exec_portal_with_raw_sql_and_params() {
+async fn exec_portal_with_raw_sql_and_params() {
     let mut conn = get_conn().await;
 
     let total: i32 = conn
@@ -174,7 +174,7 @@ async fn test_exec_portal_with_raw_sql_and_params() {
 }
 
 #[compio::test]
-async fn test_exec_portal_raw_sql_batched() {
+async fn exec_portal_raw_sql_batched() {
     let mut conn = get_conn().await;
 
     let (all_rows, batch_count) = conn
@@ -201,7 +201,7 @@ async fn test_exec_portal_raw_sql_batched() {
 }
 
 #[compio::test]
-async fn test_exec_portal_foreach_basic() {
+async fn exec_portal_foreach_basic() {
     let mut conn = get_conn().await;
 
     let stmt = conn
@@ -228,7 +228,7 @@ async fn test_exec_portal_foreach_basic() {
 }
 
 #[compio::test]
-async fn test_exec_portal_foreach_batched() {
+async fn exec_portal_foreach_batched() {
     let mut conn = get_conn().await;
 
     let stmt = conn

@@ -18,7 +18,7 @@ fn get_conn() -> Conn {
 }
 
 #[test]
-fn test_exec_portal_basic() {
+fn exec_portal_basic() {
     let mut conn = get_conn();
 
     let stmt = conn.prepare("SELECT generate_series(1, 5) as n").unwrap();
@@ -37,7 +37,7 @@ fn test_exec_portal_basic() {
 }
 
 #[test]
-fn test_exec_portal_batched() {
+fn exec_portal_batched() {
     let mut conn = get_conn();
 
     let stmt = conn.prepare("SELECT generate_series(1, 10) as n").unwrap();
@@ -65,7 +65,7 @@ fn test_exec_portal_batched() {
 }
 
 #[test]
-fn test_exec_portal_empty_result() {
+fn exec_portal_empty_result() {
     let mut conn = get_conn();
 
     let stmt = conn.prepare("SELECT 1 WHERE false").unwrap();
@@ -84,7 +84,7 @@ fn test_exec_portal_empty_result() {
 }
 
 #[test]
-fn test_exec_portal_with_params() {
+fn exec_portal_with_params() {
     let mut conn = get_conn();
 
     let stmt = conn.prepare("SELECT generate_series(1, $1) as n").unwrap();
@@ -102,7 +102,7 @@ fn test_exec_portal_with_params() {
 }
 
 #[test]
-fn test_exec_portal_closure_returns_value() {
+fn exec_portal_closure_returns_value() {
     let mut conn = get_conn();
 
     let stmt = conn.prepare("SELECT 42 as answer").unwrap();
@@ -120,7 +120,7 @@ fn test_exec_portal_closure_returns_value() {
 }
 
 #[test]
-fn test_exec_portal_with_raw_sql() {
+fn exec_portal_with_raw_sql() {
     let mut conn = get_conn();
 
     let total: i32 = conn
@@ -136,7 +136,7 @@ fn test_exec_portal_with_raw_sql() {
 }
 
 #[test]
-fn test_exec_portal_with_raw_sql_and_params() {
+fn exec_portal_with_raw_sql_and_params() {
     let mut conn = get_conn();
 
     let total: i32 = conn
@@ -152,7 +152,7 @@ fn test_exec_portal_with_raw_sql_and_params() {
 }
 
 #[test]
-fn test_exec_portal_raw_sql_batched() {
+fn exec_portal_raw_sql_batched() {
     let mut conn = get_conn();
 
     let mut all_rows: Vec<i32> = Vec::new();
@@ -178,7 +178,7 @@ fn test_exec_portal_raw_sql_batched() {
 }
 
 #[test]
-fn test_exec_portal_foreach_basic() {
+fn exec_portal_foreach_basic() {
     let mut conn = get_conn();
 
     let stmt = conn.prepare("SELECT generate_series(1, 5) as n").unwrap();
@@ -199,7 +199,7 @@ fn test_exec_portal_foreach_basic() {
 }
 
 #[test]
-fn test_exec_portal_foreach_batched() {
+fn exec_portal_foreach_batched() {
     let mut conn = get_conn();
 
     let stmt = conn.prepare("SELECT generate_series(1, 10) as n").unwrap();
