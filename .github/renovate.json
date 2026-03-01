@@ -1,8 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "timezone": "Asia/Seoul",
   "prHourlyLimit": 0,
   "separateMajorMinor": false,
+  "prFooter": "",
+  "prBodyTemplate": "{{{header}}}{{{table}}}{{{warnings}}}{{{notes}}}{{{changelogs}}}{{{controls}}}",
   "commitMessagePrefix": "infra: ",
   "commitMessageAction": "update",
   "commitMessageTopic": "{{depName}}",
@@ -25,13 +28,17 @@
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "matchCurrentVersion": ">=1.0.0",
       "groupName": "non-breaking dependencies",
-      "groupSlug": "non-breaking"
+      "groupSlug": "non-breaking",
+      "automerge": true,
+      "automergeSchedule": ["before 6am"]
     },
     {
       "matchUpdateTypes": ["patch", "pin", "digest"],
       "matchCurrentVersion": "<1.0.0",
       "groupName": "non-breaking dependencies",
-      "groupSlug": "non-breaking"
+      "groupSlug": "non-breaking",
+      "automerge": true,
+      "automergeSchedule": ["before 6am"]
     }
   ]
 }

@@ -58,10 +58,10 @@ chrono = { version = "0.4", optional = true, default-features = false, features 
   "clock",
 ] }
 rust_decimal = { version = "1", optional = true }
-no-panic = "0.1.35"
-log = "0.4.29"
+no-panic = "0.1"
+log = "0.4"
 zero-postgres-derive = { version = "0.1", path = "zero-postgres-derive", optional = true }
-diesel = { version = "2.2", features = [
+diesel = { version = "2", features = [
   "postgres_backend",
   "i-implement-a-third-party-backend-and-opt-into-breaking-changes",
 ], optional = true }
