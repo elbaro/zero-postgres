@@ -1,6 +1,11 @@
 //! Tests for async transaction behavior (compio)
 
 #![cfg(feature = "compio")]
+#![allow(
+    clippy::panic_in_result_fn,
+    clippy::shadow_unrelated,
+    clippy::unwrap_used
+)]
 
 use std::env;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -9,7 +14,7 @@ use zero_postgres::compio::Conn;
 
 static TABLE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-async fn get_conn() -> Conn {
+async fn get_conn() -> Result<Conn, Error> {
     let mut db_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/postgres".to_string());
     if !db_url.contains("sslmode=") {
@@ -19,7 +24,7 @@ async fn get_conn() -> Conn {
             db_url.push_str("?sslmode=disable");
         }
     }
-    Conn::new(db_url.as_str()).await.expect("Failed to connect")
+    Conn::new(db_url.as_str()).await
 }
 
 struct TestTable {
@@ -27,31 +32,28 @@ struct TestTable {
 }
 
 impl TestTable {
-    async fn new(conn: &mut Conn) -> Self {
+    async fn new(conn: &mut Conn) -> Result<Self, Error> {
         let id = TABLE_COUNTER.fetch_add(1, Ordering::SeqCst);
         let name = format!("tx_test_compio_{}", id);
         conn.query_drop(&format!("DROP TABLE IF EXISTS {}", name))
-            .await
-            .unwrap();
+            .await?;
         conn.query_drop(&format!(
             "CREATE TABLE {} (id SERIAL PRIMARY KEY, value INT)",
             name
         ))
-        .await
-        .unwrap();
-        Self { name }
+        .await?;
+        Ok(Self { name })
     }
 
     fn insert_sql(&self) -> String {
         format!("INSERT INTO {} (value) VALUES ($1)", self.name)
     }
 
-    async fn count(&self, conn: &mut Conn) -> i64 {
+    async fn count(&self, conn: &mut Conn) -> Result<i64, Error> {
         let rows: Vec<(i64,)> = conn
             .query_collect(&format!("SELECT COUNT(*) FROM {}", self.name))
-            .await
-            .unwrap();
-        rows[0].0
+            .await?;
+        Ok(rows[0].0)
     }
 
     async fn cleanup(&self, conn: &mut Conn) {
@@ -62,43 +64,43 @@ impl TestTable {
 }
 
 #[compio::test]
-async fn transaction_explicit_commit() {
-    let mut conn = get_conn().await;
-    let table = TestTable::new(&mut conn).await;
+async fn transaction_explicit_commit() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
+    let table = TestTable::new(&mut conn).await?;
     let sql = table.insert_sql();
 
     conn.transaction(async |conn, tx| {
         conn.exec_drop(sql.as_str(), (42,)).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
 
-    assert_eq!(table.count(&mut conn).await, 1);
+    assert_eq!(table.count(&mut conn).await?, 1);
     table.cleanup(&mut conn).await;
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_explicit_rollback() {
-    let mut conn = get_conn().await;
-    let table = TestTable::new(&mut conn).await;
+async fn transaction_explicit_rollback() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
+    let table = TestTable::new(&mut conn).await?;
     let sql = table.insert_sql();
 
     conn.transaction(async |conn, tx| {
         conn.exec_drop(sql.as_str(), (42,)).await?;
         tx.rollback(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
 
-    assert_eq!(table.count(&mut conn).await, 0);
+    assert_eq!(table.count(&mut conn).await?, 0);
     table.cleanup(&mut conn).await;
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_implicit_commit_on_ok() {
-    let mut conn = get_conn().await;
-    let table = TestTable::new(&mut conn).await;
+async fn transaction_implicit_commit_on_ok() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
+    let table = TestTable::new(&mut conn).await?;
     let sql = table.insert_sql();
 
     // Return Ok without explicit commit - should auto-commit
@@ -106,18 +108,18 @@ async fn transaction_implicit_commit_on_ok() {
         conn.exec_drop(sql.as_str(), (42,)).await?;
         Ok(())
     })
-    .await
-    .unwrap();
+    .await?;
 
     // Data should be committed
-    assert_eq!(table.count(&mut conn).await, 1);
+    assert_eq!(table.count(&mut conn).await?, 1);
     table.cleanup(&mut conn).await;
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_implicit_rollback_on_err() {
-    let mut conn = get_conn().await;
-    let table = TestTable::new(&mut conn).await;
+async fn transaction_implicit_rollback_on_err() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
+    let table = TestTable::new(&mut conn).await?;
     let sql = table.insert_sql();
 
     // Return Err without explicit rollback - should auto-rollback
@@ -130,14 +132,15 @@ async fn transaction_implicit_rollback_on_err() {
 
     assert!(result.is_err());
     // Data should be rolled back
-    assert_eq!(table.count(&mut conn).await, 0);
+    assert_eq!(table.count(&mut conn).await?, 0);
     table.cleanup(&mut conn).await;
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_implicit_commit_with_return_value() {
-    let mut conn = get_conn().await;
-    let table = TestTable::new(&mut conn).await;
+async fn transaction_implicit_commit_with_return_value() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
+    let table = TestTable::new(&mut conn).await?;
     let sql = table.insert_sql();
 
     // Return Ok with a value without explicit commit
@@ -146,18 +149,18 @@ async fn transaction_implicit_commit_with_return_value() {
             conn.exec_drop(sql.as_str(), (42,)).await?;
             Ok(123)
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(result, 123);
-    assert_eq!(table.count(&mut conn).await, 1);
+    assert_eq!(table.count(&mut conn).await?, 1);
     table.cleanup(&mut conn).await;
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_implicit_commit_multiple_inserts() {
-    let mut conn = get_conn().await;
-    let table = TestTable::new(&mut conn).await;
+async fn transaction_implicit_commit_multiple_inserts() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
+    let table = TestTable::new(&mut conn).await?;
     let sql = table.insert_sql();
 
     conn.transaction(async |conn, _tx| {
@@ -166,17 +169,17 @@ async fn transaction_implicit_commit_multiple_inserts() {
         }
         Ok(())
     })
-    .await
-    .unwrap();
+    .await?;
 
-    assert_eq!(table.count(&mut conn).await, 5);
+    assert_eq!(table.count(&mut conn).await?, 5);
     table.cleanup(&mut conn).await;
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_implicit_rollback_partial_work() {
-    let mut conn = get_conn().await;
-    let table = TestTable::new(&mut conn).await;
+async fn transaction_implicit_rollback_partial_work() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
+    let table = TestTable::new(&mut conn).await?;
     let sql = table.insert_sql();
 
     let result: Result<(), Error> = conn
@@ -191,14 +194,15 @@ async fn transaction_implicit_rollback_partial_work() {
 
     assert!(result.is_err());
     // All work should be rolled back
-    assert_eq!(table.count(&mut conn).await, 0);
+    assert_eq!(table.count(&mut conn).await?, 0);
     table.cleanup(&mut conn).await;
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_connection_usable_after_implicit_commit() {
-    let mut conn = get_conn().await;
-    let table = TestTable::new(&mut conn).await;
+async fn transaction_connection_usable_after_implicit_commit() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
+    let table = TestTable::new(&mut conn).await?;
     let sql = table.insert_sql();
 
     // First transaction with implicit commit
@@ -206,25 +210,24 @@ async fn transaction_connection_usable_after_implicit_commit() {
         conn.exec_drop(sql.as_str(), (1,)).await?;
         Ok(())
     })
-    .await
-    .unwrap();
+    .await?;
 
     // Connection should be usable for another transaction
     conn.transaction(async |conn, _tx| {
         conn.exec_drop(sql.as_str(), (2,)).await?;
         Ok(())
     })
-    .await
-    .unwrap();
+    .await?;
 
-    assert_eq!(table.count(&mut conn).await, 2);
+    assert_eq!(table.count(&mut conn).await?, 2);
     table.cleanup(&mut conn).await;
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_connection_usable_after_implicit_rollback() {
-    let mut conn = get_conn().await;
-    let table = TestTable::new(&mut conn).await;
+async fn transaction_connection_usable_after_implicit_rollback() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
+    let table = TestTable::new(&mut conn).await?;
     let sql = table.insert_sql();
 
     // First transaction with implicit rollback
@@ -240,34 +243,35 @@ async fn transaction_connection_usable_after_implicit_rollback() {
         conn.exec_drop(sql.as_str(), (2,)).await?;
         Ok(())
     })
-    .await
-    .unwrap();
+    .await?;
 
-    assert_eq!(table.count(&mut conn).await, 1);
+    assert_eq!(table.count(&mut conn).await?, 1);
     table.cleanup(&mut conn).await;
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_not_in_transaction_after_implicit_commit() {
-    let mut conn = get_conn().await;
+async fn transaction_not_in_transaction_after_implicit_commit() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.transaction(async |conn, _tx| {
         assert!(conn.in_transaction());
         Ok(())
     })
-    .await
-    .unwrap();
+    .await?;
 
     assert!(!conn.in_transaction());
+    Ok(())
 }
 
 #[compio::test]
-async fn transaction_not_in_transaction_after_implicit_rollback() {
-    let mut conn = get_conn().await;
+async fn transaction_not_in_transaction_after_implicit_rollback() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let _: Result<(), Error> = conn
         .transaction(async |_conn, _tx| Err(Error::InvalidUsage("intentional error".into())))
         .await;
 
     assert!(!conn.in_transaction());
+    Ok(())
 }
