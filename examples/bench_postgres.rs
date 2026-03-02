@@ -7,7 +7,7 @@ use postgres::NoTls;
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let url = env::var("DATABASE_URL")?;
     // postgres crate expects postgres:// not pg://
     let url = url
         .strip_prefix("pg://")

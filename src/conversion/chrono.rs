@@ -8,19 +8,11 @@ use crate::protocol::types::{Oid, oid};
 use super::{FromWireValue, ToWireValue};
 
 /// PostgreSQL epoch: 2000-01-01
-const PG_EPOCH: NaiveDate = match NaiveDate::from_ymd_opt(2000, 1, 1) {
-    Some(d) => d,
-    None => panic!("invalid date"),
-};
+const PG_EPOCH: NaiveDate = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
 
 /// PostgreSQL epoch as NaiveDateTime (2000-01-01 00:00:00)
-const PG_EPOCH_DT: NaiveDateTime = NaiveDateTime::new(
-    PG_EPOCH,
-    match NaiveTime::from_hms_opt(0, 0, 0) {
-        Some(t) => t,
-        None => panic!("invalid time"),
-    },
-);
+const PG_EPOCH_DT: NaiveDateTime =
+    NaiveDateTime::new(PG_EPOCH, NaiveTime::from_hms_opt(0, 0, 0).unwrap());
 
 /// Microseconds per second
 const USECS_PER_SEC: i64 = 1_000_000;

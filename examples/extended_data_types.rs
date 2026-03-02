@@ -1,3 +1,4 @@
+#![expect(clippy::non_ascii_literal)]
 //! Example: Data types using extended query protocol with typed decoding.
 //!
 //! Tests PostgreSQL data types with prepared statements and typed results.
@@ -8,8 +9,8 @@
 use std::env;
 use zero_postgres::sync::Conn;
 
-fn main() -> zero_postgres::Result<()> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = env::var("DATABASE_URL")?;
 
     println!("Connecting...");
     let mut conn = Conn::new(url.as_str())?;
@@ -62,7 +63,7 @@ fn main() -> zero_postgres::Result<()> {
             true,                          // bool
             42_i32,                        // int
             i64::MAX,                      // bigint (max)
-            3.14159_f64,                   // double
+            std::f64::consts::PI,          // double
             "hello world",                 // text
             &[0xDE, 0xAD, 0xBE, 0xEF][..], // bytea
         ),
@@ -101,17 +102,18 @@ fn main() -> zero_postgres::Result<()> {
     // === Select using prepared statement with typed results ===
     println!("=== Selecting with Typed Results ===\n");
 
-    let rows: Vec<(
+    type ExtendedRow = (
         i32,
         Option<bool>,
         Option<i32>,
         Option<i64>,
         Option<f64>,
         Option<String>,
-    )> = conn.exec_collect(&select_stmt, ())?;
+    );
+    let rows1: Vec<ExtendedRow> = conn.exec_collect(&select_stmt, ())?;
 
-    println!("Retrieved {} rows:", rows.len());
-    for (id, b, i, bi, d, t) in &rows {
+    println!("Retrieved {} rows:", rows1.len());
+    for (id, b, i, bi, d, t) in &rows1 {
         println!(
             "  id={}, bool={:?}, int={:?}, bigint={:?}, double={:?}, text={:?}",
             id, b, i, bi, d, t
@@ -124,14 +126,14 @@ fn main() -> zero_postgres::Result<()> {
 
     let select_by_id_stmt = conn.prepare("SELECT id, col_text FROM test_extended WHERE id = $1")?;
 
-    let rows: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (1_i32,))?;
-    println!("Query with id=1: {:?}", rows);
+    let rows2: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (1_i32,))?;
+    println!("Query with id=1: {:?}", rows2);
 
-    let rows: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (2_i32,))?;
-    println!("Query with id=2: {:?}", rows);
+    let rows3: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (2_i32,))?;
+    println!("Query with id=2: {:?}", rows3);
 
-    let rows: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (999_i32,))?;
-    println!("Query with id=999 (not found): {:?}", rows);
+    let rows4: Vec<(i32, Option<String>)> = conn.exec_collect(&select_by_id_stmt, (999_i32,))?;
+    println!("Query with id=999 (not found): {:?}", rows4);
     println!();
 
     // === Close statements ===

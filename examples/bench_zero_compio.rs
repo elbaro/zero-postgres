@@ -7,8 +7,8 @@ use std::env;
 use zero_postgres::compio::Conn;
 
 #[compio::main]
-async fn main() -> zero_postgres::Result<()> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = env::var("DATABASE_URL")?;
     let mut conn = Conn::new(url.as_str()).await?;
 
     // Setup - use temp table (session-scoped, often memory-resident)
@@ -63,7 +63,7 @@ async fn main() -> zero_postgres::Result<()> {
         let count: Vec<(i64,)> = conn
             .query_collect("SELECT COUNT(*) FROM test_bench")
             .await?;
-        #[allow(clippy::print_stdout)]
+        #[expect(clippy::print_stdout)]
         {
             println!(
                 "Iteration {}: Inserted {} rows (took {:.2}ms)",

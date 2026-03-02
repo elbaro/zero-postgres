@@ -9,8 +9,8 @@
 use std::env;
 use zero_postgres::sync::Conn;
 
-fn main() -> zero_postgres::Result<()> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = env::var("DATABASE_URL")?;
 
     println!("Connecting...");
     let mut conn = Conn::new(url.as_str())?;
@@ -125,7 +125,7 @@ fn main() -> zero_postgres::Result<()> {
         })?;
 
         println!("All users (id > 0): {} rows", all.len());
-        println!("Active user count: {}", active_count.unwrap().0);
+        println!("Active user count: {}", active_count.map_or(0, |r| r.0));
     }
     println!();
 

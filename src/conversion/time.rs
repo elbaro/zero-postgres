@@ -3,10 +3,7 @@
 use crate::error::{Error, Result};
 use crate::protocol::types::{Oid, oid};
 
-use super::{FromWireValue, ToWireValue};
-
-/// PostgreSQL epoch is 2000-01-01, whose Julian day is 2451545
-const PG_EPOCH_JULIAN_DAY: i32 = 2_451_545;
+use super::{FromWireValue, PG_EPOCH_JULIAN_DAY, ToWireValue};
 
 impl FromWireValue<'_> for time::Date {
     fn from_text(oid: Oid, bytes: &[u8]) -> Result<Self> {

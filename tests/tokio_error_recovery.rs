@@ -6,7 +6,7 @@ async fn get_conn() -> Conn {
 }
 
 #[tokio::test]
-async fn test_tokio_exec_drop_recovers_after_server_error() {
+async fn tokio_exec_drop_recovers_after_server_error() {
     let mut conn = get_conn().await;
 
     let first_err = conn

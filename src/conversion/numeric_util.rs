@@ -157,7 +157,6 @@ pub fn numeric_to_string(bytes: &[u8]) -> Result<String> {
 }
 
 /// Decode PostgreSQL NUMERIC binary format to f64.
-#[expect(clippy::float_arithmetic)]
 pub fn numeric_to_f64(bytes: &[u8]) -> Result<f64> {
     let (header, digit_bytes) = bytes
         .split_first_chunk::<8>()
@@ -212,7 +211,6 @@ pub fn numeric_to_f64(bytes: &[u8]) -> Result<f64> {
 }
 
 /// Decode PostgreSQL NUMERIC binary format to f32.
-#[expect(clippy::float_arithmetic)]
 pub fn numeric_to_f32(bytes: &[u8]) -> Result<f32> {
     let (header, digit_bytes) = bytes
         .split_first_chunk::<8>()
@@ -290,12 +288,12 @@ mod tests {
 
     #[test]
     fn numeric_to_string_zero() {
-        let bytes = make_numeric(0, 0, 0x0000, 0, &[]);
-        assert_eq!(numeric_to_string(&bytes).unwrap(), "0");
+        let bytes1 = make_numeric(0, 0, 0x0000, 0, &[]);
+        assert_eq!(numeric_to_string(&bytes1).unwrap(), "0");
 
         // Zero with scale
-        let bytes = make_numeric(0, 0, 0x0000, 2, &[]);
-        assert_eq!(numeric_to_string(&bytes).unwrap(), "0.00");
+        let bytes2 = make_numeric(0, 0, 0x0000, 2, &[]);
+        assert_eq!(numeric_to_string(&bytes2).unwrap(), "0.00");
     }
 
     #[test]
@@ -329,16 +327,16 @@ mod tests {
     #[test]
     fn numeric_to_string_special_values() {
         // NaN
-        let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
-        assert_eq!(numeric_to_string(&bytes).unwrap(), "NaN");
+        let bytes1 = make_numeric(0, 0, 0xC000, 0, &[]);
+        assert_eq!(numeric_to_string(&bytes1).unwrap(), "NaN");
 
         // +Infinity
-        let bytes = make_numeric(0, 0, 0xD000, 0, &[]);
-        assert_eq!(numeric_to_string(&bytes).unwrap(), "Infinity");
+        let bytes2 = make_numeric(0, 0, 0xD000, 0, &[]);
+        assert_eq!(numeric_to_string(&bytes2).unwrap(), "Infinity");
 
         // -Infinity
-        let bytes = make_numeric(0, 0, 0xF000, 0, &[]);
-        assert_eq!(numeric_to_string(&bytes).unwrap(), "-Infinity");
+        let bytes3 = make_numeric(0, 0, 0xF000, 0, &[]);
+        assert_eq!(numeric_to_string(&bytes3).unwrap(), "-Infinity");
     }
 
     #[test]
@@ -360,16 +358,16 @@ mod tests {
     #[test]
     fn numeric_to_f64_special() {
         // NaN
-        let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
-        assert!(numeric_to_f64(&bytes).unwrap().is_nan());
+        let bytes1 = make_numeric(0, 0, 0xC000, 0, &[]);
+        assert!(numeric_to_f64(&bytes1).unwrap().is_nan());
 
         // +Infinity
-        let bytes = make_numeric(0, 0, 0xD000, 0, &[]);
-        assert_eq!(numeric_to_f64(&bytes).unwrap(), f64::INFINITY);
+        let bytes2 = make_numeric(0, 0, 0xD000, 0, &[]);
+        assert_eq!(numeric_to_f64(&bytes2).unwrap(), f64::INFINITY);
 
         // -Infinity
-        let bytes = make_numeric(0, 0, 0xF000, 0, &[]);
-        assert_eq!(numeric_to_f64(&bytes).unwrap(), f64::NEG_INFINITY);
+        let bytes3 = make_numeric(0, 0, 0xF000, 0, &[]);
+        assert_eq!(numeric_to_f64(&bytes3).unwrap(), f64::NEG_INFINITY);
     }
 
     #[test]
@@ -383,15 +381,15 @@ mod tests {
     #[test]
     fn numeric_to_f32_special() {
         // NaN
-        let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
-        assert!(numeric_to_f32(&bytes).unwrap().is_nan());
+        let bytes1 = make_numeric(0, 0, 0xC000, 0, &[]);
+        assert!(numeric_to_f32(&bytes1).unwrap().is_nan());
 
         // +Infinity
-        let bytes = make_numeric(0, 0, 0xD000, 0, &[]);
-        assert_eq!(numeric_to_f32(&bytes).unwrap(), f32::INFINITY);
+        let bytes2 = make_numeric(0, 0, 0xD000, 0, &[]);
+        assert_eq!(numeric_to_f32(&bytes2).unwrap(), f32::INFINITY);
 
         // -Infinity
-        let bytes = make_numeric(0, 0, 0xF000, 0, &[]);
-        assert_eq!(numeric_to_f32(&bytes).unwrap(), f32::NEG_INFINITY);
+        let bytes3 = make_numeric(0, 0, 0xF000, 0, &[]);
+        assert_eq!(numeric_to_f32(&bytes3).unwrap(), f32::NEG_INFINITY);
     }
 }

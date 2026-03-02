@@ -366,7 +366,7 @@ fn various_types() {
     .bind::<Integer, _>(42)
     .bind::<Text, _>("hello")
     .bind::<diesel::sql_types::Bool, _>(true)
-    .bind::<diesel::sql_types::Float, _>(3.14_f32)
+    .bind::<diesel::sql_types::Float, _>(1.23_f32)
     .execute(&mut conn)
     .unwrap();
 
@@ -390,7 +390,7 @@ fn various_types() {
     assert_eq!(rows[0].i, 42);
     assert_eq!(rows[0].t, "hello");
     assert!(rows[0].b);
-    assert!((rows[0].f - 3.14).abs() < 0.01);
+    assert!((rows[0].f - 1.23).abs() < 0.01);
 }
 
 // --- Empty result set ---
@@ -406,6 +406,7 @@ fn empty_result() {
     .unwrap();
 
     #[derive(QueryableByName, Debug)]
+    #[allow(dead_code)]
     struct Row {
         #[diesel(sql_type = Text)]
         name: String,

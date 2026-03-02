@@ -10,8 +10,8 @@ use std::env;
 use std::time::Instant;
 use zero_postgres::sync::Conn;
 
-fn main() -> zero_postgres::Result<()> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = env::var("DATABASE_URL")?;
 
     println!("Connecting...");
     let mut conn = Conn::new(url.as_str())?;
@@ -39,7 +39,7 @@ fn main() -> zero_postgres::Result<()> {
         })
         .collect();
 
-    let start = Instant::now();
+    let start1 = Instant::now();
     {
         // Prepare the insert statement once (outside the pipeline)
         let insert_stmt = conn.prepare(
@@ -73,13 +73,13 @@ fn main() -> zero_postgres::Result<()> {
             &ids[..5]
         );
     }
-    let elapsed = start.elapsed();
-    println!("Pipeline insert took: {:?}\n", elapsed);
+    let elapsed1 = start1.elapsed();
+    println!("Pipeline insert took: {:?}\n", elapsed1);
 
     // === Batch Update ===
     println!("=== Batch Update (increase all prices by 10%) ===\n");
 
-    let start = Instant::now();
+    let start2 = Instant::now();
     {
         // Prepare update statement outside the pipeline
         let update_stmt = conn
@@ -108,8 +108,8 @@ fn main() -> zero_postgres::Result<()> {
 
         println!("Updated {} products", updated);
     }
-    let elapsed = start.elapsed();
-    println!("Pipeline update took: {:?}\n", elapsed);
+    let elapsed2 = start2.elapsed();
+    println!("Pipeline update took: {:?}\n", elapsed2);
 
     // === Mixed Operations ===
     println!("=== Mixed Operations (insert, select, update) ===\n");
@@ -154,7 +154,7 @@ fn main() -> zero_postgres::Result<()> {
         for (id, name, price) in &expensive {
             println!("  id={}, name={}, price={:.2}", id, name, price);
         }
-        println!("\nTotal products: {}", count.unwrap().0);
+        println!("\nTotal products: {}", count.map_or(0, |r| r.0));
     }
     println!();
 
@@ -165,7 +165,7 @@ fn main() -> zero_postgres::Result<()> {
     conn.query_drop("DELETE FROM products")?;
 
     // Individual inserts
-    let start = Instant::now();
+    let start3 = Instant::now();
     for i in 1..=50 {
         conn.query_drop(&format!(
             "INSERT INTO products (name, price, quantity) VALUES ('Item {}', {}, {})",
@@ -174,12 +174,12 @@ fn main() -> zero_postgres::Result<()> {
             i
         ))?;
     }
-    let individual_time = start.elapsed();
+    let individual_time = start3.elapsed();
 
     conn.query_drop("DELETE FROM products")?;
 
     // Pipeline inserts
-    let start = Instant::now();
+    let start4 = Instant::now();
     {
         let insert_stmt =
             conn.prepare("INSERT INTO products (name, price, quantity) VALUES ($1, $2, $3)")?;
@@ -199,7 +199,7 @@ fn main() -> zero_postgres::Result<()> {
             Ok(())
         })?;
     }
-    let pipeline_time = start.elapsed();
+    let pipeline_time = start4.elapsed();
 
     println!("50 inserts - Individual: {:?}", individual_time);
     println!("50 inserts - Pipeline:   {:?}", pipeline_time);

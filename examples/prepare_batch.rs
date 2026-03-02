@@ -11,8 +11,8 @@ use std::env;
 use std::time::Instant;
 use zero_postgres::sync::Conn;
 
-fn main() -> zero_postgres::Result<()> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = env::var("DATABASE_URL")?;
 
     println!("Connecting...");
     let mut conn = Conn::new(url.as_str())?;
@@ -32,7 +32,7 @@ fn main() -> zero_postgres::Result<()> {
     // === Prepare multiple statements in a single round-trip ===
     println!("=== Batch Prepare ===\n");
 
-    let start = Instant::now();
+    let start1 = Instant::now();
     let stmts = conn.prepare_batch(&[
         "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id",
         "SELECT id, name, email FROM users WHERE id = $1",
@@ -40,7 +40,7 @@ fn main() -> zero_postgres::Result<()> {
         "DELETE FROM users WHERE id = $1 RETURNING id",
         "SELECT COUNT(*) FROM users",
     ])?;
-    let batch_time = start.elapsed();
+    let batch_time = start1.elapsed();
     println!(
         "Batch prepared {} statements in {:?}",
         stmts.len(),
@@ -48,13 +48,13 @@ fn main() -> zero_postgres::Result<()> {
     );
 
     // Compare with individual prepares
-    let start = Instant::now();
+    let start2 = Instant::now();
     let _stmt1 = conn.prepare("INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id")?;
     let _stmt2 = conn.prepare("SELECT id, name, email FROM users WHERE id = $1")?;
     let _stmt3 = conn.prepare("UPDATE users SET name = $1 WHERE id = $2 RETURNING id, name")?;
     let _stmt4 = conn.prepare("DELETE FROM users WHERE id = $1 RETURNING id")?;
     let _stmt5 = conn.prepare("SELECT COUNT(*) FROM users")?;
-    let individual_time = start.elapsed();
+    let individual_time = start2.elapsed();
     println!(
         "Individually prepared 5 statements in {:?}",
         individual_time
@@ -90,16 +90,16 @@ fn main() -> zero_postgres::Result<()> {
     println!("Updated user: {:?}", updated);
 
     // Count users
-    let count: Option<(i64,)> = conn.exec_first(count_stmt, ())?;
-    println!("Total users: {:?}", count);
+    let count1: Option<(i64,)> = conn.exec_first(count_stmt, ())?;
+    println!("Total users: {:?}", count1);
 
     // Delete a user
     let deleted: Option<(i32,)> = conn.exec_first(delete_stmt, (2,))?;
     println!("Deleted user: {:?}", deleted);
 
     // Count again
-    let count: Option<(i64,)> = conn.exec_first(count_stmt, ())?;
-    println!("Users after delete: {:?}", count);
+    let count2: Option<(i64,)> = conn.exec_first(count_stmt, ())?;
+    println!("Users after delete: {:?}", count2);
 
     println!();
 

@@ -1,3 +1,4 @@
+#![expect(clippy::non_ascii_literal)]
 //! Example: Data types using simple query protocol with typed decoding.
 //!
 //! Tests PostgreSQL data types with boundary values using typed results.
@@ -8,8 +9,8 @@
 use std::env;
 use zero_postgres::sync::Conn;
 
-fn main() -> zero_postgres::Result<()> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = env::var("DATABASE_URL")?;
 
     println!("Connecting...");
     let mut conn = Conn::new(url.as_str())?;
@@ -37,10 +38,10 @@ fn main() -> zero_postgres::Result<()> {
 
     conn.query_drop("INSERT INTO test_types (col_bool) VALUES (NULL), (TRUE), (FALSE)")?;
 
-    let rows: Vec<(i32, Option<bool>)> =
+    let rows1: Vec<(i32, Option<bool>)> =
         conn.query_collect("SELECT id, col_bool FROM test_types ORDER BY id")?;
     println!("boolean:");
-    for (id, val) in &rows {
+    for (id, val) in &rows1 {
         println!("  id={}, value={:?}", id, val);
     }
     conn.query_drop("DELETE FROM test_types")?;
@@ -52,10 +53,10 @@ fn main() -> zero_postgres::Result<()> {
     // smallint: -32768 to 32767
     conn.query_drop("INSERT INTO test_types (col_smallint) VALUES (NULL), (0), (-32768), (32767)")?;
 
-    let rows: Vec<(i32, Option<i16>)> =
+    let rows2: Vec<(i32, Option<i16>)> =
         conn.query_collect("SELECT id, col_smallint FROM test_types ORDER BY id")?;
     println!("smallint (range: -32768 to 32767):");
-    for (id, val) in &rows {
+    for (id, val) in &rows2 {
         println!("  id={}, value={:?}", id, val);
     }
     conn.query_drop("DELETE FROM test_types")?;
@@ -66,10 +67,10 @@ fn main() -> zero_postgres::Result<()> {
         "INSERT INTO test_types (col_int) VALUES (NULL), (0), (-2147483648), (2147483647)",
     )?;
 
-    let rows: Vec<(i32, Option<i32>)> =
+    let rows3: Vec<(i32, Option<i32>)> =
         conn.query_collect("SELECT id, col_int FROM test_types ORDER BY id")?;
     println!("integer (range: -2147483648 to 2147483647):");
-    for (id, val) in &rows {
+    for (id, val) in &rows3 {
         println!("  id={}, value={:?}", id, val);
     }
     conn.query_drop("DELETE FROM test_types")?;
@@ -80,10 +81,10 @@ fn main() -> zero_postgres::Result<()> {
         "INSERT INTO test_types (col_bigint) VALUES (NULL), (0), (-9223372036854775808), (9223372036854775807)",
     )?;
 
-    let rows: Vec<(i32, Option<i64>)> =
+    let rows4: Vec<(i32, Option<i64>)> =
         conn.query_collect("SELECT id, col_bigint FROM test_types ORDER BY id")?;
     println!("bigint (range: -9223372036854775808 to 9223372036854775807):");
-    for (id, val) in &rows {
+    for (id, val) in &rows4 {
         println!("  id={}, value={:?}", id, val);
     }
     conn.query_drop("DELETE FROM test_types")?;
@@ -96,10 +97,10 @@ fn main() -> zero_postgres::Result<()> {
         "INSERT INTO test_types (col_real) VALUES (NULL), (0), (3.14159), (-3.14159), ('Infinity'), ('-Infinity'), ('NaN')",
     )?;
 
-    let rows: Vec<(i32, Option<f32>)> =
+    let rows5: Vec<(i32, Option<f32>)> =
         conn.query_collect("SELECT id, col_real FROM test_types ORDER BY id")?;
     println!("real (4 bytes, 6 decimal digits precision):");
-    for (id, val) in &rows {
+    for (id, val) in &rows5 {
         println!("  id={}, value={:?}", id, val);
     }
     conn.query_drop("DELETE FROM test_types")?;
@@ -109,10 +110,10 @@ fn main() -> zero_postgres::Result<()> {
         "INSERT INTO test_types (col_double) VALUES (NULL), (0), (3.141592653589793), ('Infinity'), ('NaN')",
     )?;
 
-    let rows: Vec<(i32, Option<f64>)> =
+    let rows6: Vec<(i32, Option<f64>)> =
         conn.query_collect("SELECT id, col_double FROM test_types ORDER BY id")?;
     println!("double precision (8 bytes, 15 decimal digits precision):");
-    for (id, val) in &rows {
+    for (id, val) in &rows6 {
         println!("  id={}, value={:?}", id, val);
     }
     conn.query_drop("DELETE FROM test_types")?;
@@ -128,10 +129,10 @@ fn main() -> zero_postgres::Result<()> {
     conn.query_drop("INSERT INTO test_types (col_text) VALUES ('emoji: 😀')")?;
     conn.query_drop("INSERT INTO test_types (col_text) VALUES ('japanese: こんにちは')")?;
 
-    let rows: Vec<(i32, Option<String>)> =
+    let rows7: Vec<(i32, Option<String>)> =
         conn.query_collect("SELECT id, col_text FROM test_types ORDER BY id")?;
     println!("text:");
-    for (id, val) in &rows {
+    for (id, val) in &rows7 {
         println!("  id={}, value={:?}", id, val);
     }
     conn.query_drop("DELETE FROM test_types")?;
@@ -144,10 +145,10 @@ fn main() -> zero_postgres::Result<()> {
     conn.query_drop("INSERT INTO test_types (col_bytea) VALUES (E'\\\\x')")?;
     conn.query_drop("INSERT INTO test_types (col_bytea) VALUES (E'\\\\xDEADBEEF')")?;
 
-    let rows: Vec<(i32, Option<Vec<u8>>)> =
+    let rows8: Vec<(i32, Option<Vec<u8>>)> =
         conn.query_collect("SELECT id, col_bytea FROM test_types ORDER BY id")?;
     println!("bytea:");
-    for (id, val) in &rows {
+    for (id, val) in &rows8 {
         match val {
             Some(bytes) => println!("  id={}, value={:02X?}", id, bytes),
             None => println!("  id={}, value=NULL", id),
@@ -164,10 +165,11 @@ fn main() -> zero_postgres::Result<()> {
          VALUES (TRUE, 42, 3.14, 'hello')",
     )?;
 
-    let rows: Vec<(i32, Option<bool>, Option<i32>, Option<f64>, Option<String>)> =
+    type MixedRow = (i32, Option<bool>, Option<i32>, Option<f64>, Option<String>);
+    let rows9: Vec<MixedRow> =
         conn.query_collect("SELECT id, col_bool, col_int, col_double, col_text FROM test_types")?;
     println!("Mixed row:");
-    for (id, b, i, d, t) in &rows {
+    for (id, b, i, d, t) in &rows9 {
         println!(
             "  id={}, bool={:?}, int={:?}, double={:?}, text={:?}",
             id, b, i, d, t

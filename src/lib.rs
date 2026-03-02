@@ -63,6 +63,7 @@ pub use zero_postgres_derive as r#macro;
 
 pub use buffer_pool::BufferPool;
 pub use buffer_set::BufferSet;
+pub use conversion::PG_EPOCH_JULIAN_DAY;
 pub use error::{Error, Result, ServerError};
 pub use handler::AsyncMessageHandler;
 pub use opts::{Opts, SslMode};

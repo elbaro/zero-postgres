@@ -8,8 +8,8 @@
 use std::env;
 use zero_postgres::sync::Conn;
 
-fn main() -> zero_postgres::Result<()> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = env::var("DATABASE_URL")?;
 
     println!("Connecting...");
     let mut conn = Conn::new(url.as_str())?;
@@ -40,15 +40,15 @@ fn main() -> zero_postgres::Result<()> {
     // Query additional server info
     println!("=== Server Info (from queries) ===");
 
-    let rows: Vec<(String,)> = conn.query_collect("SELECT version()")?;
-    if let Some((version,)) = rows.first() {
+    let rows1: Vec<(String,)> = conn.query_collect("SELECT version()")?;
+    if let Some((version,)) = rows1.first() {
         println!("  Version: {}", version);
     }
 
-    let rows: Vec<(String, String, Option<String>, Option<i32>)> = conn.query_collect(
+    let rows2: Vec<(String, String, Option<String>, Option<i32>)> = conn.query_collect(
         "SELECT current_database(), current_user, host(inet_server_addr()), inet_server_port()",
     )?;
-    if let Some((db, user, addr, port)) = rows.first() {
+    if let Some((db, user, addr, port)) = rows2.first() {
         println!("  Database: {}", db);
         println!("  User: {}", user);
         println!("  Server Address: {}", addr.as_deref().unwrap_or("(null)"));
@@ -58,13 +58,13 @@ fn main() -> zero_postgres::Result<()> {
         );
     }
 
-    let rows: Vec<(String,)> = conn.query_collect("SHOW server_encoding")?;
-    if let Some((enc,)) = rows.first() {
+    let rows3: Vec<(String,)> = conn.query_collect("SHOW server_encoding")?;
+    if let Some((enc,)) = rows3.first() {
         println!("  Server Encoding: {}", enc);
     }
 
-    let rows: Vec<(String,)> = conn.query_collect("SELECT pg_postmaster_start_time()::text")?;
-    if let Some((time,)) = rows.first() {
+    let rows4: Vec<(String,)> = conn.query_collect("SELECT pg_postmaster_start_time()::text")?;
+    if let Some((time,)) = rows4.first() {
         println!("  Server Start Time: {}", time);
     }
 

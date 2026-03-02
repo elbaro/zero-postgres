@@ -549,7 +549,7 @@ mod tests {
 
     #[test]
     fn f64_text() {
-        assert_eq!(f64::from_text(oid::FLOAT8, b"3.14").unwrap(), 3.14);
+        assert_eq!(f64::from_text(oid::FLOAT8, b"3.15").unwrap(), 3.15);
     }
 
     #[test]
@@ -559,8 +559,8 @@ mod tests {
         // i64 can decode INT4
         assert_eq!(i64::from_binary(oid::INT4, &[0, 0, 0, 42]).unwrap(), 42);
         // f64 can decode FLOAT4
-        let f32_bytes = 3.14_f32.to_be_bytes();
-        assert!((f64::from_binary(oid::FLOAT4, &f32_bytes).unwrap() - 3.14).abs() < 0.001);
+        let f32_bytes = 3.15_f32.to_be_bytes();
+        assert!((f64::from_binary(oid::FLOAT4, &f32_bytes).unwrap() - 3.15).abs() < 0.001);
     }
 
     #[test]
@@ -685,20 +685,20 @@ mod tests {
     #[test]
     fn numeric_to_f64_special() {
         // NaN
-        let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
-        assert!(f64::from_binary(oid::NUMERIC, &bytes).unwrap().is_nan());
+        let bytes1 = make_numeric(0, 0, 0xC000, 0, &[]);
+        assert!(f64::from_binary(oid::NUMERIC, &bytes1).unwrap().is_nan());
 
         // +Infinity
-        let bytes = make_numeric(0, 0, 0xD000, 0, &[]);
+        let bytes2 = make_numeric(0, 0, 0xD000, 0, &[]);
         assert_eq!(
-            f64::from_binary(oid::NUMERIC, &bytes).unwrap(),
+            f64::from_binary(oid::NUMERIC, &bytes2).unwrap(),
             f64::INFINITY
         );
 
         // -Infinity
-        let bytes = make_numeric(0, 0, 0xF000, 0, &[]);
+        let bytes3 = make_numeric(0, 0, 0xF000, 0, &[]);
         assert_eq!(
-            f64::from_binary(oid::NUMERIC, &bytes).unwrap(),
+            f64::from_binary(oid::NUMERIC, &bytes3).unwrap(),
             f64::NEG_INFINITY
         );
     }
@@ -714,20 +714,20 @@ mod tests {
     #[test]
     fn numeric_to_f32_special() {
         // NaN
-        let bytes = make_numeric(0, 0, 0xC000, 0, &[]);
-        assert!(f32::from_binary(oid::NUMERIC, &bytes).unwrap().is_nan());
+        let bytes1 = make_numeric(0, 0, 0xC000, 0, &[]);
+        assert!(f32::from_binary(oid::NUMERIC, &bytes1).unwrap().is_nan());
 
         // +Infinity
-        let bytes = make_numeric(0, 0, 0xD000, 0, &[]);
+        let bytes2 = make_numeric(0, 0, 0xD000, 0, &[]);
         assert_eq!(
-            f32::from_binary(oid::NUMERIC, &bytes).unwrap(),
+            f32::from_binary(oid::NUMERIC, &bytes2).unwrap(),
             f32::INFINITY
         );
 
         // -Infinity
-        let bytes = make_numeric(0, 0, 0xF000, 0, &[]);
+        let bytes3 = make_numeric(0, 0, 0xF000, 0, &[]);
         assert_eq!(
-            f32::from_binary(oid::NUMERIC, &bytes).unwrap(),
+            f32::from_binary(oid::NUMERIC, &bytes3).unwrap(),
             f32::NEG_INFINITY
         );
     }

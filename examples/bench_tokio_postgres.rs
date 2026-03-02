@@ -9,13 +9,12 @@ use tokio_postgres::NoTls;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
-        .unwrap()
+        .build()?
         .block_on(async_main())
 }
 
 async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let url = env::var("DATABASE_URL")?;
     // tokio-postgres expects postgres:// not pg://
     let url = url
         .strip_prefix("pg://")

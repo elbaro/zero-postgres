@@ -429,16 +429,15 @@ fn float_types() {
     let stmt = conn
         .prepare("INSERT INTO test_derive_floats (float_val, double_val) VALUES ($1, $2)")
         .expect("prepare");
-    conn.exec_drop(&stmt, (3.14f32, 2.71828f64))
-        .expect("insert");
+    conn.exec_drop(&stmt, (1.23f32, 4.56f64)).expect("insert");
 
     let stmt = conn
         .prepare("SELECT float_val, double_val FROM test_derive_floats")
         .expect("prepare");
     let rows: Vec<FloatTypes> = conn.exec_collect(&stmt, ()).expect("select");
 
-    assert!((rows[0].float_val - 3.14).abs() < 0.001);
-    assert!((rows[0].double_val - 2.71828).abs() < 0.00001);
+    assert!((rows[0].float_val - 1.23).abs() < 0.001);
+    assert!((rows[0].double_val - 4.56).abs() < 0.00001);
 
     conn.query_drop("DROP TABLE test_derive_floats")
         .expect("cleanup");

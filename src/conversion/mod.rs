@@ -25,6 +25,9 @@ use crate::error::{Error, Result};
 use crate::protocol::types::Oid;
 pub use row::FromRow;
 
+/// PostgreSQL epoch (2000-01-01) as a Julian day number.
+pub const PG_EPOCH_JULIAN_DAY: i32 = 2_451_545;
+
 /// Trait for decoding PostgreSQL values into Rust types.
 ///
 /// This trait provides methods for decoding values from different formats:

@@ -6,8 +6,8 @@
 use std::env;
 use zero_postgres::sync::Conn;
 
-fn main() -> zero_postgres::Result<()> {
-    let url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = env::var("DATABASE_URL")?;
     let mut conn = Conn::new(url.as_str())?;
 
     // Setup - use temp table (session-scoped, often memory-resident)

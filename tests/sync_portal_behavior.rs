@@ -418,7 +418,7 @@ fn p1_insert_commit_persists() {
     let count: Vec<(i64,)> = conn
         .query_collect("SELECT count(*) FROM portal_test_p1")
         .unwrap();
-    conn.query_drop("DROP TABLE portal_test_p1").ok();
+    conn.query_drop("DROP TABLE portal_test_p1").unwrap();
 
     assert_eq!(count[0].0, 1, "Expected 1 row after COMMIT");
 }
@@ -448,7 +448,7 @@ fn p2_insert_rollback_gone() {
     let count: Vec<(i64,)> = conn
         .query_collect("SELECT count(*) FROM portal_test_p2")
         .unwrap();
-    conn.query_drop("DROP TABLE portal_test_p2").ok();
+    conn.query_drop("DROP TABLE portal_test_p2").unwrap();
 
     assert_eq!(count[0].0, 0, "Expected 0 rows after ROLLBACK");
 }
@@ -485,7 +485,7 @@ fn p3_insert_error_rollback_gone() {
     let count: Vec<(i64,)> = conn2
         .query_collect("SELECT count(*) FROM portal_test_p3")
         .unwrap();
-    conn2.query_drop("DROP TABLE portal_test_p3").ok();
+    conn2.query_drop("DROP TABLE portal_test_p3").unwrap();
 
     assert_eq!(count[0].0, 0, "Expected 0 rows after ERROR + ROLLBACK");
 }
@@ -533,7 +533,7 @@ fn p4_named_portal_within_tx_rollback_then_insert() {
     let count: Vec<(i64,)> = conn
         .query_collect("SELECT count(*) FROM portal_test_p4")
         .unwrap();
-    conn.query_drop("DROP TABLE portal_test_p4").ok();
+    conn.query_drop("DROP TABLE portal_test_p4").unwrap();
 
     assert_eq!(
         count[0].0, 0,
