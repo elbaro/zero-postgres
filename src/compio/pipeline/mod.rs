@@ -274,7 +274,7 @@ impl<'a> Pipeline<'a> {
             // Pop but don't process the exec expectation (server skipped it)
             self.expectations.pop_front();
             self.consume_pending_syncs().await?;
-            return Err(Error::Protocol(
+            return Err(Error::LibraryBug(
                 "pipeline aborted due to earlier error".into(),
             ));
         }
@@ -286,8 +286,8 @@ impl<'a> Pipeline<'a> {
             Some(Expectation::BindExecute) => {
                 self.claim_bind_exec_inner(handler, ticket.stmt).await
             }
-            Some(Expectation::Sync) => Err(Error::Protocol("unexpected Sync expectation".into())),
-            None => Err(Error::Protocol("no expectation in queue".into())),
+            Some(Expectation::Sync) => Err(Error::LibraryBug("unexpected Sync expectation".into())),
+            None => Err(Error::LibraryBug("no expectation in queue".into())),
         };
 
         if let Err(e) = &result {
@@ -398,7 +398,7 @@ impl<'a> Pipeline<'a> {
                 false
             }
             _ => {
-                return Err(Error::Protocol(format!(
+                return Err(Error::LibraryBug(format!(
                     "expected RowDescription or NoData, got '{}'",
                     self.conn.buffer_set.type_byte as char
                 )));
@@ -413,7 +413,7 @@ impl<'a> Pipeline<'a> {
             match type_byte {
                 msg_type::DATA_ROW => {
                     if !has_rows {
-                        return Err(Error::Protocol(
+                        return Err(Error::LibraryBug(
                             "received DataRow but no RowDescription".into(),
                         ));
                     }
@@ -431,7 +431,7 @@ impl<'a> Pipeline<'a> {
                     return Ok(());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "unexpected message type in pipeline claim: '{}'",
                         type_byte as char
                     )));
@@ -454,7 +454,7 @@ impl<'a> Pipeline<'a> {
             match type_byte {
                 msg_type::DATA_ROW => {
                     let row_desc = row_desc.ok_or_else(|| {
-                        Error::Protocol("received DataRow but no RowDescription cached".into())
+                        Error::LibraryBug("received DataRow but no RowDescription cached".into())
                     })?;
                     let cols = RowDescription::parse(row_desc)?;
                     let row = DataRow::parse(&self.conn.buffer_set.read_buffer)?;
@@ -470,7 +470,7 @@ impl<'a> Pipeline<'a> {
                     return Ok(());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "unexpected message type in pipeline claim: '{}'",
                         type_byte as char
                     )));
@@ -505,7 +505,7 @@ impl<'a> Pipeline<'a> {
 
     /// Create an error for unexpected message type.
     fn unexpected_message<T>(&self, expected: &str) -> Result<T> {
-        Err(Error::Protocol(format!(
+        Err(Error::LibraryBug(format!(
             "expected {}, got '{}'",
             expected, self.conn.buffer_set.type_byte as char
         )))

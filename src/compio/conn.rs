@@ -120,7 +120,7 @@ impl Conn {
                     stream.read_message(&mut buffer_set).await?;
                 }
                 Action::Error(_) => {
-                    return Err(Error::Protocol(
+                    return Err(Error::LibraryBug(
                         "unexpected server error during connection startup".into(),
                     ));
                 }
@@ -283,7 +283,7 @@ impl Conn {
                     self.stream.read_message(&mut self.buffer_set).await?;
                 }
                 Action::Finished => break,
-                _ => return Err(Error::Protocol("Unexpected action in bind".into())),
+                _ => return Err(Error::LibraryBug("Unexpected action in bind".into())),
             }
         }
 
@@ -319,7 +319,7 @@ impl Conn {
         loop {
             match state_machine.step(&mut self.buffer_set)? {
                 Action::WriteAndReadByte => {
-                    return Err(Error::Protocol(
+                    return Err(Error::LibraryBug(
                         "Unexpected WriteAndReadByte in query state machine".into(),
                     ));
                 }
@@ -342,7 +342,7 @@ impl Conn {
                     self.stream.read_message(&mut self.buffer_set).await?;
                 }
                 Action::TlsHandshake => {
-                    return Err(Error::Protocol(
+                    return Err(Error::LibraryBug(
                         "Unexpected TlsHandshake in query state machine".into(),
                     ));
                 }
@@ -504,7 +504,11 @@ impl Conn {
                     self.transaction_status = state_machine.transaction_status();
                     break;
                 }
-                _ => return Err(Error::Protocol("Unexpected action in batch prepare".into())),
+                _ => {
+                    return Err(Error::LibraryBug(
+                        "Unexpected action in batch prepare".into(),
+                    ));
+                }
             }
         }
 
@@ -528,7 +532,7 @@ impl Conn {
         self.drive(&mut state_machine).await?;
         state_machine
             .take_prepared_statement()
-            .ok_or_else(|| Error::Protocol("No prepared statement".into()))
+            .ok_or_else(|| Error::LibraryBug("No prepared statement".into()))
     }
 
     /// Execute a statement with a handler.
@@ -741,7 +745,7 @@ impl Conn {
                     self.transaction_status = state_machine.transaction_status();
                     return Err(Error::Server(server_error));
                 }
-                Ok(_) => return Err(Error::Protocol("Unexpected action in batch".into())),
+                Ok(_) => return Err(Error::LibraryBug("Unexpected action in batch".into())),
                 Err(e) => return Err(e),
             }
         }
@@ -897,7 +901,7 @@ impl Conn {
                     return Err(error.into_error());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "Expected BindComplete or ErrorResponse, got '{}'",
                         type_byte as char
                     )));
@@ -984,7 +988,7 @@ impl Conn {
                     return Err(error.into_error());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "Unexpected message in execute: '{}'",
                         type_byte as char
                     )));
@@ -1059,7 +1063,7 @@ impl Conn {
                     self.stream.read_message(&mut self.buffer_set).await?;
                 }
                 Action::Finished => break,
-                _ => return Err(Error::Protocol("Unexpected action in bind".into())),
+                _ => return Err(Error::LibraryBug("Unexpected action in bind".into())),
             }
         }
 
@@ -1121,7 +1125,7 @@ impl Conn {
                     return Err(error.into_error());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "Expected CloseComplete or ErrorResponse, got '{}'",
                         type_byte as char
                     )));
