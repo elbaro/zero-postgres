@@ -28,10 +28,17 @@
 //! - `test_pipeline_empty` - Empty pipeline (just sync)
 //! - `test_pipeline_pending_count` - Pending count tracking
 
+#![allow(
+    clippy::panic_in_result_fn,
+    clippy::shadow_unrelated,
+    clippy::unwrap_used
+)]
+
 use std::env;
+use zero_postgres::Error;
 use zero_postgres::sync::Conn;
 
-fn get_conn() -> Conn {
+fn get_conn() -> Result<Conn, Error> {
     let mut db_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/postgres".to_string());
     // Disable TLS if not specified
@@ -42,132 +49,128 @@ fn get_conn() -> Conn {
             db_url.push_str("?sslmode=disable");
         }
     }
-    Conn::new(db_url.as_str()).expect("Failed to connect")
+    Conn::new(db_url.as_str())
 }
 
 /// Verify connection still works after pipeline operations
-fn verify_connection(conn: &mut Conn) {
-    let result: (i32,) = conn.query_first("SELECT 7919").unwrap().unwrap();
-    assert_eq!(result.0, 7919);
+fn verify_connection(conn: &mut Conn) -> Result<(), Error> {
+    let result: Vec<(i32,)> = conn.query_collect("SELECT 7919")?;
+    assert_eq!(result[0].0, 7919);
+    Ok(())
 }
 
 // === Basic Pipeline Tests ===
 
 /// Test basic exec flow with raw SQL
 #[test]
-fn pipeline_exec() {
-    let mut conn = get_conn();
+fn pipeline_exec() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let result = conn
-        .pipeline(|p| {
-            let t = p.exec("SELECT $1::int as num, $2::text as txt", (42, "hello"))?;
-            p.sync()?;
-            let rows: Vec<(i32, String)> = p.claim_collect(t)?;
-            Ok(rows)
-        })
-        .unwrap();
+    let result = conn.pipeline(|p| {
+        let t = p.exec("SELECT $1::int as num, $2::text as txt", (42, "hello"))?;
+        p.sync()?;
+        let rows: Vec<(i32, String)> = p.claim_collect(t)?;
+        Ok(rows)
+    })?;
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], (42, "hello".to_string()));
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test multiple exec calls
 #[test]
-fn pipeline_multiple_execs() {
-    let mut conn = get_conn();
+fn pipeline_multiple_execs() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let (r1, r2, r3) = conn
-        .pipeline(|p| {
-            let t1 = p.exec("SELECT $1::int", (1,))?;
-            let t2 = p.exec("SELECT $1::int", (2,))?;
-            let t3 = p.exec("SELECT $1::int", (3,))?;
+    let (r1, r2, r3) = conn.pipeline(|p| {
+        let t1 = p.exec("SELECT $1::int", (1,))?;
+        let t2 = p.exec("SELECT $1::int", (2,))?;
+        let t3 = p.exec("SELECT $1::int", (3,))?;
 
-            p.sync()?;
+        p.sync()?;
 
-            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
-            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
-            let r3: Vec<(i32,)> = p.claim_collect(t3)?;
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+        let r3: Vec<(i32,)> = p.claim_collect(t3)?;
 
-            Ok((r1, r2, r3))
-        })
-        .unwrap();
+        Ok((r1, r2, r3))
+    })?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
     assert_eq!(r3, vec![(3,)]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test query that returns no rows
 #[test]
-fn pipeline_no_rows() {
-    let mut conn = get_conn();
+fn pipeline_no_rows() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let result: Vec<(i32,)> = conn
-        .pipeline(|p| {
-            let t = p.exec("SELECT 1 WHERE false", ())?;
-            p.sync()?;
-            p.claim_collect(t)
-        })
-        .unwrap();
+    let result: Vec<(i32,)> = conn.pipeline(|p| {
+        let t = p.exec("SELECT 1 WHERE false", ())?;
+        p.sync()?;
+        p.claim_collect(t)
+    })?;
 
     assert!(result.is_empty());
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test query with multiple rows
 #[test]
-fn pipeline_multiple_rows() {
-    let mut conn = get_conn();
+fn pipeline_multiple_rows() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let result: Vec<(i32,)> = conn
-        .pipeline(|p| {
-            let t = p.exec("SELECT * FROM (VALUES (1), (2), (3)) AS t(n)", ())?;
-            p.sync()?;
-            p.claim_collect(t)
-        })
-        .unwrap();
+    let result: Vec<(i32,)> = conn.pipeline(|p| {
+        let t = p.exec("SELECT * FROM (VALUES (1), (2), (3)) AS t(n)", ())?;
+        p.sync()?;
+        p.claim_collect(t)
+    })?;
 
     assert_eq!(result, vec![(1,), (2,), (3,)]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 // === Prepared Statement Tests ===
 
 /// Test using prepared statements in pipeline
 #[test]
-fn pipeline_with_prepared() {
-    let mut conn = get_conn();
+fn pipeline_with_prepared() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     // Prepare statement outside pipeline
-    let stmt = conn.prepare("SELECT $1::int * 2").unwrap();
+    let stmt = conn.prepare("SELECT $1::int * 2")?;
 
-    let (r1, r2) = conn
-        .pipeline(|p| {
-            let t1 = p.exec(&stmt, (5,))?;
-            let t2 = p.exec(&stmt, (10,))?;
+    let (r1, r2) = conn.pipeline(|p| {
+        let t1 = p.exec(&stmt, (5,))?;
+        let t2 = p.exec(&stmt, (10,))?;
 
-            p.sync()?;
+        p.sync()?;
 
-            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
-            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        let r2: Vec<(i32,)> = p.claim_collect(t2)?;
 
-            Ok((r1, r2))
-        })
-        .unwrap();
+        Ok((r1, r2))
+    })?;
 
     assert_eq!(r1, vec![(10,)]);
     assert_eq!(r2, vec![(20,)]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 // === Error Handling Tests ===
 
 /// Test claim order validation
 #[test]
-fn pipeline_claim_order_error() {
-    let mut conn = get_conn();
+fn pipeline_claim_order_error() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     let result = conn.pipeline(|p| {
         let t1 = p.exec("SELECT 1", ())?;
@@ -192,14 +195,15 @@ fn pipeline_claim_order_error() {
     });
 
     // The pipeline should complete (cleanup handles remaining)
-    result.unwrap();
-    verify_connection(&mut conn);
+    result?;
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test SQL error propagation
 #[test]
-fn pipeline_sql_error() {
-    let mut conn = get_conn();
+fn pipeline_sql_error() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     let result = conn.pipeline(|p| {
         let t = p.exec("SELECT 1/0", ())?;
@@ -219,14 +223,15 @@ fn pipeline_sql_error() {
         Ok(())
     });
 
-    result.unwrap();
-    verify_connection(&mut conn);
+    result?;
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test aborted pipeline state
 #[test]
-fn pipeline_aborted_state() {
-    let mut conn = get_conn();
+fn pipeline_aborted_state() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     let result = conn.pipeline(|p| {
         let t1 = p.exec("SELECT 1", ())?;
@@ -256,22 +261,21 @@ fn pipeline_aborted_state() {
         Ok(())
     });
 
-    result.unwrap();
-    verify_connection(&mut conn);
+    result?;
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 // === INSERT/UPDATE/DELETE Tests ===
 
 /// Test INSERT in pipeline
 #[test]
-fn pipeline_insert() {
-    let mut conn = get_conn();
+fn pipeline_insert() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     // Setup
-    conn.query_drop("DROP TABLE IF EXISTS _pipeline_insert_test")
-        .unwrap();
-    conn.query_drop("CREATE TEMP TABLE _pipeline_insert_test (id int, name text)")
-        .unwrap();
+    conn.query_drop("DROP TABLE IF EXISTS _pipeline_insert_test")?;
+    conn.query_drop("CREATE TEMP TABLE _pipeline_insert_test (id int, name text)")?;
 
     conn.pipeline(|p| {
         let t1 = p.exec(
@@ -289,78 +293,74 @@ fn pipeline_insert() {
         p.claim_drop(t2)?;
 
         Ok(())
-    })
-    .unwrap();
+    })?;
 
     // Verify inserts
-    let rows: Vec<(i32, String)> = conn
-        .query_collect("SELECT id, name FROM _pipeline_insert_test ORDER BY id")
-        .unwrap();
+    let rows: Vec<(i32, String)> =
+        conn.query_collect("SELECT id, name FROM _pipeline_insert_test ORDER BY id")?;
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0], (1, "alice".to_string()));
     assert_eq!(rows[1], (2, "bob".to_string()));
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test INSERT with RETURNING
 #[test]
-fn pipeline_insert_returning() {
-    let mut conn = get_conn();
+fn pipeline_insert_returning() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     // Setup
-    conn.query_drop("DROP TABLE IF EXISTS _pipeline_returning_test")
-        .unwrap();
+    conn.query_drop("DROP TABLE IF EXISTS _pipeline_returning_test")?;
     conn.query_drop(
         "CREATE TEMP TABLE _pipeline_returning_test (id serial PRIMARY KEY, name text)",
-    )
-    .unwrap();
+    )?;
 
-    let (r1, r2) = conn
-        .pipeline(|p| {
-            let t1 = p.exec(
-                "INSERT INTO _pipeline_returning_test (name) VALUES ($1) RETURNING id",
-                ("alice",),
-            )?;
-            let t2 = p.exec(
-                "INSERT INTO _pipeline_returning_test (name) VALUES ($1) RETURNING id",
-                ("bob",),
-            )?;
+    let (r1, r2) = conn.pipeline(|p| {
+        let t1 = p.exec(
+            "INSERT INTO _pipeline_returning_test (name) VALUES ($1) RETURNING id",
+            ("alice",),
+        )?;
+        let t2 = p.exec(
+            "INSERT INTO _pipeline_returning_test (name) VALUES ($1) RETURNING id",
+            ("bob",),
+        )?;
 
-            p.sync()?;
+        p.sync()?;
 
-            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
-            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        let r2: Vec<(i32,)> = p.claim_collect(t2)?;
 
-            Ok((r1, r2))
-        })
-        .unwrap();
+        Ok((r1, r2))
+    })?;
 
     assert_eq!(r1.len(), 1);
     assert_eq!(r2.len(), 1);
     assert!(r1[0].0 < r2[0].0, "IDs should be sequential");
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 // === Edge Cases ===
 
 /// Test empty pipeline (just sync)
 #[test]
-fn pipeline_empty() {
-    let mut conn = get_conn();
+fn pipeline_empty() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     conn.pipeline(|p| {
         p.sync()?;
         Ok(())
-    })
-    .unwrap();
+    })?;
     // Should complete without error
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test pending_count tracking
 #[test]
-fn pipeline_pending_count() {
-    let mut conn = get_conn();
+fn pipeline_pending_count() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     conn.pipeline(|p| {
         assert_eq!(p.pending_count(), 0);
@@ -380,148 +380,143 @@ fn pipeline_pending_count() {
         assert_eq!(p.pending_count(), 0);
 
         Ok(())
-    })
-    .unwrap();
-    verify_connection(&mut conn);
+    })?;
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test claim_one for single row result
 #[test]
-fn pipeline_claim_one() {
-    let mut conn = get_conn();
+fn pipeline_claim_one() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let result = conn
-        .pipeline(|p| {
-            let t = p.exec("SELECT 42::int", ())?;
-            p.sync()?;
-            p.claim_one::<(i32,)>(t)
-        })
-        .unwrap();
+    let result = conn.pipeline(|p| {
+        let t = p.exec("SELECT 42::int", ())?;
+        p.sync()?;
+        p.claim_one::<(i32,)>(t)
+    })?;
 
     assert_eq!(result, Some((42,)));
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test claim_one returns None for empty result
 #[test]
-fn pipeline_claim_one_empty() {
-    let mut conn = get_conn();
+fn pipeline_claim_one_empty() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let result = conn
-        .pipeline(|p| {
-            let t = p.exec("SELECT 1 WHERE false", ())?;
-            p.sync()?;
-            p.claim_one::<(i32,)>(t)
-        })
-        .unwrap();
+    let result = conn.pipeline(|p| {
+        let t = p.exec("SELECT 1 WHERE false", ())?;
+        p.sync()?;
+        p.claim_one::<(i32,)>(t)
+    })?;
 
     assert_eq!(result, None);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 // === Auto-Sync Tests ===
 
 /// Test basic auto-sync: claim without explicit sync()
 #[test]
-fn pipeline_auto_sync_basic() {
-    let mut conn = get_conn();
+fn pipeline_auto_sync_basic() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let (r1, r2) = conn
-        .pipeline(|p| {
-            let t1 = p.exec("SELECT $1::int", (1,))?;
-            let t2 = p.exec("SELECT $1::int", (2,))?;
-            // No explicit sync() - claim should auto-sync
-            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
-            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
-            Ok((r1, r2))
-        })
-        .unwrap();
+    let (r1, r2) = conn.pipeline(|p| {
+        let t1 = p.exec("SELECT $1::int", (1,))?;
+        let t2 = p.exec("SELECT $1::int", (2,))?;
+        // No explicit sync() - claim should auto-sync
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+        Ok((r1, r2))
+    })?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test interleaved exec/claim pattern without explicit sync
 /// exec()*n, claim some, exec() more, claim remaining
 #[test]
-fn pipeline_interleaved_exec_claim() {
-    let mut conn = get_conn();
+fn pipeline_interleaved_exec_claim() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let (r1, r2, r3, r4) = conn
-        .pipeline(|p| {
-            // First batch of execs
-            let t1 = p.exec("SELECT $1::int", (1,))?;
-            let t2 = p.exec("SELECT $1::int", (2,))?;
+    let (r1, r2, r3, r4) = conn.pipeline(|p| {
+        // First batch of execs
+        let t1 = p.exec("SELECT $1::int", (1,))?;
+        let t2 = p.exec("SELECT $1::int", (2,))?;
 
-            // Claim first two (auto-syncs)
-            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
-            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+        // Claim first two (auto-syncs)
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        let r2: Vec<(i32,)> = p.claim_collect(t2)?;
 
-            // Second batch of execs
-            let t3 = p.exec("SELECT $1::int", (3,))?;
-            let t4 = p.exec("SELECT $1::int", (4,))?;
+        // Second batch of execs
+        let t3 = p.exec("SELECT $1::int", (3,))?;
+        let t4 = p.exec("SELECT $1::int", (4,))?;
 
-            // Claim remaining (auto-syncs again)
-            let r3: Vec<(i32,)> = p.claim_collect(t3)?;
-            let r4: Vec<(i32,)> = p.claim_collect(t4)?;
+        // Claim remaining (auto-syncs again)
+        let r3: Vec<(i32,)> = p.claim_collect(t3)?;
+        let r4: Vec<(i32,)> = p.claim_collect(t4)?;
 
-            Ok((r1, r2, r3, r4))
-        })
-        .unwrap();
+        Ok((r1, r2, r3, r4))
+    })?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
     assert_eq!(r3, vec![(3,)]);
     assert_eq!(r4, vec![(4,)]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test partial claims then more execs before claiming rest
 #[test]
-fn pipeline_partial_claim_then_exec() {
-    let mut conn = get_conn();
+fn pipeline_partial_claim_then_exec() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let (r1, r2, r3, r4, r5) = conn
-        .pipeline(|p| {
-            // Queue 3 operations
-            let t1 = p.exec("SELECT $1::int", (1,))?;
-            let t2 = p.exec("SELECT $1::int", (2,))?;
-            let t3 = p.exec("SELECT $1::int", (3,))?;
+    let (r1, r2, r3, r4, r5) = conn.pipeline(|p| {
+        // Queue 3 operations
+        let t1 = p.exec("SELECT $1::int", (1,))?;
+        let t2 = p.exec("SELECT $1::int", (2,))?;
+        let t3 = p.exec("SELECT $1::int", (3,))?;
 
-            // Claim only first one (auto-syncs all 3)
-            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        // Claim only first one (auto-syncs all 3)
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
 
-            // Queue more operations before claiming t2, t3
-            let t4 = p.exec("SELECT $1::int", (4,))?;
-            let t5 = p.exec("SELECT $1::int", (5,))?;
+        // Queue more operations before claiming t2, t3
+        let t4 = p.exec("SELECT $1::int", (4,))?;
+        let t5 = p.exec("SELECT $1::int", (5,))?;
 
-            // Claim t2 (no sync needed, was synced with t1)
-            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+        // Claim t2 (no sync needed, was synced with t1)
+        let r2: Vec<(i32,)> = p.claim_collect(t2)?;
 
-            // Claim t3 - this should trigger sync for t4, t5
-            let r3: Vec<(i32,)> = p.claim_collect(t3)?;
+        // Claim t3 - this should trigger sync for t4, t5
+        let r3: Vec<(i32,)> = p.claim_collect(t3)?;
 
-            // Claim remaining
-            let r4: Vec<(i32,)> = p.claim_collect(t4)?;
-            let r5: Vec<(i32,)> = p.claim_collect(t5)?;
+        // Claim remaining
+        let r4: Vec<(i32,)> = p.claim_collect(t4)?;
+        let r5: Vec<(i32,)> = p.claim_collect(t5)?;
 
-            Ok((r1, r2, r3, r4, r5))
-        })
-        .unwrap();
+        Ok((r1, r2, r3, r4, r5))
+    })?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
     assert_eq!(r3, vec![(3,)]);
     assert_eq!(r4, vec![(4,)]);
     assert_eq!(r5, vec![(5,)]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test multiple exec/claim batches with error in between
 #[test]
-fn pipeline_multiple_batches_with_error() {
-    let mut conn = get_conn();
+fn pipeline_multiple_batches_with_error() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     let result = conn.pipeline(|p| {
         // First batch - all succeed
@@ -555,14 +550,15 @@ fn pipeline_multiple_batches_with_error() {
     });
 
     // Pipeline should recover after error via cleanup
-    result.unwrap();
-    verify_connection(&mut conn);
+    result?;
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test recovery after error - can start new batch
 #[test]
-fn pipeline_error_recovery_new_batch() {
-    let mut conn = get_conn();
+fn pipeline_error_recovery_new_batch() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
     // First pipeline with error
     let _ = conn.pipeline(|p| {
@@ -572,108 +568,104 @@ fn pipeline_error_recovery_new_batch() {
     });
 
     // Second pipeline should work fine
-    let result = conn
-        .pipeline(|p| {
-            let t1 = p.exec("SELECT $1::int", (100,))?;
-            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
-            Ok(r1)
-        })
-        .unwrap();
+    let result = conn.pipeline(|p| {
+        let t1 = p.exec("SELECT $1::int", (100,))?;
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        Ok(r1)
+    })?;
 
     assert_eq!(result, vec![(100,)]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test explicit flush then claim (no auto-sync)
 #[test]
-fn pipeline_explicit_flush() {
-    let mut conn = get_conn();
+fn pipeline_explicit_flush() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let (r1, r2) = conn
-        .pipeline(|p| {
-            let t1 = p.exec("SELECT $1::int", (1,))?;
-            let t2 = p.exec("SELECT $1::int", (2,))?;
+    let (r1, r2) = conn.pipeline(|p| {
+        let t1 = p.exec("SELECT $1::int", (1,))?;
+        let t2 = p.exec("SELECT $1::int", (2,))?;
 
-            // Explicit flush - sends FLUSH not SYNC
-            p.flush()?;
+        // Explicit flush - sends FLUSH not SYNC
+        p.flush()?;
 
-            // Claims don't auto-sync (buffer is empty)
-            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
-            let r2: Vec<(i32,)> = p.claim_collect(t2)?;
+        // Claims don't auto-sync (buffer is empty)
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        let r2: Vec<(i32,)> = p.claim_collect(t2)?;
 
-            // Cleanup will send SYNC on exit
-            Ok((r1, r2))
-        })
-        .unwrap();
+        // Cleanup will send SYNC on exit
+        Ok((r1, r2))
+    })?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test complex interleaving: exec, claim, exec, claim, exec, claim
 #[test]
-fn pipeline_complex_interleave() {
-    let mut conn = get_conn();
+fn pipeline_complex_interleave() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let results = conn
-        .pipeline(|p| {
-            let mut results = Vec::new();
+    let results = conn.pipeline(|p| {
+        let mut results = Vec::new();
 
-            for i in 1..=5 {
-                let t = p.exec("SELECT $1::int", (i,))?;
-                let r: Vec<(i32,)> = p.claim_collect(t)?;
-                results.push(r[0].0);
-            }
+        for i in 1..=5 {
+            let t = p.exec("SELECT $1::int", (i,))?;
+            let r: Vec<(i32,)> = p.claim_collect(t)?;
+            results.push(r[0].0);
+        }
 
-            Ok(results)
-        })
-        .unwrap();
+        Ok(results)
+    })?;
 
     assert_eq!(results, vec![1, 2, 3, 4, 5]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }
 
 /// Test pipeline continues after error batch with new batch
 /// Batch 1: error -> claim all (some fail)
 /// Batch 2: should work normally
 #[test]
-fn pipeline_continue_after_error_batch() {
-    let mut conn = get_conn();
+fn pipeline_continue_after_error_batch() -> Result<(), Error> {
+    let mut conn = get_conn()?;
 
-    let (r1, r4, r5) = conn
-        .pipeline(|p| {
-            // First batch - has an error in the middle
-            let t1 = p.exec("SELECT $1::int", (1,))?;
-            let t2 = p.exec("SELECT 1/0", ())?; // Error
-            let t3 = p.exec("SELECT $1::int", (3,))?;
+    let (r1, r4, r5) = conn.pipeline(|p| {
+        // First batch - has an error in the middle
+        let t1 = p.exec("SELECT $1::int", (1,))?;
+        let t2 = p.exec("SELECT 1/0", ())?; // Error
+        let t3 = p.exec("SELECT $1::int", (3,))?;
 
-            // Claim first batch
-            let r1: Vec<(i32,)> = p.claim_collect(t1)?;
-            assert_eq!(r1, vec![(1,)]);
+        // Claim first batch
+        let r1: Vec<(i32,)> = p.claim_collect(t1)?;
+        assert_eq!(r1, vec![(1,)]);
 
-            // t2 fails
-            let result2: Result<Vec<(i32,)>, _> = p.claim_collect(t2);
-            result2.unwrap_err();
+        // t2 fails
+        let result2: Result<Vec<(i32,)>, _> = p.claim_collect(t2);
+        result2.unwrap_err();
 
-            // t3 fails due to aborted
-            let result3: Result<Vec<(i32,)>, _> = p.claim_collect(t3);
-            result3.unwrap_err();
+        // t3 fails due to aborted
+        let result3: Result<Vec<(i32,)>, _> = p.claim_collect(t3);
+        result3.unwrap_err();
 
-            // After consuming all claims from error batch (including ReadyForQuery),
-            // pipeline should recover and allow new batch
-            let t4 = p.exec("SELECT $1::int", (4,))?;
-            let t5 = p.exec("SELECT $1::int", (5,))?;
+        // After consuming all claims from error batch (including ReadyForQuery),
+        // pipeline should recover and allow new batch
+        let t4 = p.exec("SELECT $1::int", (4,))?;
+        let t5 = p.exec("SELECT $1::int", (5,))?;
 
-            let r4: Vec<(i32,)> = p.claim_collect(t4)?;
-            let r5: Vec<(i32,)> = p.claim_collect(t5)?;
+        let r4: Vec<(i32,)> = p.claim_collect(t4)?;
+        let r5: Vec<(i32,)> = p.claim_collect(t5)?;
 
-            Ok((r1, r4, r5))
-        })
-        .unwrap();
+        Ok((r1, r4, r5))
+    })?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r4, vec![(4,)]);
     assert_eq!(r5, vec![(5,)]);
-    verify_connection(&mut conn);
+    verify_connection(&mut conn)?;
+    Ok(())
 }

@@ -1,12 +1,18 @@
 //! Tests for async exec_portal and UnnamedPortal (compio)
 
 #![cfg(feature = "compio")]
+#![allow(
+    clippy::panic_in_result_fn,
+    clippy::shadow_unrelated,
+    clippy::unwrap_used
+)]
 
 use std::env;
+use zero_postgres::Error;
 use zero_postgres::compio::Conn;
 use zero_postgres::handler::CollectHandler;
 
-async fn get_conn() -> Conn {
+async fn get_conn() -> Result<Conn, Error> {
     let mut db_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/postgres".to_string());
     if !db_url.contains("sslmode=") {
@@ -16,17 +22,14 @@ async fn get_conn() -> Conn {
             db_url.push_str("?sslmode=disable");
         }
     }
-    Conn::new(db_url.as_str()).await.expect("Failed to connect")
+    Conn::new(db_url.as_str()).await
 }
 
 #[compio::test]
-async fn exec_portal_basic() {
-    let mut conn = get_conn().await;
+async fn exec_portal_basic() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, 5) as n")
-        .await
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, 5) as n").await?;
 
     let total: i32 = conn
         .exec_portal(&stmt, (), async |portal| {
@@ -36,20 +39,17 @@ async fn exec_portal_basic() {
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows.iter().map(|(n,)| n).sum())
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(total, 15);
+    Ok(())
 }
 
 #[compio::test]
-async fn exec_portal_batched() {
-    let mut conn = get_conn().await;
+async fn exec_portal_batched() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, 10) as n")
-        .await
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, 10) as n").await?;
 
     let (all_rows, batch_count) = conn
         .exec_portal(&stmt, (), async |portal| {
@@ -67,18 +67,18 @@ async fn exec_portal_batched() {
             }
             Ok((all_rows, batches))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(all_rows, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     assert_eq!(batch_count, 4);
+    Ok(())
 }
 
 #[compio::test]
-async fn exec_portal_empty_result() {
-    let mut conn = get_conn().await;
+async fn exec_portal_empty_result() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn.prepare("SELECT 1 WHERE false").await.unwrap();
+    let stmt = conn.prepare("SELECT 1 WHERE false").await?;
 
     let row_count: usize = conn
         .exec_portal(&stmt, (), async |portal| {
@@ -88,20 +88,17 @@ async fn exec_portal_empty_result() {
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows.len())
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(row_count, 0);
+    Ok(())
 }
 
 #[compio::test]
-async fn exec_portal_with_params() {
-    let mut conn = get_conn().await;
+async fn exec_portal_with_params() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, $1) as n")
-        .await
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, $1) as n").await?;
 
     let total: i32 = conn
         .exec_portal(&stmt, (5i32,), async |portal| {
@@ -110,17 +107,17 @@ async fn exec_portal_with_params() {
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows.iter().map(|(n,)| n).sum())
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(total, 15);
+    Ok(())
 }
 
 #[compio::test]
-async fn exec_portal_closure_returns_value() {
-    let mut conn = get_conn().await;
+async fn exec_portal_closure_returns_value() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn.prepare("SELECT 42 as answer").await.unwrap();
+    let stmt = conn.prepare("SELECT 42 as answer").await?;
 
     let answer: i32 = conn
         .exec_portal(&stmt, (), async |portal| {
@@ -129,15 +126,15 @@ async fn exec_portal_closure_returns_value() {
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows[0].0)
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(answer, 42);
+    Ok(())
 }
 
 #[compio::test]
-async fn exec_portal_with_raw_sql() {
-    let mut conn = get_conn().await;
+async fn exec_portal_with_raw_sql() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let total: i32 = conn
         .exec_portal("SELECT generate_series(1, 5) as n", (), async |portal| {
@@ -146,15 +143,15 @@ async fn exec_portal_with_raw_sql() {
             let rows: Vec<(i32,)> = handler.into_rows();
             Ok(rows.iter().map(|(n,)| n).sum())
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(total, 15);
+    Ok(())
 }
 
 #[compio::test]
-async fn exec_portal_with_raw_sql_and_params() {
-    let mut conn = get_conn().await;
+async fn exec_portal_with_raw_sql_and_params() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let total: i32 = conn
         .exec_portal(
@@ -167,15 +164,15 @@ async fn exec_portal_with_raw_sql_and_params() {
                 Ok(rows.iter().map(|(n,)| n).sum())
             },
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(total, 15);
+    Ok(())
 }
 
 #[compio::test]
-async fn exec_portal_raw_sql_batched() {
-    let mut conn = get_conn().await;
+async fn exec_portal_raw_sql_batched() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let (all_rows, batch_count) = conn
         .exec_portal("SELECT generate_series(1, 10) as n", (), async |portal| {
@@ -193,21 +190,18 @@ async fn exec_portal_raw_sql_batched() {
             }
             Ok((all_rows, batches))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(all_rows, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     assert_eq!(batch_count, 4);
+    Ok(())
 }
 
 #[compio::test]
-async fn exec_portal_foreach_basic() {
-    let mut conn = get_conn().await;
+async fn exec_portal_foreach_basic() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, 5) as n")
-        .await
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, 5) as n").await?;
 
     let total: i32 = conn
         .exec_portal(&stmt, (), async |portal| {
@@ -221,20 +215,17 @@ async fn exec_portal_foreach_basic() {
             assert!(!has_more, "Expected all rows fetched");
             Ok(sum)
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(total, 15); // 1+2+3+4+5
+    Ok(())
 }
 
 #[compio::test]
-async fn exec_portal_foreach_batched() {
-    let mut conn = get_conn().await;
+async fn exec_portal_foreach_batched() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, 10) as n")
-        .await
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, 10) as n").await?;
 
     let (all_rows, batch_count) = conn
         .exec_portal(&stmt, (), async |portal| {
@@ -254,9 +245,9 @@ async fn exec_portal_foreach_batched() {
             }
             Ok((all_rows, batches))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(all_rows, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     assert_eq!(batch_count, 4); // 3+3+3+1 rows in 4 batches
+    Ok(())
 }

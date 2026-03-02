@@ -1,9 +1,16 @@
 //! Integration tests for the async Pipeline API.
 
+#![allow(
+    clippy::panic_in_result_fn,
+    clippy::shadow_unrelated,
+    clippy::unwrap_used
+)]
+
 use std::env;
+use zero_postgres::Error;
 use zero_postgres::tokio::Conn;
 
-async fn get_conn() -> Conn {
+async fn get_conn() -> Result<Conn, Error> {
     let mut db_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/postgres".to_string());
     if !db_url.contains("sslmode=") {
@@ -13,17 +20,18 @@ async fn get_conn() -> Conn {
             db_url.push_str("?sslmode=disable");
         }
     }
-    Conn::new(db_url.as_str()).await.expect("Failed to connect")
+    Conn::new(db_url.as_str()).await
 }
 
-async fn verify_connection(conn: &mut Conn) {
-    let result: (i32,) = conn.query_first("SELECT 7919").await.unwrap().unwrap();
-    assert_eq!(result.0, 7919);
+async fn verify_connection(conn: &mut Conn) -> Result<(), Error> {
+    let result: Vec<(i32,)> = conn.query_collect("SELECT 7919").await?;
+    assert_eq!(result[0].0, 7919);
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_exec() {
-    let mut conn = get_conn().await;
+async fn pipeline_exec() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let result = conn
         .pipeline(async |p| {
@@ -32,17 +40,17 @@ async fn pipeline_exec() {
             let rows: Vec<(i32, String)> = p.claim_collect(t).await?;
             Ok(rows)
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], (42, "hello".to_string()));
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_multiple_execs() {
-    let mut conn = get_conn().await;
+async fn pipeline_multiple_execs() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let (r1, r2, r3) = conn
         .pipeline(async |p| {
@@ -58,18 +66,18 @@ async fn pipeline_multiple_execs() {
 
             Ok((r1, r2, r3))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
     assert_eq!(r3, vec![(3,)]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_no_rows() {
-    let mut conn = get_conn().await;
+async fn pipeline_no_rows() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let result: Vec<(i32,)> = conn
         .pipeline(async |p| {
@@ -77,16 +85,16 @@ async fn pipeline_no_rows() {
             p.sync().await?;
             p.claim_collect(t).await
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert!(result.is_empty());
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_multiple_rows() {
-    let mut conn = get_conn().await;
+async fn pipeline_multiple_rows() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let result: Vec<(i32,)> = conn
         .pipeline(async |p| {
@@ -94,18 +102,18 @@ async fn pipeline_multiple_rows() {
             p.sync().await?;
             p.claim_collect(t).await
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(result, vec![(1,), (2,), (3,)]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_with_prepared() {
-    let mut conn = get_conn().await;
+async fn pipeline_with_prepared() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn.prepare("SELECT $1::int * 2").await.unwrap();
+    let stmt = conn.prepare("SELECT $1::int * 2").await?;
 
     let (r1, r2) = conn
         .pipeline(async |p| {
@@ -119,17 +127,17 @@ async fn pipeline_with_prepared() {
 
             Ok((r1, r2))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(r1, vec![(10,)]);
     assert_eq!(r2, vec![(20,)]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_claim_order_error() {
-    let mut conn = get_conn().await;
+async fn pipeline_claim_order_error() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let result = conn
         .pipeline(async |p| {
@@ -155,13 +163,14 @@ async fn pipeline_claim_order_error() {
         })
         .await;
 
-    result.unwrap();
-    verify_connection(&mut conn).await;
+    result?;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_sql_error() {
-    let mut conn = get_conn().await;
+async fn pipeline_sql_error() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let result = conn
         .pipeline(async |p| {
@@ -182,13 +191,14 @@ async fn pipeline_sql_error() {
         })
         .await;
 
-    result.unwrap();
-    verify_connection(&mut conn).await;
+    result?;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_aborted_state() {
-    let mut conn = get_conn().await;
+async fn pipeline_aborted_state() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let result = conn
         .pipeline(async |p| {
@@ -217,20 +227,19 @@ async fn pipeline_aborted_state() {
         })
         .await;
 
-    result.unwrap();
-    verify_connection(&mut conn).await;
+    result?;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_insert() {
-    let mut conn = get_conn().await;
+async fn pipeline_insert() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.query_drop("DROP TABLE IF EXISTS _pipeline_insert_test_async")
-        .await
-        .unwrap();
+        .await?;
     conn.query_drop("CREATE TEMP TABLE _pipeline_insert_test_async (id int, name text)")
-        .await
-        .unwrap();
+        .await?;
 
     conn.pipeline(async |p| {
         let t1 = p.exec(
@@ -249,31 +258,28 @@ async fn pipeline_insert() {
 
         Ok(())
     })
-    .await
-    .unwrap();
+    .await?;
 
     let rows: Vec<(i32, String)> = conn
         .query_collect("SELECT id, name FROM _pipeline_insert_test_async ORDER BY id")
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0], (1, "alice".to_string()));
     assert_eq!(rows[1], (2, "bob".to_string()));
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_insert_returning() {
-    let mut conn = get_conn().await;
+async fn pipeline_insert_returning() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.query_drop("DROP TABLE IF EXISTS _pipeline_returning_test_async")
-        .await
-        .unwrap();
+        .await?;
     conn.query_drop(
         "CREATE TEMP TABLE _pipeline_returning_test_async (id serial PRIMARY KEY, name text)",
     )
-    .await
-    .unwrap();
+    .await?;
 
     let (r1, r2) = conn
         .pipeline(async |p| {
@@ -293,31 +299,31 @@ async fn pipeline_insert_returning() {
 
             Ok((r1, r2))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(r1.len(), 1);
     assert_eq!(r2.len(), 1);
     assert!(r1[0].0 < r2[0].0);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_empty() {
-    let mut conn = get_conn().await;
+async fn pipeline_empty() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.pipeline(async |p| {
         p.sync().await?;
         Ok(())
     })
-    .await
-    .unwrap();
-    verify_connection(&mut conn).await;
+    .await?;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_pending_count() {
-    let mut conn = get_conn().await;
+async fn pipeline_pending_count() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.pipeline(async |p| {
         assert_eq!(p.pending_count(), 0);
@@ -338,14 +344,14 @@ async fn pipeline_pending_count() {
 
         Ok(())
     })
-    .await
-    .unwrap();
-    verify_connection(&mut conn).await;
+    .await?;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_claim_one() {
-    let mut conn = get_conn().await;
+async fn pipeline_claim_one() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let result = conn
         .pipeline(async |p| {
@@ -353,16 +359,16 @@ async fn pipeline_claim_one() {
             p.sync().await?;
             p.claim_one::<(i32,)>(t).await
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(result, Some((42,)));
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_claim_one_empty() {
-    let mut conn = get_conn().await;
+async fn pipeline_claim_one_empty() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let result = conn
         .pipeline(async |p| {
@@ -370,16 +376,16 @@ async fn pipeline_claim_one_empty() {
             p.sync().await?;
             p.claim_one::<(i32,)>(t).await
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(result, None);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_auto_sync_basic() {
-    let mut conn = get_conn().await;
+async fn pipeline_auto_sync_basic() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let (r1, r2) = conn
         .pipeline(async |p| {
@@ -389,17 +395,17 @@ async fn pipeline_auto_sync_basic() {
             let r2: Vec<(i32,)> = p.claim_collect(t2).await?;
             Ok((r1, r2))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_interleaved_exec_claim() {
-    let mut conn = get_conn().await;
+async fn pipeline_interleaved_exec_claim() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let (r1, r2, r3, r4) = conn
         .pipeline(async |p| {
@@ -417,19 +423,19 @@ async fn pipeline_interleaved_exec_claim() {
 
             Ok((r1, r2, r3, r4))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
     assert_eq!(r3, vec![(3,)]);
     assert_eq!(r4, vec![(4,)]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_partial_claim_then_exec() {
-    let mut conn = get_conn().await;
+async fn pipeline_partial_claim_then_exec() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let (r1, r2, r3, r4, r5) = conn
         .pipeline(async |p| {
@@ -449,20 +455,20 @@ async fn pipeline_partial_claim_then_exec() {
 
             Ok((r1, r2, r3, r4, r5))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
     assert_eq!(r3, vec![(3,)]);
     assert_eq!(r4, vec![(4,)]);
     assert_eq!(r5, vec![(5,)]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_multiple_batches_with_error() {
-    let mut conn = get_conn().await;
+async fn pipeline_multiple_batches_with_error() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let result = conn
         .pipeline(async |p| {
@@ -493,13 +499,14 @@ async fn pipeline_multiple_batches_with_error() {
         })
         .await;
 
-    result.unwrap();
-    verify_connection(&mut conn).await;
+    result?;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_error_recovery_new_batch() {
-    let mut conn = get_conn().await;
+async fn pipeline_error_recovery_new_batch() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let _ = conn
         .pipeline(async |p| {
@@ -515,16 +522,16 @@ async fn pipeline_error_recovery_new_batch() {
             let r1: Vec<(i32,)> = p.claim_collect(t1).await?;
             Ok(r1)
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(result, vec![(100,)]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_explicit_flush() {
-    let mut conn = get_conn().await;
+async fn pipeline_explicit_flush() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let (r1, r2) = conn
         .pipeline(async |p| {
@@ -538,17 +545,17 @@ async fn pipeline_explicit_flush() {
 
             Ok((r1, r2))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r2, vec![(2,)]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_complex_interleave() {
-    let mut conn = get_conn().await;
+async fn pipeline_complex_interleave() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let results = conn
         .pipeline(async |p| {
@@ -562,16 +569,16 @@ async fn pipeline_complex_interleave() {
 
             Ok(results)
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(results, vec![1, 2, 3, 4, 5]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn pipeline_continue_after_error_batch() {
-    let mut conn = get_conn().await;
+async fn pipeline_continue_after_error_batch() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     let (r1, r4, r5) = conn
         .pipeline(async |p| {
@@ -596,11 +603,11 @@ async fn pipeline_continue_after_error_batch() {
 
             Ok((r1, r4, r5))
         })
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(r1, vec![(1,)]);
     assert_eq!(r4, vec![(4,)]);
     assert_eq!(r5, vec![(5,)]);
-    verify_connection(&mut conn).await;
+    verify_connection(&mut conn).await?;
+    Ok(())
 }

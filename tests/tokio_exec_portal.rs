@@ -1,21 +1,33 @@
 //! Tests for async exec_portal and NamedPortal
 
+#![allow(
+    clippy::panic_in_result_fn,
+    clippy::shadow_unrelated,
+    clippy::unwrap_used
+)]
+
 use std::env;
+use zero_postgres::Error;
 use zero_postgres::tokio::Conn;
 
-async fn get_conn() -> Conn {
-    let db_url = env::var("DATABASE_URL").unwrap();
-    Conn::new(db_url.as_str()).await.expect("Failed to connect")
+async fn get_conn() -> Result<Conn, Error> {
+    let mut db_url =
+        env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/postgres".to_string());
+    if !db_url.contains("sslmode=") {
+        if db_url.contains('?') {
+            db_url.push_str("&sslmode=disable");
+        } else {
+            db_url.push_str("?sslmode=disable");
+        }
+    }
+    Conn::new(db_url.as_str()).await
 }
 
 #[tokio::test]
-async fn exec_portal_basic() {
-    let mut conn = get_conn().await;
+async fn exec_portal_basic() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, 5) as n")
-        .await
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, 5) as n").await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal = tx.exec_portal_named(conn, &stmt, ()).await?;
@@ -31,18 +43,15 @@ async fn exec_portal_basic() {
         portal.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_batched() {
-    let mut conn = get_conn().await;
+async fn exec_portal_batched() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, 10) as n")
-        .await
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, 10) as n").await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal = tx.exec_portal_named(conn, &stmt, ()).await?;
@@ -61,15 +70,15 @@ async fn exec_portal_batched() {
         portal.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_empty_result() {
-    let mut conn = get_conn().await;
+async fn exec_portal_empty_result() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn.prepare("SELECT 1 WHERE false").await.unwrap();
+    let stmt = conn.prepare("SELECT 1 WHERE false").await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal = tx.exec_portal_named(conn, &stmt, ()).await?;
@@ -81,18 +90,15 @@ async fn exec_portal_empty_result() {
         portal.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_with_params() {
-    let mut conn = get_conn().await;
+async fn exec_portal_with_params() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
-    let stmt = conn
-        .prepare("SELECT generate_series(1, $1) as n")
-        .await
-        .unwrap();
+    let stmt = conn.prepare("SELECT generate_series(1, $1) as n").await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal = tx.exec_portal_named(conn, &stmt, (5i32,)).await?;
@@ -105,13 +111,13 @@ async fn exec_portal_with_params() {
         portal.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_with_raw_sql() {
-    let mut conn = get_conn().await;
+async fn exec_portal_with_raw_sql() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal = tx
@@ -126,13 +132,13 @@ async fn exec_portal_with_raw_sql() {
         portal.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_with_raw_sql_and_params() {
-    let mut conn = get_conn().await;
+async fn exec_portal_with_raw_sql_and_params() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal = tx
@@ -147,13 +153,13 @@ async fn exec_portal_with_raw_sql_and_params() {
         portal.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_portal_name() {
-    let mut conn = get_conn().await;
+async fn exec_portal_portal_name() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal1 = tx.exec_portal_named(conn, "SELECT 1", ()).await?;
@@ -170,13 +176,13 @@ async fn exec_portal_portal_name() {
         portal2.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_multiple_portals() {
-    let mut conn = get_conn().await;
+async fn exec_portal_multiple_portals() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal1 = tx
@@ -205,13 +211,13 @@ async fn exec_portal_multiple_portals() {
         portal2.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_is_complete_tracking() {
-    let mut conn = get_conn().await;
+async fn exec_portal_is_complete_tracking() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal = tx
@@ -229,13 +235,13 @@ async fn exec_portal_is_complete_tracking() {
         portal.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_foreach_basic() {
-    let mut conn = get_conn().await;
+async fn exec_portal_foreach_basic() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal = tx
@@ -256,13 +262,13 @@ async fn exec_portal_foreach_basic() {
         portal.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn exec_portal_foreach_batched() {
-    let mut conn = get_conn().await;
+async fn exec_portal_foreach_batched() -> Result<(), Error> {
+    let mut conn = get_conn().await?;
 
     conn.transaction(async |conn, tx| {
         let mut portal = tx
@@ -287,6 +293,6 @@ async fn exec_portal_foreach_batched() {
         portal.close(conn).await?;
         tx.commit(conn).await
     })
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
 }
