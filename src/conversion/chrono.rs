@@ -95,7 +95,6 @@ impl FromWireValue<'_> for NaiveTime {
             .map_err(|e| Error::Decode(format!("invalid time: {}", e)))
     }
 
-    #[expect(clippy::integer_division_remainder_used)]
     fn from_binary(oid: Oid, bytes: &[u8]) -> Result<Self> {
         if oid != oid::TIME {
             return Err(Error::Decode(format!(
@@ -119,7 +118,6 @@ impl ToWireValue for NaiveTime {
         oid::TIME
     }
 
-    #[expect(clippy::integer_division_remainder_used)]
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::TIME => {
@@ -156,7 +154,6 @@ impl FromWireValue<'_> for NaiveDateTime {
             .map_err(|e| Error::Decode(format!("invalid timestamp: {}", e)))
     }
 
-    #[expect(clippy::integer_division_remainder_used)]
     fn from_binary(oid: Oid, bytes: &[u8]) -> Result<Self> {
         if !matches!(oid, oid::TIMESTAMP | oid::TIMESTAMPTZ) {
             return Err(Error::Decode(format!(
@@ -223,7 +220,6 @@ impl FromWireValue<'_> for DateTime<Utc> {
             .map_err(|e| Error::Decode(format!("invalid timestamptz: {}", e)))
     }
 
-    #[expect(clippy::integer_division_remainder_used)]
     fn from_binary(oid: Oid, bytes: &[u8]) -> Result<Self> {
         if oid != oid::TIMESTAMPTZ {
             return Err(Error::Decode(format!(
