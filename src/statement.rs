@@ -2,18 +2,22 @@
 
 use crate::state::extended::PreparedStatement;
 
+/// A resolved reference to either raw SQL or a prepared statement.
+///
+/// Returned by [`IntoStatement::statement_ref`] to allow exhaustive
+/// matching at call sites, replacing the old `Option`-returning methods
+/// that required `unwrap`.
+pub enum StatementRef<'a> {
+    Sql(&'a str),
+    Prepared(&'a PreparedStatement),
+}
+
 /// Sealed trait for types that can be used as statement references in exec_* methods.
 ///
 /// This trait is sealed and cannot be implemented outside this crate.
 pub trait IntoStatement: private::Sealed {
-    /// Returns true if this is raw SQL (needs Parse message).
-    fn needs_parse(&self) -> bool;
-
-    /// Get the SQL string if this is raw SQL.
-    fn as_sql(&self) -> Option<&str>;
-
-    /// Get the prepared statement if this is a prepared statement reference.
-    fn as_prepared(&self) -> Option<&PreparedStatement>;
+    /// Return a [`StatementRef`] discriminating raw SQL from a prepared statement.
+    fn statement_ref(&self) -> StatementRef<'_>;
 }
 
 mod private {
@@ -29,71 +33,31 @@ mod private {
 }
 
 impl IntoStatement for &PreparedStatement {
-    fn needs_parse(&self) -> bool {
-        false
-    }
-
-    fn as_sql(&self) -> Option<&str> {
-        None
-    }
-
-    fn as_prepared(&self) -> Option<&PreparedStatement> {
-        Some(self)
+    fn statement_ref(&self) -> StatementRef<'_> {
+        StatementRef::Prepared(self)
     }
 }
 
 impl IntoStatement for &str {
-    fn needs_parse(&self) -> bool {
-        true
-    }
-
-    fn as_sql(&self) -> Option<&str> {
-        Some(self)
-    }
-
-    fn as_prepared(&self) -> Option<&PreparedStatement> {
-        None
+    fn statement_ref(&self) -> StatementRef<'_> {
+        StatementRef::Sql(self)
     }
 }
 
 impl IntoStatement for &&str {
-    fn needs_parse(&self) -> bool {
-        true
-    }
-
-    fn as_sql(&self) -> Option<&str> {
-        Some(self)
-    }
-
-    fn as_prepared(&self) -> Option<&PreparedStatement> {
-        None
+    fn statement_ref(&self) -> StatementRef<'_> {
+        StatementRef::Sql(self)
     }
 }
 
 impl IntoStatement for str {
-    fn needs_parse(&self) -> bool {
-        true
-    }
-
-    fn as_sql(&self) -> Option<&str> {
-        Some(self)
-    }
-
-    fn as_prepared(&self) -> Option<&PreparedStatement> {
-        None
+    fn statement_ref(&self) -> StatementRef<'_> {
+        StatementRef::Sql(self)
     }
 }
 
 impl IntoStatement for PreparedStatement {
-    fn needs_parse(&self) -> bool {
-        false
-    }
-
-    fn as_sql(&self) -> Option<&str> {
-        None
-    }
-
-    fn as_prepared(&self) -> Option<&PreparedStatement> {
-        Some(self)
+    fn statement_ref(&self) -> StatementRef<'_> {
+        StatementRef::Prepared(self)
     }
 }

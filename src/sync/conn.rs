@@ -19,7 +19,7 @@ use crate::state::action::Action;
 use crate::state::connection::ConnectionStateMachine;
 use crate::state::extended::{BindStateMachine, ExtendedQueryStateMachine, PreparedStatement};
 use crate::state::simple_query::SimpleQueryStateMachine;
-use crate::statement::IntoStatement;
+use crate::statement::{IntoStatement, StatementRef};
 
 use super::stream::Stream;
 use super::unnamed_portal::UnnamedPortal;
@@ -112,7 +112,7 @@ impl Conn {
                     stream.read_message(&mut buffer_set)?;
                 }
                 Action::Error(_) => {
-                    return Err(Error::Protocol(
+                    return Err(Error::LibraryBug(
                         "unexpected server error during connection startup".into(),
                     ));
                 }
@@ -233,17 +233,17 @@ impl Conn {
         params: &P,
     ) -> Result<()> {
         // Create bind state machine for named portal
-        let mut state_machine = if let Some(sql) = statement.as_sql() {
-            BindStateMachine::bind_sql(&mut self.buffer_set, portal_name, sql, params)?
-        } else {
-            let stmt = statement.as_prepared().unwrap();
-            BindStateMachine::bind_prepared(
+        let mut state_machine = match statement.statement_ref() {
+            StatementRef::Sql(sql) => {
+                BindStateMachine::bind_sql(&mut self.buffer_set, portal_name, sql, params)?
+            }
+            StatementRef::Prepared(stmt) => BindStateMachine::bind_prepared(
                 &mut self.buffer_set,
                 portal_name,
                 &stmt.wire_name(),
                 &stmt.param_oids,
                 params,
-            )?
+            )?,
         };
 
         // Drive the state machine to completion (ParseComplete + BindComplete)
@@ -262,7 +262,7 @@ impl Conn {
                     self.stream.read_message(&mut self.buffer_set)?;
                 }
                 Action::Finished => break,
-                _ => return Err(Error::Protocol("Unexpected action in bind".into())),
+                _ => return Err(Error::LibraryBug("Unexpected action in bind".into())),
             }
         }
 
@@ -327,7 +327,7 @@ impl Conn {
 
             match action {
                 Action::WriteAndReadByte => {
-                    return Err(Error::Protocol(
+                    return Err(Error::LibraryBug(
                         "Unexpected WriteAndReadByte in query state machine".into(),
                     ));
                 }
@@ -344,7 +344,7 @@ impl Conn {
                     self.stream.read_message(&mut self.buffer_set)?;
                 }
                 Action::TlsHandshake => {
-                    return Err(Error::Protocol(
+                    return Err(Error::LibraryBug(
                         "Unexpected TlsHandshake in query state machine".into(),
                     ));
                 }
@@ -515,7 +515,11 @@ impl Conn {
                     self.transaction_status = state_machine.transaction_status();
                     break;
                 }
-                _ => return Err(Error::Protocol("Unexpected action in batch prepare".into())),
+                _ => {
+                    return Err(Error::LibraryBug(
+                        "Unexpected action in batch prepare".into(),
+                    ));
+                }
             }
         }
 
@@ -552,7 +556,7 @@ impl Conn {
         self.drive(&mut state_machine)?;
         state_machine
             .take_prepared_statement()
-            .ok_or_else(|| Error::Protocol("No prepared statement".into()))
+            .ok_or_else(|| Error::LibraryBug("No prepared statement".into()))
     }
 
     /// Execute a statement with a handler.
@@ -592,22 +596,17 @@ impl Conn {
         params: &P,
         handler: &mut H,
     ) -> Result<()> {
-        let mut state_machine = if statement.needs_parse() {
-            ExtendedQueryStateMachine::execute_sql(
-                handler,
-                &mut self.buffer_set,
-                statement.as_sql().unwrap(),
-                params,
-            )?
-        } else {
-            let stmt = statement.as_prepared().unwrap();
-            ExtendedQueryStateMachine::execute(
+        let mut state_machine = match statement.statement_ref() {
+            StatementRef::Sql(sql) => {
+                ExtendedQueryStateMachine::execute_sql(handler, &mut self.buffer_set, sql, params)?
+            }
+            StatementRef::Prepared(stmt) => ExtendedQueryStateMachine::execute(
                 handler,
                 &mut self.buffer_set,
                 &stmt.wire_name(),
                 &stmt.param_oids,
                 params,
-            )?
+            )?,
         };
 
         self.drive(&mut state_machine)
@@ -825,37 +824,28 @@ impl Conn {
         }
 
         let chunk_size = chunk_size.max(1);
-        let needs_parse = statement.needs_parse();
-        let sql = statement.as_sql();
-        let prepared = statement.as_prepared();
+        let stmt_ref = statement.statement_ref();
 
-        // Get param OIDs from first params or prepared statement
-        let param_oids: Vec<u32> = if let Some(stmt) = prepared {
-            stmt.param_oids.clone()
-        } else {
-            params_list[0].natural_oids()
+        let (param_oids, stmt_name) = match stmt_ref {
+            StatementRef::Sql(_) => (params_list[0].natural_oids(), String::new()),
+            StatementRef::Prepared(stmt) => (stmt.param_oids.clone(), stmt.wire_name()),
         };
-
-        // Statement name: empty for raw SQL, actual name for prepared
-        let stmt_name = prepared.map(|s| s.wire_name()).unwrap_or_default();
 
         for chunk in params_list.chunks(chunk_size) {
             self.buffer_set.write_buffer.clear();
 
             // For raw SQL, send Parse each chunk (reuses unnamed statement)
-            let parse_in_chunk = needs_parse;
-            if parse_in_chunk {
-                write_parse(
-                    &mut self.buffer_set.write_buffer,
-                    "",
-                    sql.unwrap(),
-                    &param_oids,
-                );
+            if let StatementRef::Sql(sql) = stmt_ref {
+                write_parse(&mut self.buffer_set.write_buffer, "", sql, &param_oids);
             }
 
             // Write Bind + Execute for each param set
             for params in chunk {
-                let effective_stmt_name = if needs_parse { "" } else { &stmt_name };
+                let effective_stmt_name = if matches!(stmt_ref, StatementRef::Sql(_)) {
+                    ""
+                } else {
+                    &stmt_name
+                };
                 write_bind(
                     &mut self.buffer_set.write_buffer,
                     "",
@@ -870,7 +860,8 @@ impl Conn {
             write_sync(&mut self.buffer_set.write_buffer);
 
             // Drive state machine
-            let mut state_machine = BatchStateMachine::new(parse_in_chunk);
+            let mut state_machine =
+                BatchStateMachine::new(matches!(stmt_ref, StatementRef::Sql(_)));
             self.drive_batch(&mut state_machine)?;
             self.transaction_status = state_machine.transaction_status();
         }
@@ -903,7 +894,7 @@ impl Conn {
                     self.transaction_status = state_machine.transaction_status();
                     return Err(Error::Server(server_error));
                 }
-                Ok(_) => return Err(Error::Protocol("Unexpected action in batch".into())),
+                Ok(_) => return Err(Error::LibraryBug("Unexpected action in batch".into())),
                 Err(e) => return Err(e),
             }
         }
@@ -1037,7 +1028,7 @@ impl Conn {
                     return Err(error.into_error());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "Expected BindComplete or ErrorResponse, got '{}'",
                         type_byte as char
                     )));
@@ -1132,7 +1123,7 @@ impl Conn {
                     return Err(error.into_error());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "Unexpected message in execute: '{}'",
                         type_byte as char
                     )));
@@ -1273,17 +1264,17 @@ impl Conn {
         F: FnOnce(&mut UnnamedPortal<'_>) -> Result<T>,
     {
         // Create bind state machine for unnamed portal
-        let mut state_machine = if let Some(sql) = statement.as_sql() {
-            BindStateMachine::bind_sql(&mut self.buffer_set, "", sql, params)?
-        } else {
-            let stmt = statement.as_prepared().unwrap();
-            BindStateMachine::bind_prepared(
+        let mut state_machine = match statement.statement_ref() {
+            StatementRef::Sql(sql) => {
+                BindStateMachine::bind_sql(&mut self.buffer_set, "", sql, params)?
+            }
+            StatementRef::Prepared(stmt) => BindStateMachine::bind_prepared(
                 &mut self.buffer_set,
                 "",
                 &stmt.wire_name(),
                 &stmt.param_oids,
                 params,
-            )?
+            )?,
         };
 
         // Drive the state machine to completion (ParseComplete + BindComplete)
@@ -1302,7 +1293,7 @@ impl Conn {
                     self.stream.read_message(&mut self.buffer_set)?;
                 }
                 Action::Finished => break,
-                _ => return Err(Error::Protocol("Unexpected action in bind".into())),
+                _ => return Err(Error::LibraryBug("Unexpected action in bind".into())),
             }
         }
 
@@ -1361,7 +1352,7 @@ impl Conn {
                     return Err(error.into_error());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "Expected CloseComplete or ErrorResponse, got '{}'",
                         type_byte as char
                     )));

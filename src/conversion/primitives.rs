@@ -71,9 +71,9 @@ impl FromWireValue<'_> for i16 {
         if oid != oid::INT2 {
             return Err(Error::Decode(format!("cannot decode oid {} as i16", oid)));
         }
-        let arr: [u8; 2] = bytes
-            .try_into()
-            .map_err(|_| Error::Decode(format!("invalid i16 length: {}", bytes.len())))?;
+        let arr: [u8; 2] = bytes.try_into().map_err(|_unhelpful_err| {
+            Error::Decode(format!("invalid i16 length: {}", bytes.len()))
+        })?;
         Ok(i16::from_be_bytes(arr))
     }
 }
@@ -117,15 +117,15 @@ impl FromWireValue<'_> for i32 {
     fn from_binary(oid: Oid, bytes: &[u8]) -> Result<Self> {
         match oid {
             oid::INT2 => {
-                let arr: [u8; 2] = bytes
-                    .try_into()
-                    .map_err(|_| Error::Decode(format!("invalid i16 length: {}", bytes.len())))?;
+                let arr: [u8; 2] = bytes.try_into().map_err(|_unhelpful_err| {
+                    Error::Decode(format!("invalid i16 length: {}", bytes.len()))
+                })?;
                 Ok(i16::from_be_bytes(arr) as i32)
             }
             oid::INT4 => {
-                let arr: [u8; 4] = bytes
-                    .try_into()
-                    .map_err(|_| Error::Decode(format!("invalid i32 length: {}", bytes.len())))?;
+                let arr: [u8; 4] = bytes.try_into().map_err(|_unhelpful_err| {
+                    Error::Decode(format!("invalid i32 length: {}", bytes.len()))
+                })?;
                 Ok(i32::from_be_bytes(arr))
             }
             _ => Err(Error::Decode(format!("cannot decode oid {} as i32", oid))),
@@ -141,7 +141,8 @@ impl ToWireValue for i32 {
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::INT2 => {
-                let v = i16::try_from(*self).map_err(|_| Error::overflow("i32", "INT2"))?;
+                let v = i16::try_from(*self)
+                    .map_err(|_unhelpful_err| Error::overflow("i32", "INT2"))?;
                 buf.extend_from_slice(&2_i32.to_be_bytes());
                 buf.extend_from_slice(&v.to_be_bytes());
             }
@@ -173,21 +174,21 @@ impl FromWireValue<'_> for i64 {
     fn from_binary(oid: Oid, bytes: &[u8]) -> Result<Self> {
         match oid {
             oid::INT2 => {
-                let arr: [u8; 2] = bytes
-                    .try_into()
-                    .map_err(|_| Error::Decode(format!("invalid i16 length: {}", bytes.len())))?;
+                let arr: [u8; 2] = bytes.try_into().map_err(|_unhelpful_err| {
+                    Error::Decode(format!("invalid i16 length: {}", bytes.len()))
+                })?;
                 Ok(i16::from_be_bytes(arr) as i64)
             }
             oid::INT4 => {
-                let arr: [u8; 4] = bytes
-                    .try_into()
-                    .map_err(|_| Error::Decode(format!("invalid i32 length: {}", bytes.len())))?;
+                let arr: [u8; 4] = bytes.try_into().map_err(|_unhelpful_err| {
+                    Error::Decode(format!("invalid i32 length: {}", bytes.len()))
+                })?;
                 Ok(i32::from_be_bytes(arr) as i64)
             }
             oid::INT8 => {
-                let arr: [u8; 8] = bytes
-                    .try_into()
-                    .map_err(|_| Error::Decode(format!("invalid i64 length: {}", bytes.len())))?;
+                let arr: [u8; 8] = bytes.try_into().map_err(|_unhelpful_err| {
+                    Error::Decode(format!("invalid i64 length: {}", bytes.len()))
+                })?;
                 Ok(i64::from_be_bytes(arr))
             }
             _ => Err(Error::Decode(format!("cannot decode oid {} as i64", oid))),
@@ -203,12 +204,14 @@ impl ToWireValue for i64 {
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::INT2 => {
-                let v = i16::try_from(*self).map_err(|_| Error::overflow("i64", "INT2"))?;
+                let v = i16::try_from(*self)
+                    .map_err(|_unhelpful_err| Error::overflow("i64", "INT2"))?;
                 buf.extend_from_slice(&2_i32.to_be_bytes());
                 buf.extend_from_slice(&v.to_be_bytes());
             }
             oid::INT4 => {
-                let v = i32::try_from(*self).map_err(|_| Error::overflow("i64", "INT4"))?;
+                let v = i32::try_from(*self)
+                    .map_err(|_unhelpful_err| Error::overflow("i64", "INT4"))?;
                 buf.extend_from_slice(&4_i32.to_be_bytes());
                 buf.extend_from_slice(&v.to_be_bytes());
             }
@@ -287,7 +290,8 @@ impl ToWireValue for u16 {
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::INT2 => {
-                let v = i16::try_from(*self).map_err(|_| Error::overflow("u16", "INT2"))?;
+                let v = i16::try_from(*self)
+                    .map_err(|_unhelpful_err| Error::overflow("u16", "INT2"))?;
                 buf.extend_from_slice(&2_i32.to_be_bytes());
                 buf.extend_from_slice(&v.to_be_bytes());
             }
@@ -316,12 +320,14 @@ impl ToWireValue for u32 {
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::INT2 => {
-                let v = i16::try_from(*self).map_err(|_| Error::overflow("u32", "INT2"))?;
+                let v = i16::try_from(*self)
+                    .map_err(|_unhelpful_err| Error::overflow("u32", "INT2"))?;
                 buf.extend_from_slice(&2_i32.to_be_bytes());
                 buf.extend_from_slice(&v.to_be_bytes());
             }
             oid::INT4 => {
-                let v = i32::try_from(*self).map_err(|_| Error::overflow("u32", "INT4"))?;
+                let v = i32::try_from(*self)
+                    .map_err(|_unhelpful_err| Error::overflow("u32", "INT4"))?;
                 buf.extend_from_slice(&4_i32.to_be_bytes());
                 buf.extend_from_slice(&v.to_be_bytes());
             }
@@ -345,17 +351,20 @@ impl ToWireValue for u64 {
     fn encode(&self, target_oid: Oid, buf: &mut Vec<u8>) -> Result<()> {
         match target_oid {
             oid::INT2 => {
-                let v = i16::try_from(*self).map_err(|_| Error::overflow("u64", "INT2"))?;
+                let v = i16::try_from(*self)
+                    .map_err(|_unhelpful_err| Error::overflow("u64", "INT2"))?;
                 buf.extend_from_slice(&2_i32.to_be_bytes());
                 buf.extend_from_slice(&v.to_be_bytes());
             }
             oid::INT4 => {
-                let v = i32::try_from(*self).map_err(|_| Error::overflow("u64", "INT4"))?;
+                let v = i32::try_from(*self)
+                    .map_err(|_unhelpful_err| Error::overflow("u64", "INT4"))?;
                 buf.extend_from_slice(&4_i32.to_be_bytes());
                 buf.extend_from_slice(&v.to_be_bytes());
             }
             oid::INT8 => {
-                let v = i64::try_from(*self).map_err(|_| Error::overflow("u64", "INT8"))?;
+                let v = i64::try_from(*self)
+                    .map_err(|_unhelpful_err| Error::overflow("u64", "INT8"))?;
                 buf.extend_from_slice(&8_i32.to_be_bytes());
                 buf.extend_from_slice(&v.to_be_bytes());
             }
@@ -398,9 +407,9 @@ impl FromWireValue<'_> for f32 {
     fn from_binary(oid: Oid, bytes: &[u8]) -> Result<Self> {
         match oid {
             oid::FLOAT4 => {
-                let arr: [u8; 4] = bytes
-                    .try_into()
-                    .map_err(|_| Error::Decode(format!("invalid f32 length: {}", bytes.len())))?;
+                let arr: [u8; 4] = bytes.try_into().map_err(|_unhelpful_err| {
+                    Error::Decode(format!("invalid f32 length: {}", bytes.len()))
+                })?;
                 Ok(f32::from_be_bytes(arr))
             }
             oid::NUMERIC => numeric_to_f32(bytes),
@@ -460,15 +469,15 @@ impl FromWireValue<'_> for f64 {
     fn from_binary(oid: Oid, bytes: &[u8]) -> Result<Self> {
         match oid {
             oid::FLOAT4 => {
-                let arr: [u8; 4] = bytes
-                    .try_into()
-                    .map_err(|_| Error::Decode(format!("invalid f32 length: {}", bytes.len())))?;
+                let arr: [u8; 4] = bytes.try_into().map_err(|_unhelpful_err| {
+                    Error::Decode(format!("invalid f32 length: {}", bytes.len()))
+                })?;
                 Ok(f32::from_be_bytes(arr) as f64)
             }
             oid::FLOAT8 => {
-                let arr: [u8; 8] = bytes
-                    .try_into()
-                    .map_err(|_| Error::Decode(format!("invalid f64 length: {}", bytes.len())))?;
+                let arr: [u8; 8] = bytes.try_into().map_err(|_unhelpful_err| {
+                    Error::Decode(format!("invalid f64 length: {}", bytes.len()))
+                })?;
                 Ok(f64::from_be_bytes(arr))
             }
             oid::NUMERIC => numeric_to_f64(bytes),

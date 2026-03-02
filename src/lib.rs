@@ -69,4 +69,4 @@ pub use opts::{Opts, SslMode};
 pub use pipeline::Ticket;
 pub use state::action::AsyncMessage;
 pub use state::extended::PreparedStatement;
-pub use statement::IntoStatement;
+pub use statement::{IntoStatement, StatementRef};

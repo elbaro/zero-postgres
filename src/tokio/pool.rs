@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crossbeam_queue::ArrayQueue;
 use tokio::sync::Semaphore;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::opts::Opts;
 
 use super::Conn;
@@ -32,7 +32,14 @@ impl Pool {
 
     pub async fn get(self: &Arc<Self>) -> Result<PooledConn> {
         let permit = if let Some(sem) = &self.semaphore {
-            Some(Arc::clone(sem).acquire_owned().await.unwrap())
+            Some(
+                Arc::clone(sem)
+                    .acquire_owned()
+                    .await
+                    .map_err(|_unhelpful_err| {
+                        Error::LibraryBug("pool semaphore is closed".into())
+                    })?,
+            )
         } else {
             None
         };

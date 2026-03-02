@@ -211,7 +211,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
     fn handle_parse(&mut self, buffer_set: &BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
         if type_byte != msg_type::PARSE_COMPLETE {
-            return Err(Error::Protocol(format!(
+            return Err(Error::LibraryBug(format!(
                 "Expected ParseComplete, got '{}'",
                 type_byte as char
             )));
@@ -223,7 +223,11 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
         self.state = match self.operation {
             Operation::ExecuteSql => State::WaitingBind,
             Operation::Prepare => State::WaitingDescribe,
-            _ => unreachable!("handle_parse called for non-parse operation"),
+            _ => {
+                return Err(Error::LibraryBug(
+                    "handle_parse called for non-parse operation".into(),
+                ));
+            }
         };
         Ok(Action::ReadMessage)
     }
@@ -231,7 +235,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
     fn handle_describe(&mut self, buffer_set: &BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
         if type_byte != msg_type::PARAMETER_DESCRIPTION {
-            return Err(Error::Protocol(format!(
+            return Err(Error::LibraryBug(format!(
                 "Expected ParameterDescription, got '{}'",
                 type_byte as char
             )));
@@ -264,7 +268,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
                 self.state = State::WaitingReady;
                 Ok(Action::ReadMessage)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Expected RowDescription or NoData, got '{}'",
                 type_byte as char
             ))),
@@ -291,7 +295,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
                 self.state = State::ProcessingRows;
                 Ok(Action::ReadMessage)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Expected BindComplete, got '{}'",
                 type_byte as char
             ))),
@@ -346,7 +350,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
                 self.state = State::Finished;
                 Ok(Action::Finished)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected message in rows: '{}'",
                 type_byte as char
             ))),
@@ -373,7 +377,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
                 // Continue waiting for ReadyForQuery
                 Ok(Action::ReadMessage)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Expected ReadyForQuery, got '{}'",
                 type_byte as char
             ))),
@@ -408,7 +412,7 @@ impl<'a, H: ExtendedHandler> ExtendedQueryStateMachine<'a, H> {
                     },
                 ))
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unknown async message type: '{}'",
                 msg.type_byte as char
             ))),
@@ -452,7 +456,7 @@ impl<H: ExtendedHandler> StateMachine for ExtendedQueryStateMachine<'_, H> {
             State::WaitingBind => self.handle_bind(buffer_set),
             State::ProcessingRows => self.handle_rows(buffer_set),
             State::WaitingReady => self.handle_ready(buffer_set),
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected state {:?}",
                 self.state
             ))),
@@ -578,7 +582,7 @@ impl BindStateMachine {
         match self.state {
             BindState::WaitingParse => {
                 if type_byte != msg_type::PARSE_COMPLETE {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "Expected ParseComplete, got '{}'",
                         type_byte as char
                     )));
@@ -589,7 +593,7 @@ impl BindStateMachine {
             }
             BindState::WaitingBind => {
                 if type_byte != msg_type::BIND_COMPLETE {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "Expected BindComplete, got '{}'",
                         type_byte as char
                     )));
@@ -598,7 +602,7 @@ impl BindStateMachine {
                 self.state = BindState::Finished;
                 Ok(Action::Finished)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected state {:?}",
                 self.state
             ))),
@@ -678,7 +682,7 @@ impl BatchStateMachine {
         match self.state {
             BatchState::WaitingParse => {
                 if type_byte != msg_type::PARSE_COMPLETE {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "Expected ParseComplete, got '{}'",
                         type_byte as char
                     )));
@@ -724,13 +728,13 @@ impl BatchStateMachine {
                             Ok(Action::Finished)
                         }
                     }
-                    _ => Err(Error::Protocol(format!(
+                    _ => Err(Error::LibraryBug(format!(
                         "Unexpected message in batch: '{}'",
                         type_byte as char
                     ))),
                 }
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected state {:?}",
                 self.state
             ))),

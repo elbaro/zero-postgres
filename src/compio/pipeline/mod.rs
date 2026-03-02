@@ -17,7 +17,7 @@ use crate::protocol::frontend::{
     write_bind, write_describe_portal, write_execute, write_flush, write_parse, write_sync,
 };
 use crate::state::extended::PreparedStatement;
-use crate::statement::IntoStatement;
+use crate::statement::{IntoStatement, StatementRef};
 
 use super::conn::Conn;
 
@@ -78,11 +78,10 @@ impl<'a> Pipeline<'a> {
             return;
         }
 
-        // Send sync if we have pending operations that weren't synced
-        if !self.conn.buffer_set.write_buffer.is_empty() {
-            let _ = self.sync().await;
-        } else if !self.expectations.iter().any(|e| *e == Expectation::Sync) {
-            // Buffer was flushed but no sync sent - send one now
+        // Send sync if we have unflushed operations or no sync is queued yet
+        if !self.conn.buffer_set.write_buffer.is_empty()
+            || !self.expectations.iter().any(|e| *e == Expectation::Sync)
+        {
             let _ = self.sync().await;
         }
 
@@ -130,16 +129,18 @@ impl<'a> Pipeline<'a> {
         let seq = self.queue_seq;
         self.queue_seq += 1;
 
-        if statement.needs_parse() {
-            self.exec_sql_inner(statement.as_sql().unwrap(), &params)?;
-            Ok(Ticket { seq, stmt: None })
-        } else {
-            let stmt = statement.as_prepared().unwrap();
-            self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)?;
-            Ok(Ticket {
-                seq,
-                stmt: Some(stmt),
-            })
+        match statement.statement_ref() {
+            StatementRef::Sql(sql) => {
+                self.exec_sql_inner(sql, &params)?;
+                Ok(Ticket { seq, stmt: None })
+            }
+            StatementRef::Prepared(stmt) => {
+                self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)?;
+                Ok(Ticket {
+                    seq,
+                    stmt: Some(stmt),
+                })
+            }
         }
     }
 

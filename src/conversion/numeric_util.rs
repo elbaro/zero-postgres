@@ -50,19 +50,16 @@ pub fn numeric_to_string(bytes: &[u8]) -> Result<String> {
         };
     }
 
-    if digit_bytes.len() < ndigits * 2 {
-        return Err(Error::Decode(format!(
-            "invalid NUMERIC length: {} (expected {})",
-            bytes.len(),
-            8 + ndigits * 2
-        )));
-    }
-
     // Read base-10000 digits
     let mut digits = Vec::with_capacity(ndigits);
     let mut remaining = digit_bytes;
     for _ in 0..ndigits {
-        let (pair, rest) = remaining.split_first_chunk::<2>().unwrap();
+        let Some((pair, rest)) = remaining.split_first_chunk::<2>() else {
+            return Err(Error::Decode(format!(
+                "truncated NUMERIC data: {} bytes",
+                bytes.len()
+            )));
+        };
         remaining = rest;
         digits.push(i16::from_be_bytes(*pair));
     }
@@ -160,6 +157,7 @@ pub fn numeric_to_string(bytes: &[u8]) -> Result<String> {
 }
 
 /// Decode PostgreSQL NUMERIC binary format to f64.
+#[expect(clippy::float_arithmetic)]
 pub fn numeric_to_f64(bytes: &[u8]) -> Result<f64> {
     let (header, digit_bytes) = bytes
         .split_first_chunk::<8>()
@@ -177,15 +175,6 @@ pub fn numeric_to_f64(bytes: &[u8]) -> Result<f64> {
         _ => {}
     }
 
-    // Check expected length
-    if digit_bytes.len() < ndigits * 2 {
-        return Err(Error::Decode(format!(
-            "NUMERIC length mismatch: expected {}, got {}",
-            8 + ndigits * 2,
-            bytes.len()
-        )));
-    }
-
     // Zero case
     if ndigits == 0 {
         return Ok(0.0);
@@ -196,7 +185,12 @@ pub fn numeric_to_f64(bytes: &[u8]) -> Result<f64> {
     let mut result: f64 = 0.0;
     let mut remaining = digit_bytes;
     for i in 0..ndigits {
-        let (pair, rest) = remaining.split_first_chunk::<2>().unwrap();
+        let Some((pair, rest)) = remaining.split_first_chunk::<2>() else {
+            return Err(Error::Decode(format!(
+                "truncated NUMERIC data: {} bytes",
+                bytes.len()
+            )));
+        };
         remaining = rest;
         let digit = i16::from_be_bytes(*pair) as f64;
         // Position of this digit: weight - i (in powers of 10000)
@@ -218,6 +212,7 @@ pub fn numeric_to_f64(bytes: &[u8]) -> Result<f64> {
 }
 
 /// Decode PostgreSQL NUMERIC binary format to f32.
+#[expect(clippy::float_arithmetic)]
 pub fn numeric_to_f32(bytes: &[u8]) -> Result<f32> {
     let (header, digit_bytes) = bytes
         .split_first_chunk::<8>()
@@ -235,15 +230,6 @@ pub fn numeric_to_f32(bytes: &[u8]) -> Result<f32> {
         _ => {}
     }
 
-    // Check expected length
-    if digit_bytes.len() < ndigits * 2 {
-        return Err(Error::Decode(format!(
-            "NUMERIC length mismatch: expected {}, got {}",
-            8 + ndigits * 2,
-            bytes.len()
-        )));
-    }
-
     // Zero case
     if ndigits == 0 {
         return Ok(0.0);
@@ -253,7 +239,12 @@ pub fn numeric_to_f32(bytes: &[u8]) -> Result<f32> {
     let mut result: f64 = 0.0;
     let mut remaining = digit_bytes;
     for i in 0..ndigits {
-        let (pair, rest) = remaining.split_first_chunk::<2>().unwrap();
+        let Some((pair, rest)) = remaining.split_first_chunk::<2>() else {
+            return Err(Error::Decode(format!(
+                "truncated NUMERIC data: {} bytes",
+                bytes.len()
+            )));
+        };
         remaining = rest;
         let digit = i16::from_be_bytes(*pair) as f64;
         let power = (weight as i32) - (i as i32);

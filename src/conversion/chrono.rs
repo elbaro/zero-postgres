@@ -50,9 +50,9 @@ impl FromWireValue<'_> for NaiveDate {
                 oid
             )));
         }
-        let arr: [u8; 4] = bytes
-            .try_into()
-            .map_err(|_| Error::Decode(format!("invalid Date length: {}", bytes.len())))?;
+        let arr: [u8; 4] = bytes.try_into().map_err(|_unhelpful_err| {
+            Error::Decode(format!("invalid Date length: {}", bytes.len()))
+        })?;
         let pg_days = i32::from_be_bytes(arr);
         PG_EPOCH
             .checked_add_days(chrono::Days::new(pg_days.max(0) as u64))
@@ -102,9 +102,9 @@ impl FromWireValue<'_> for NaiveTime {
                 oid
             )));
         }
-        let arr: [u8; 8] = bytes
-            .try_into()
-            .map_err(|_| Error::Decode(format!("invalid Time length: {}", bytes.len())))?;
+        let arr: [u8; 8] = bytes.try_into().map_err(|_unhelpful_err| {
+            Error::Decode(format!("invalid Time length: {}", bytes.len()))
+        })?;
         let usecs = i64::from_be_bytes(arr);
         let secs = (usecs / USECS_PER_SEC) as u32;
         let nano = ((usecs % USECS_PER_SEC) * 1000) as u32;
@@ -161,9 +161,9 @@ impl FromWireValue<'_> for NaiveDateTime {
                 oid
             )));
         }
-        let arr: [u8; 8] = bytes
-            .try_into()
-            .map_err(|_| Error::Decode(format!("invalid Timestamp length: {}", bytes.len())))?;
+        let arr: [u8; 8] = bytes.try_into().map_err(|_unhelpful_err| {
+            Error::Decode(format!("invalid Timestamp length: {}", bytes.len()))
+        })?;
         let usecs = i64::from_be_bytes(arr);
         let pg_epoch_dt = PG_EPOCH
             .and_hms_opt(0, 0, 0)
@@ -227,9 +227,9 @@ impl FromWireValue<'_> for DateTime<Utc> {
                 oid
             )));
         }
-        let arr: [u8; 8] = bytes
-            .try_into()
-            .map_err(|_| Error::Decode(format!("invalid Timestamp length: {}", bytes.len())))?;
+        let arr: [u8; 8] = bytes.try_into().map_err(|_unhelpful_err| {
+            Error::Decode(format!("invalid Timestamp length: {}", bytes.len()))
+        })?;
         let usecs = i64::from_be_bytes(arr);
         // PostgreSQL stores TIMESTAMPTZ as UTC microseconds since 2000-01-01 00:00:00 UTC
         let pg_epoch_utc = PG_EPOCH

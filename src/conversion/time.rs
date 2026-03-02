@@ -23,9 +23,9 @@ impl FromWireValue<'_> for time::Date {
         if oid != oid::DATE {
             return Err(Error::Decode(format!("cannot decode oid {} as Date", oid)));
         }
-        let arr: [u8; 4] = bytes
-            .try_into()
-            .map_err(|_| Error::Decode(format!("invalid Date length: {}", bytes.len())))?;
+        let arr: [u8; 4] = bytes.try_into().map_err(|_unhelpful_err| {
+            Error::Decode(format!("invalid Date length: {}", bytes.len()))
+        })?;
         let pg_days = i32::from_be_bytes(arr);
         time::Date::from_julian_day(pg_days + PG_EPOCH_JULIAN_DAY)
             .map_err(|e| Error::Decode(format!("invalid date: {}", e)))
@@ -69,9 +69,9 @@ impl FromWireValue<'_> for time::Time {
         if oid != oid::TIME {
             return Err(Error::Decode(format!("cannot decode oid {} as Time", oid)));
         }
-        let arr: [u8; 8] = bytes
-            .try_into()
-            .map_err(|_| Error::Decode(format!("invalid Time length: {}", bytes.len())))?;
+        let arr: [u8; 8] = bytes.try_into().map_err(|_unhelpful_err| {
+            Error::Decode(format!("invalid Time length: {}", bytes.len()))
+        })?;
         let usecs = i64::from_be_bytes(arr);
         // Convert microseconds to hours, minutes, seconds, microseconds
         let hours = (usecs / 3_600_000_000) as u8;
@@ -140,9 +140,9 @@ impl FromWireValue<'_> for time::PrimitiveDateTime {
                 oid
             )));
         }
-        let arr: [u8; 8] = bytes
-            .try_into()
-            .map_err(|_| Error::Decode(format!("invalid Timestamp length: {}", bytes.len())))?;
+        let arr: [u8; 8] = bytes.try_into().map_err(|_unhelpful_err| {
+            Error::Decode(format!("invalid Timestamp length: {}", bytes.len()))
+        })?;
         let usecs = i64::from_be_bytes(arr);
         // PostgreSQL epoch is 2000-01-01 00:00:00
         const PG_EPOCH: time::PrimitiveDateTime = time::macros::datetime!(2000-01-01 00:00:00);
@@ -209,9 +209,9 @@ impl FromWireValue<'_> for time::OffsetDateTime {
                 oid
             )));
         }
-        let arr: [u8; 8] = bytes
-            .try_into()
-            .map_err(|_| Error::Decode(format!("invalid Timestamp length: {}", bytes.len())))?;
+        let arr: [u8; 8] = bytes.try_into().map_err(|_unhelpful_err| {
+            Error::Decode(format!("invalid Timestamp length: {}", bytes.len()))
+        })?;
         let usecs = i64::from_be_bytes(arr);
         // PostgreSQL stores TIMESTAMPTZ as UTC microseconds since 2000-01-01 00:00:00 UTC
         const PG_EPOCH: time::OffsetDateTime = time::macros::datetime!(2000-01-01 00:00:00 UTC);

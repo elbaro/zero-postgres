@@ -175,12 +175,12 @@ impl TryFrom<&Url> for Opts {
                     };
                 }
                 "pool_max_idle_conn" => {
-                    opts.pool_max_idle_conn = value.parse().map_err(|_| {
+                    opts.pool_max_idle_conn = value.parse().map_err(|_unhelpful_err| {
                         Error::InvalidUsage(format!("Invalid pool_max_idle_conn: {}", value))
                     })?;
                 }
                 "pool_max_concurrency" => {
-                    opts.pool_max_concurrency = Some(value.parse().map_err(|_| {
+                    opts.pool_max_concurrency = Some(value.parse().map_err(|_unhelpful_err| {
                         Error::InvalidUsage(format!("Invalid pool_max_concurrency: {}", value))
                     })?);
                 }

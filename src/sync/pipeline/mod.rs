@@ -45,7 +45,7 @@ use crate::protocol::frontend::{
     write_bind, write_describe_portal, write_execute, write_flush, write_parse, write_sync,
 };
 use crate::state::extended::PreparedStatement;
-use crate::statement::IntoStatement;
+use crate::statement::{IntoStatement, StatementRef};
 
 use super::conn::Conn;
 
@@ -106,11 +106,10 @@ impl<'a> Pipeline<'a> {
             return;
         }
 
-        // Send sync if we have pending operations that weren't synced
-        if !self.conn.buffer_set.write_buffer.is_empty() {
-            let _ = self.sync();
-        } else if !self.expectations.iter().any(|e| *e == Expectation::Sync) {
-            // Buffer was flushed but no sync sent - send one now
+        // Send sync if we have unflushed operations or no sync is queued yet
+        if !self.conn.buffer_set.write_buffer.is_empty()
+            || !self.expectations.iter().any(|e| *e == Expectation::Sync)
+        {
             let _ = self.sync();
         }
 
@@ -181,16 +180,18 @@ impl<'a> Pipeline<'a> {
         let seq = self.queue_seq;
         self.queue_seq += 1;
 
-        if statement.needs_parse() {
-            self.exec_sql_inner(statement.as_sql().unwrap(), &params)?;
-            Ok(Ticket { seq, stmt: None })
-        } else {
-            let stmt = statement.as_prepared().unwrap();
-            self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)?;
-            Ok(Ticket {
-                seq,
-                stmt: Some(stmt),
-            })
+        match statement.statement_ref() {
+            StatementRef::Sql(sql) => {
+                self.exec_sql_inner(sql, &params)?;
+                Ok(Ticket { seq, stmt: None })
+            }
+            StatementRef::Prepared(stmt) => {
+                self.exec_prepared_inner(&stmt.wire_name(), &stmt.param_oids, &params)?;
+                Ok(Ticket {
+                    seq,
+                    stmt: Some(stmt),
+                })
+            }
         }
     }
 
@@ -323,7 +324,7 @@ impl<'a> Pipeline<'a> {
             // Pop but don't process the exec expectation (server skipped it)
             self.expectations.pop_front();
             self.consume_pending_syncs()?;
-            return Err(Error::Protocol(
+            return Err(Error::LibraryBug(
                 "pipeline aborted due to earlier error".into(),
             ));
         }
@@ -333,8 +334,8 @@ impl<'a> Pipeline<'a> {
         let result = match expectation {
             Some(Expectation::ParseBindExecute) => self.claim_parse_bind_exec_inner(handler),
             Some(Expectation::BindExecute) => self.claim_bind_exec_inner(handler, ticket.stmt),
-            Some(Expectation::Sync) => Err(Error::Protocol("unexpected Sync expectation".into())),
-            None => Err(Error::Protocol("no expectation in queue".into())),
+            Some(Expectation::Sync) => Err(Error::LibraryBug("unexpected Sync expectation".into())),
+            None => Err(Error::LibraryBug("no expectation in queue".into())),
         };
 
         if let Err(e) = &result {
@@ -440,7 +441,7 @@ impl<'a> Pipeline<'a> {
                 false
             }
             _ => {
-                return Err(Error::Protocol(format!(
+                return Err(Error::LibraryBug(format!(
                     "expected RowDescription or NoData, got '{}'",
                     self.conn.buffer_set.type_byte as char
                 )));
@@ -455,7 +456,7 @@ impl<'a> Pipeline<'a> {
             match type_byte {
                 msg_type::DATA_ROW => {
                     if !has_rows {
-                        return Err(Error::Protocol(
+                        return Err(Error::LibraryBug(
                             "received DataRow but no RowDescription".into(),
                         ));
                     }
@@ -473,7 +474,7 @@ impl<'a> Pipeline<'a> {
                     return Ok(());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "unexpected message type in pipeline claim: '{}'",
                         type_byte as char
                     )));
@@ -496,7 +497,7 @@ impl<'a> Pipeline<'a> {
             match type_byte {
                 msg_type::DATA_ROW => {
                     let row_desc = row_desc.ok_or_else(|| {
-                        Error::Protocol("received DataRow but no RowDescription cached".into())
+                        Error::LibraryBug("received DataRow but no RowDescription cached".into())
                     })?;
                     let cols = RowDescription::parse(row_desc)?;
                     let row = DataRow::parse(&self.conn.buffer_set.read_buffer)?;
@@ -512,7 +513,7 @@ impl<'a> Pipeline<'a> {
                     return Ok(());
                 }
                 _ => {
-                    return Err(Error::Protocol(format!(
+                    return Err(Error::LibraryBug(format!(
                         "unexpected message type in pipeline claim: '{}'",
                         type_byte as char
                     )));
@@ -544,7 +545,7 @@ impl<'a> Pipeline<'a> {
 
     /// Create an error for unexpected message type.
     fn unexpected_message<T>(&self, expected: &str) -> Result<T> {
-        Err(Error::Protocol(format!(
+        Err(Error::LibraryBug(format!(
             "expected {}, got '{}'",
             expected, self.conn.buffer_set.type_byte as char
         )))
