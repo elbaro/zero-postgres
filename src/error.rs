@@ -184,8 +184,8 @@ pub enum Error {
     Server(ServerError),
 
     /// Protocol error (malformed message, unexpected response, etc.)
-    #[error("Protocol error: {0}")]
-    Protocol(String),
+    #[error("Library bug: {0}")]
+    LibraryBug(String),
 
     /// I/O error
     #[error("I/O error: {0}")]
@@ -259,7 +259,7 @@ impl<Src: std::fmt::Debug, Dst: std::fmt::Debug + ?Sized> From<zerocopy::error::
     for Error
 {
     fn from(err: zerocopy::error::CastError<Src, Dst>) -> Self {
-        Error::Protocol(format!("zerocopy cast error: {err:?}"))
+        Error::LibraryBug(format!("zerocopy cast error: {err:?}"))
     }
 }
 

@@ -119,7 +119,7 @@ impl ConnectionStateMachine {
                 self.state = State::WaitingAuthRead;
                 Ok(Action::Write)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected SSL response: {}",
                 self.ssl_response
             ))),
@@ -159,7 +159,7 @@ impl ConnectionStateMachine {
         if type_byte == msg_type::NEGOTIATE_PROTOCOL_VERSION {
             let negotiate = NegotiateProtocolVersion::parse(&buffer_set.read_buffer)?;
             // Server sends the newest minor version it supports (0 for 3.0, 1 for 3.1, etc.)
-            return Err(Error::Protocol(format!(
+            return Err(Error::LibraryBug(format!(
                 "Server does not support protocol 3.2 (requires PostgreSQL 17+). \
                  Server supports protocol 3.{}. Unrecognized options: {:?}",
                 negotiate.newest_minor_version, negotiate.unrecognized_options
@@ -167,7 +167,7 @@ impl ConnectionStateMachine {
         }
 
         if type_byte != msg_type::AUTHENTICATION {
-            return Err(Error::Protocol(format!(
+            return Err(Error::LibraryBug(format!(
                 "Expected Authentication message, got '{}'",
                 type_byte as char
             )));
@@ -244,7 +244,7 @@ impl ConnectionStateMachine {
     fn handle_sasl_message(&mut self, buffer_set: &mut BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
         if type_byte != msg_type::AUTHENTICATION {
-            return Err(Error::Protocol(format!(
+            return Err(Error::LibraryBug(format!(
                 "Expected Authentication message, got '{}'",
                 type_byte as char
             )));
@@ -257,7 +257,7 @@ impl ConnectionStateMachine {
                 let scram = self
                     .scram_client
                     .as_mut()
-                    .ok_or_else(|| Error::Protocol("SCRAM client not initialized".into()))?;
+                    .ok_or_else(|| Error::LibraryBug("SCRAM client not initialized".into()))?;
 
                 let server_first = simdutf8::compat::from_utf8(data)
                     .map_err(|e| Error::Auth(format!("Invalid server-first-message: {}", e)))?;
@@ -275,7 +275,7 @@ impl ConnectionStateMachine {
                 let scram = self
                     .scram_client
                     .as_ref()
-                    .ok_or_else(|| Error::Protocol("SCRAM client not initialized".into()))?;
+                    .ok_or_else(|| Error::LibraryBug("SCRAM client not initialized".into()))?;
 
                 let server_final = simdutf8::compat::from_utf8(data)
                     .map_err(|e| Error::Auth(format!("Invalid server-final-message: {}", e)))?;
@@ -287,7 +287,7 @@ impl ConnectionStateMachine {
                 self.state = State::WaitingAuthResult;
                 Ok(Action::ReadMessage)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected SASL message: {:?}",
                 auth
             ))),
@@ -297,7 +297,7 @@ impl ConnectionStateMachine {
     fn handle_auth_result(&mut self, buffer_set: &BufferSet) -> Result<Action> {
         let type_byte = buffer_set.type_byte;
         if type_byte != msg_type::AUTHENTICATION {
-            return Err(Error::Protocol(format!(
+            return Err(Error::LibraryBug(format!(
                 "Expected AuthenticationOk, got '{}'",
                 type_byte as char
             )));
@@ -336,7 +336,7 @@ impl ConnectionStateMachine {
                 self.state = State::Finished;
                 Ok(Action::Finished)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected message during startup: '{}'",
                 type_byte as char
             ))),
@@ -371,7 +371,7 @@ impl ConnectionStateMachine {
                     },
                 ))
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unknown async message type: '{}'",
                 msg.type_byte as char
             ))),
@@ -423,7 +423,7 @@ impl StateMachine for ConnectionStateMachine {
             State::SaslInProgress => self.handle_sasl_message(buffer_set),
             State::WaitingAuthResult => self.handle_auth_result(buffer_set),
             State::WaitingReady => self.handle_ready_message(buffer_set),
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected state {:?}",
                 self.state
             ))),

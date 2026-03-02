@@ -56,7 +56,10 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
         _ => panic!("FromRow only supports structs"),
     };
 
-    let field_names: Vec<_> = fields.iter().map(|f| f.ident.as_ref().unwrap()).collect();
+    let field_names: Vec<_> = fields
+        .iter()
+        .map(|f| f.ident.as_ref().expect("named fields always have idents"))
+        .collect();
     let field_types: Vec<_> = fields.iter().map(|f| &f.ty).collect();
     let field_name_strs: Vec<_> = field_names.iter().map(|n| n.to_string()).collect();
 

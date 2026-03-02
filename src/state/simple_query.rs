@@ -77,7 +77,7 @@ impl<'a, 'q, H: SimpleHandler> SimpleQueryStateMachine<'a, 'q, H> {
                 self.state = State::Finished;
                 Ok(Action::Finished)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected message in query response: '{}'",
                 type_byte as char
             ))),
@@ -108,7 +108,7 @@ impl<'a, 'q, H: SimpleHandler> SimpleQueryStateMachine<'a, 'q, H> {
                 self.state = State::Finished;
                 Ok(Action::Finished)
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected message in row processing: '{}'",
                 type_byte as char
             ))),
@@ -117,7 +117,7 @@ impl<'a, 'q, H: SimpleHandler> SimpleQueryStateMachine<'a, 'q, H> {
 
     fn handle_ready(&mut self, buffer_set: &BufferSet) -> Result<Action> {
         if buffer_set.type_byte != msg_type::READY_FOR_QUERY {
-            return Err(Error::Protocol(format!(
+            return Err(Error::LibraryBug(format!(
                 "Expected ReadyForQuery, got '{}'",
                 buffer_set.type_byte as char
             )));
@@ -161,7 +161,7 @@ impl<'a, 'q, H: SimpleHandler> SimpleQueryStateMachine<'a, 'q, H> {
                     },
                 ))
             }
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unknown async message type: '{}'",
                 msg.type_byte as char
             ))),
@@ -199,7 +199,7 @@ impl<H: SimpleHandler> StateMachine for SimpleQueryStateMachine<'_, '_, H> {
             State::WaitingResponse => self.handle_response(buffer_set),
             State::ProcessingRows => self.handle_rows(buffer_set),
             State::WaitingReady => self.handle_ready(buffer_set),
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected state {:?}",
                 self.state
             ))),

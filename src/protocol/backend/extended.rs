@@ -81,7 +81,7 @@ impl ParameterDescription {
     /// Parse a ParameterDescription message from payload bytes.
     pub fn parse(payload: &[u8]) -> Result<Self> {
         let head = ParameterDescriptionHead::ref_from_bytes(&payload[..2])
-            .map_err(|e| Error::Protocol(format!("ParameterDescription header: {e:?}")))?;
+            .map_err(|e| Error::LibraryBug(format!("ParameterDescription header: {e:?}")))?;
 
         let num_params = head.num_params.get() as usize;
         let mut param_oids = Vec::with_capacity(num_params);

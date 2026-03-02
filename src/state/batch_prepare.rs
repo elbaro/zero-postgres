@@ -129,12 +129,12 @@ impl BatchPrepareStateMachine {
                     self.state = State::Finished;
                     Ok(Action::Finished)
                 }
-                _ => Err(Error::Protocol(format!(
+                _ => Err(Error::LibraryBug(format!(
                     "Unexpected message in batch prepare: '{}'",
                     type_byte as char
                 ))),
             },
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unexpected state {:?}",
                 self.state
             ))),

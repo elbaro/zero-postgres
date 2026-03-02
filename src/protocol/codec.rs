@@ -11,7 +11,7 @@ use zerocopy::byteorder::big_endian::{I16 as I16BE, I32 as I32BE, U16 as U16BE, 
 #[inline]
 pub fn read_u8(data: &[u8]) -> Result<(u8, &[u8])> {
     if data.is_empty() {
-        return Err(Error::Protocol("read_u8: empty buffer".into()));
+        return Err(Error::LibraryBug("read_u8: empty buffer".into()));
     }
     Ok((data[0], &data[1..]))
 }
@@ -20,13 +20,13 @@ pub fn read_u8(data: &[u8]) -> Result<(u8, &[u8])> {
 #[inline]
 pub fn read_i16(data: &[u8]) -> Result<(i16, &[u8])> {
     if data.len() < 2 {
-        return Err(Error::Protocol(format!(
+        return Err(Error::LibraryBug(format!(
             "read_i16: buffer too short: {} < 2",
             data.len()
         )));
     }
     let value = I16BE::ref_from_bytes(&data[..2])
-        .map_err(|e| Error::Protocol(format!("read_i16: {e:?}")))?
+        .map_err(|e| Error::LibraryBug(format!("read_i16: {e:?}")))?
         .get();
     Ok((value, &data[2..]))
 }
@@ -35,13 +35,13 @@ pub fn read_i16(data: &[u8]) -> Result<(i16, &[u8])> {
 #[inline]
 pub fn read_u16(data: &[u8]) -> Result<(u16, &[u8])> {
     if data.len() < 2 {
-        return Err(Error::Protocol(format!(
+        return Err(Error::LibraryBug(format!(
             "read_u16: buffer too short: {} < 2",
             data.len()
         )));
     }
     let value = U16BE::ref_from_bytes(&data[..2])
-        .map_err(|e| Error::Protocol(format!("read_u16: {e:?}")))?
+        .map_err(|e| Error::LibraryBug(format!("read_u16: {e:?}")))?
         .get();
     Ok((value, &data[2..]))
 }
@@ -50,13 +50,13 @@ pub fn read_u16(data: &[u8]) -> Result<(u16, &[u8])> {
 #[inline]
 pub fn read_i32(data: &[u8]) -> Result<(i32, &[u8])> {
     if data.len() < 4 {
-        return Err(Error::Protocol(format!(
+        return Err(Error::LibraryBug(format!(
             "read_i32: buffer too short: {} < 4",
             data.len()
         )));
     }
     let value = I32BE::ref_from_bytes(&data[..4])
-        .map_err(|e| Error::Protocol(format!("read_i32: {e:?}")))?
+        .map_err(|e| Error::LibraryBug(format!("read_i32: {e:?}")))?
         .get();
     Ok((value, &data[4..]))
 }
@@ -65,13 +65,13 @@ pub fn read_i32(data: &[u8]) -> Result<(i32, &[u8])> {
 #[inline]
 pub fn read_u32(data: &[u8]) -> Result<(u32, &[u8])> {
     if data.len() < 4 {
-        return Err(Error::Protocol(format!(
+        return Err(Error::LibraryBug(format!(
             "read_u32: buffer too short: {} < 4",
             data.len()
         )));
     }
     let value = U32BE::ref_from_bytes(&data[..4])
-        .map_err(|e| Error::Protocol(format!("read_u32: {e:?}")))?
+        .map_err(|e| Error::LibraryBug(format!("read_u32: {e:?}")))?
         .get();
     Ok((value, &data[4..]))
 }
@@ -80,7 +80,7 @@ pub fn read_u32(data: &[u8]) -> Result<(u32, &[u8])> {
 #[inline]
 pub fn read_bytes(data: &[u8], len: usize) -> Result<(&[u8], &[u8])> {
     if data.len() < len {
-        return Err(Error::Protocol(format!(
+        return Err(Error::LibraryBug(format!(
             "read_bytes: buffer too short: {} < {}",
             data.len(),
             len
@@ -95,7 +95,7 @@ pub fn read_bytes(data: &[u8], len: usize) -> Result<(&[u8], &[u8])> {
 pub fn read_cstring(data: &[u8]) -> Result<(&[u8], &[u8])> {
     match memchr::memchr(0, data) {
         Some(pos) => Ok((&data[..pos], &data[pos + 1..])),
-        None => Err(Error::Protocol(
+        None => Err(Error::LibraryBug(
             "read_cstring: no null terminator found".into(),
         )),
     }
@@ -106,7 +106,7 @@ pub fn read_cstring(data: &[u8]) -> Result<(&[u8], &[u8])> {
 pub fn read_cstr(data: &[u8]) -> Result<(&str, &[u8])> {
     let (bytes, rest) = read_cstring(data)?;
     let s = simdutf8::compat::from_utf8(bytes)
-        .map_err(|e| Error::Protocol(format!("read_cstr: invalid UTF-8: {e}")))?;
+        .map_err(|e| Error::LibraryBug(format!("read_cstr: invalid UTF-8: {e}")))?;
     Ok((s, rest))
 }
 

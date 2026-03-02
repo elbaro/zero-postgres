@@ -56,7 +56,7 @@ impl<'a> AuthenticationMessage<'a> {
             auth_type::CLEARTEXT_PASSWORD => Ok(AuthenticationMessage::CleartextPassword),
             auth_type::MD5_PASSWORD => {
                 if rest.len() < 4 {
-                    return Err(Error::Protocol("MD5Password: missing salt".into()));
+                    return Err(Error::LibraryBug("MD5Password: missing salt".into()));
                 }
                 let mut salt = [0u8; 4];
                 salt.copy_from_slice(&rest[..4]);
@@ -77,7 +77,7 @@ impl<'a> AuthenticationMessage<'a> {
             }
             auth_type::SASL_CONTINUE => Ok(AuthenticationMessage::SaslContinue { data: rest }),
             auth_type::SASL_FINAL => Ok(AuthenticationMessage::SaslFinal { data: rest }),
-            _ => Err(Error::Protocol(format!(
+            _ => Err(Error::LibraryBug(format!(
                 "Unknown authentication type: {}",
                 auth_type
             ))),
@@ -100,11 +100,13 @@ impl BackendKeyData {
     /// Parse a BackendKeyData message from payload bytes.
     pub fn parse(payload: &[u8]) -> Result<Self> {
         if payload.len() < 4 {
-            return Err(Error::Protocol("BackendKeyData: payload too short".into()));
+            return Err(Error::LibraryBug(
+                "BackendKeyData: payload too short".into(),
+            ));
         }
         let (pid, rest) = read_u32(payload)?;
         if rest.len() < 4 || rest.len() > 256 {
-            return Err(Error::Protocol(format!(
+            return Err(Error::LibraryBug(format!(
                 "BackendKeyData: invalid secret key length {}",
                 rest.len()
             )));
@@ -155,7 +157,8 @@ pub struct ReadyForQuery {
 impl ReadyForQuery {
     /// Parse a ReadyForQuery message from payload bytes.
     pub fn parse(payload: &[u8]) -> Result<&Self> {
-        Self::ref_from_bytes(payload).map_err(|e| Error::Protocol(format!("ReadyForQuery: {e:?}")))
+        Self::ref_from_bytes(payload)
+            .map_err(|e| Error::LibraryBug(format!("ReadyForQuery: {e:?}")))
     }
 
     /// Get the transaction status.

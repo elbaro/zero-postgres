@@ -78,7 +78,7 @@ impl<'a> RowDescription<'a> {
     /// Parse a RowDescription message from payload bytes.
     pub fn parse(payload: &'a [u8]) -> Result<Self> {
         let num_fields = U16BE::ref_from_bytes(&payload[..2])
-            .map_err(|e| Error::Protocol(format!("RowDescription header: {e:?}")))?
+            .map_err(|e| Error::LibraryBug(format!("RowDescription header: {e:?}")))?
             .get() as usize;
         let mut fields = Vec::with_capacity(num_fields);
         let mut data = &payload[2..];
@@ -88,7 +88,7 @@ impl<'a> RowDescription<'a> {
         for _ in 0..num_fields {
             let (name, rest) = read_cstr(data)?;
             let tail = FieldDescriptionTail::ref_from_bytes(&rest[..TAIL_SIZE])
-                .map_err(|e| Error::Protocol(format!("FieldDescription tail: {e:?}")))?;
+                .map_err(|e| Error::LibraryBug(format!("FieldDescription tail: {e:?}")))?;
 
             fields.push(FieldDescription { name, tail });
 
@@ -140,7 +140,7 @@ impl<'a> DataRow<'a> {
     /// Parse a DataRow message from payload bytes.
     pub fn parse(payload: &'a [u8]) -> Result<Self> {
         let head = DataRowHead::ref_from_bytes(&payload[..2])
-            .map_err(|e| Error::Protocol(format!("DataRow header: {e:?}")))?;
+            .map_err(|e| Error::LibraryBug(format!("DataRow header: {e:?}")))?;
 
         Ok(Self {
             num_columns: head.num_columns.get(),
