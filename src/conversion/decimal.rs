@@ -74,7 +74,9 @@ impl FromWireValue<'_> for Decimal {
         let mut digits = Vec::with_capacity(ndigits);
         let mut remaining = digit_bytes;
         for _ in 0..ndigits {
-            let (pair, rest) = remaining.split_first_chunk::<2>().unwrap();
+            let (pair, rest) = remaining
+                .split_first_chunk::<2>()
+                .ok_or_else(|| Error::Decode("truncated NUMERIC digit".into()))?;
             remaining = rest;
             digits.push(u16::from_be_bytes(*pair));
         }
