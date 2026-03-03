@@ -1,10 +1,6 @@
 //! Integration tests for the async Pipeline API.
 
-#![allow(
-    clippy::panic_in_result_fn,
-    clippy::shadow_unrelated,
-    clippy::unwrap_used
-)]
+#![allow(clippy::panic_in_result_fn, clippy::shadow_unrelated)]
 
 use std::env;
 use zero_postgres::Error;

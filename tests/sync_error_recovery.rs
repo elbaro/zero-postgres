@@ -3,12 +3,7 @@
 //! Verifies the state machine drains to ReadyForQuery internally,
 //! so the next query sees a clean protocol state.
 
-#![allow(
-    clippy::expect_used,
-    clippy::panic_in_result_fn,
-    clippy::shadow_unrelated,
-    clippy::unwrap_used
-)]
+#![allow(clippy::panic_in_result_fn, clippy::shadow_unrelated)]
 
 use zero_postgres::Error;
 use zero_postgres::sync::Conn;

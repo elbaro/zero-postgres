@@ -1,3 +1,10 @@
+#![warn(
+    clippy::expect_used,
+    clippy::get_unwrap,
+    clippy::unwrap_in_result,
+    clippy::unwrap_used
+)]
+
 //! A high-performance PostgreSQL client library.
 //!
 //! # Features

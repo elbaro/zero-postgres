@@ -1,6 +1,6 @@
 //! Tests for RefFromRow zero-copy row decoding.
 
-#![allow(clippy::shadow_unrelated, clippy::unwrap_used)]
+#![allow(clippy::shadow_unrelated)]
 
 use zero_postgres::conversion::ref_row::{
     FixedWireSize, I16BE, I32BE, I64BE, LengthPrefixed, U16BE, U32BE, U64BE,

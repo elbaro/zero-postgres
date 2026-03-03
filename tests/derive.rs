@@ -2,12 +2,7 @@
 //!
 //! Run with: cargo test --features derive --test derive
 
-#![allow(
-    dead_code,
-    clippy::panic_in_result_fn,
-    clippy::shadow_unrelated,
-    clippy::unwrap_used
-)]
+#![allow(dead_code, clippy::panic_in_result_fn, clippy::shadow_unrelated)]
 
 use std::env;
 use zero_postgres::Error;

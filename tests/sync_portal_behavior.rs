@@ -19,12 +19,7 @@
 //! - P3: INSERT + ERROR + ROLLBACK -> rows gone
 //! - P4: Named portal WITHIN tx + ROLLBACK -> portal gone, cannot INSERT
 
-#![allow(
-    clippy::panic,
-    clippy::panic_in_result_fn,
-    clippy::shadow_unrelated,
-    clippy::unwrap_used
-)]
+#![allow(clippy::panic, clippy::panic_in_result_fn, clippy::shadow_unrelated)]
 
 use std::env;
 use zero_postgres::Error;

@@ -1,10 +1,6 @@
 //! Tests for transaction behavior
 
-#![allow(
-    clippy::panic_in_result_fn,
-    clippy::shadow_unrelated,
-    clippy::unwrap_used
-)]
+#![allow(clippy::panic_in_result_fn, clippy::shadow_unrelated)]
 
 use std::env;
 use std::sync::atomic::{AtomicU32, Ordering};

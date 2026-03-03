@@ -4,12 +4,7 @@
 //! so the next query sees a clean protocol state.
 
 #![cfg(feature = "compio")]
-#![allow(
-    clippy::expect_used,
-    clippy::panic_in_result_fn,
-    clippy::shadow_unrelated,
-    clippy::unwrap_used
-)]
+#![allow(clippy::panic_in_result_fn, clippy::shadow_unrelated)]
 
 use zero_postgres::Error;
 use zero_postgres::compio::Conn;
