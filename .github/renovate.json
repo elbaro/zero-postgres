@@ -2,6 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "timezone": "Asia/Seoul",
+  "platformAutomerge": false,
   "prHourlyLimit": 0,
   "separateMajorMinor": false,
   "prFooter": "",
