@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.1](https://github.com/elbaro/zero-postgres/compare/v0.9.0...v0.9.1) - 2026-03-19
+
+### <!-- 9 -->Other
+- infra: update Rust crate zerocopy to v0.8.47 ([#28](https://github.com/elbaro/zero-postgres/pull/28))
+- infra: update non-breaking dependencies ([#24](https://github.com/elbaro/zero-postgres/pull/24))
+- infra: enable platform automerge and remove schedule restriction
+- infra: disable Renovate platformAutomerge
+- tidy: move unwrap/expect clippy lints from Cargo.toml to lib.rs
+
 ## [v0.9.0](https://github.com/elbaro/zero-postgres/compare/v0.8.0...v0.9.0) - 2026-03-02
 
 ### <!-- 0 -->New features
