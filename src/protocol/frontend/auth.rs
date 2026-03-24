@@ -75,7 +75,7 @@ pub struct ScramClient {
 impl ScramClient {
     /// Create a new SCRAM client.
     pub fn new(password: &str) -> Self {
-        use rand::Rng;
+        use rand::RngExt;
 
         // Generate 24-byte random nonce, base64 encoded
         let mut nonce_bytes = [0u8; 24];
@@ -94,7 +94,7 @@ impl ScramClient {
 
     /// Create a new SCRAM client with channel binding.
     pub fn new_with_channel_binding(password: &str, channel_binding_data: &[u8]) -> Self {
-        use rand::Rng;
+        use rand::RngExt;
 
         let mut nonce_bytes = [0u8; 24];
         rand::rng().fill(&mut nonce_bytes);
