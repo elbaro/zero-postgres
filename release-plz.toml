@@ -46,6 +46,7 @@ header = """# Changelog
 
 """
 commit_parsers = [
+  { message = "^release", skip = true },
   { message = "^feat", group = "<!-- 0 -->New features" },
   { message = "^fix", group = "<!-- 1 -->Bug fixes" },
   { message = "^perf", group = "<!-- 2 -->Performance" },
