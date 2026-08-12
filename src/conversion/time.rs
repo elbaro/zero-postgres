@@ -190,7 +190,7 @@ impl FromWireValue<'_> for time::OffsetDateTime {
             "[year]-[month]-[day] [hour]:[minute]:[second][offset_hour]",
         ];
         for fmt in &formats {
-            if let Ok(format) = time::format_description::parse(fmt)
+            if let Ok(format) = time::format_description::parse_borrowed::<3>(fmt)
                 && let Ok(dt) = time::OffsetDateTime::parse(s, &format)
             {
                 return Ok(dt);
