@@ -9,6 +9,17 @@ pub fn write_password(buf: &mut Vec<u8>, password: &str) {
     msg.finish();
 }
 
+fn lowercase_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(DIGITS[(byte >> 4) as usize] as char);
+        encoded.push(DIGITS[(byte & 0x0f) as usize] as char);
+    }
+    encoded
+}
+
 /// Compute MD5 password hash.
 ///
 /// PostgreSQL MD5 password format: "md5" + md5(md5(password + username) + salt)
@@ -22,7 +33,7 @@ pub fn md5_password(username: &str, password: &str, salt: &[u8; 4]) -> String {
         hasher.update(username.as_bytes());
         hasher.finalize()
     };
-    let first_hash_hex = format!("{:x}", first_hash);
+    let first_hash_hex = lowercase_hex(&first_hash);
 
     // Second hash: md5(first_hash_hex + salt)
     let second_hash = {
@@ -32,7 +43,7 @@ pub fn md5_password(username: &str, password: &str, salt: &[u8; 4]) -> String {
         hasher.finalize()
     };
 
-    format!("md5{:x}", second_hash)
+    format!("md5{}", lowercase_hex(&second_hash))
 }
 
 /// Write a SASLInitialResponse message.
@@ -131,7 +142,7 @@ impl ScramClient {
     /// Process server-first-message and generate client-final-message.
     pub fn process_server_first(&mut self, server_first: &str) -> Result<String, String> {
         use base64::Engine;
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use pbkdf2::pbkdf2_hmac;
         use sha2::{Digest, Sha256};
 
@@ -179,7 +190,7 @@ impl ScramClient {
 
         // ClientKey = HMAC(SaltedPassword, "Client Key")
         let client_key = {
-            let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&salted_password)
+            let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(&salted_password)
                 .map_err(|e| format!("HMAC error: {}", e))?;
             mac.update(b"Client Key");
             mac.finalize().into_bytes()
@@ -206,7 +217,7 @@ impl ScramClient {
 
         // ClientSignature = HMAC(StoredKey, AuthMessage)
         let client_signature = {
-            let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&stored_key)
+            let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(&stored_key)
                 .map_err(|e| format!("HMAC error: {}", e))?;
             mac.update(auth_message.as_bytes());
             mac.finalize().into_bytes()
@@ -227,7 +238,7 @@ impl ScramClient {
     /// Verify server-final-message.
     pub fn verify_server_final(&self, server_final: &str) -> Result<(), String> {
         use base64::Engine;
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
 
         // Parse server-final-message: v=<server-signature>
         let server_signature_b64 = server_final
@@ -247,7 +258,7 @@ impl ScramClient {
 
         // ServerKey = HMAC(SaltedPassword, "Server Key")
         let server_key = {
-            let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(salted_password)
+            let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(salted_password)
                 .map_err(|e| format!("HMAC error: {}", e))?;
             mac.update(b"Server Key");
             mac.finalize().into_bytes()
@@ -255,7 +266,7 @@ impl ScramClient {
 
         // ServerSignature = HMAC(ServerKey, AuthMessage)
         let expected_signature = {
-            let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(&server_key)
+            let mut mac = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(&server_key)
                 .map_err(|e| format!("HMAC error: {}", e))?;
             mac.update(auth_message.as_bytes());
             mac.finalize().into_bytes()
@@ -277,8 +288,7 @@ mod tests {
     fn md5_password_hash() {
         // Test vector from PostgreSQL
         let result = md5_password("postgres", "password", &[0x01, 0x02, 0x03, 0x04]);
-        assert!(result.starts_with("md5"));
-        assert_eq!(result.len(), 35); // "md5" + 32 hex chars
+        assert_eq!(result, "md598511ceaec347a656f032c7f2a16ef17");
     }
 
     #[test]
