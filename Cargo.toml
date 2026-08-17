@@ -37,13 +37,13 @@ tokio = { version = "1", features = [
 ], optional = true }
 native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
-compio = { version = "0.18", features = ["io", "net", "runtime", "macros"], optional = true }
+compio = { version = "0.19", features = ["io", "net", "runtime", "macros"], optional = true }
 zerocopy = { version = "0.8", features = ["derive"] }
-sha2 = "0.10"
-hmac = "0.12"
-pbkdf2 = { version = "0.12", features = ["hmac"] }
-base64 = "0.22"
-md-5 = "0.10"
+sha2 = "0.11"
+hmac = "0.13"
+pbkdf2 = { version = "0.13", features = ["hmac"] }
+base64 = "0.23"
+md-5 = "0.11"
 rand = "0.10"
 tracing = { version = "0.1", features = ["release_max_level_warn"] }
 memchr = "2"
