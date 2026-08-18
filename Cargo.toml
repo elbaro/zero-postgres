@@ -1,6 +1,6 @@
 [package]
 name = "zero-postgres"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 license = "MIT"
 description = "A high-performance PostgreSQL client"
@@ -60,7 +60,7 @@ chrono = { version = "0.4", optional = true, default-features = false, features 
 rust_decimal = { version = "1", optional = true }
 no-panic = "0.1"
 log = "0.4"
-zero-postgres-derive = { version = "0.2", path = "zero-postgres-derive", optional = true }
+zero-postgres-derive = { version = "0.3", path = "zero-postgres-derive", optional = true }
 diesel = { version = "2", features = [
   "postgres_backend",
   "i-implement-a-third-party-backend-and-opt-into-breaking-changes",

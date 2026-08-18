@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.10.0](https://github.com/elbaro/zero-postgres/compare/v0.9.0...v0.10.0) - 2026-08-18
+
+### <!-- 1 -->Bug fixes
+- new release-plz syntax, breaking digest crate upgrade
+
+### <!-- 9 -->Other
+- infra: update Rust crate compio to v0.19.2 ([#62](https://github.com/elbaro/zero-postgres/pull/62))
+- [**breaking**] infra!: update breaking dependencies ([#64](https://github.com/elbaro/zero-postgres/pull/64))
+- infra: update Rust crate uuid to v1.24.1 ([#65](https://github.com/elbaro/zero-postgres/pull/65))
+- tidy: update time crate
+- infra: update EmbarkStudios/cargo-deny-action action to v2.1.1 ([#63](https://github.com/elbaro/zero-postgres/pull/63))
+- infra: update EmbarkStudios/cargo-deny-action action to v2.0.20 ([#47](https://github.com/elbaro/zero-postgres/pull/47))
+- infra: update non-breaking dependencies to v0.3.48 ([#61](https://github.com/elbaro/zero-postgres/pull/61))
+- infra: update non-breaking dependencies ([#60](https://github.com/elbaro/zero-postgres/pull/60))
+- infra: update non-breaking dependencies to v0.8.52 ([#59](https://github.com/elbaro/zero-postgres/pull/59))
+- infra: update non-breaking dependencies to v0.8.51 ([#58](https://github.com/elbaro/zero-postgres/pull/58))
+- infra: update non-breaking dependencies to v1.23.3 ([#57](https://github.com/elbaro/zero-postgres/pull/57))
+- infra: update non-breaking dependencies to v2.3.10 ([#56](https://github.com/elbaro/zero-postgres/pull/56))
+- infra: update non-breaking dependencies to v0.4.45 ([#55](https://github.com/elbaro/zero-postgres/pull/55))
+- infra: update non-breaking dependencies to v0.4.32 ([#54](https://github.com/elbaro/zero-postgres/pull/54))
+- infra: update non-breaking dependencies to v0.4.31 ([#53](https://github.com/elbaro/zero-postgres/pull/53))
+- infra: update Rust crate zerocopy to v0.8.50 ([#52](https://github.com/elbaro/zero-postgres/pull/52))
+- infra: update Rust crate uuid to v1.23.2 ([#51](https://github.com/elbaro/zero-postgres/pull/51))
+- infra: update Rust crate zerocopy to v0.8.49 ([#50](https://github.com/elbaro/zero-postgres/pull/50))
+- infra: update Rust crate memchr to v2.8.1 ([#49](https://github.com/elbaro/zero-postgres/pull/49))
+- infra: update Rust crate log to v0.4.30 ([#48](https://github.com/elbaro/zero-postgres/pull/48))
+- infra: update EmbarkStudios/cargo-deny-action action to v2.0.18 ([#46](https://github.com/elbaro/zero-postgres/pull/46))
+- infra: update Rust crate tokio to v1.52.3 ([#45](https://github.com/elbaro/zero-postgres/pull/45))
+- infra: update Rust crate rust_decimal to v1.42.0 ([#44](https://github.com/elbaro/zero-postgres/pull/44))
+- infra: update Rust crate tokio to v1.52.2 ([#43](https://github.com/elbaro/zero-postgres/pull/43))
+- infra: update Rust crate diesel to v2.3.9 ([#42](https://github.com/elbaro/zero-postgres/pull/42))
+- infra: update Rust crate diesel to v2.3.8 ([#41](https://github.com/elbaro/zero-postgres/pull/41))
+- infra: fix deny audit failures
+- infra: switch CI Rust toolchain from nightly to stable
+- infra: use cargo-deny-action v2.0.17
+- infra: replace rustsec/audit-check with cargo-deny-action
+- infra: remove paths filter so audit required check reports on every PR
+- infra: refresh Cargo.lock (includes RUSTSEC-2026-0097 rand fix)
+- infra: add deny.toml
+- infra: update Rust crate tokio to v1.52.1 ([#39](https://github.com/elbaro/zero-postgres/pull/39))
+- infra: update Rust crate uuid to v1.23.1 ([#38](https://github.com/elbaro/zero-postgres/pull/38))
+- infra: update Rust crate tokio to v1.52.0 ([#37](https://github.com/elbaro/zero-postgres/pull/37))
+- infra: skip release commits in changelog parsers
+- infra: disable Renovate dependency dashboard
+- infra: update Rust crate rand to v0.10.1 ([#36](https://github.com/elbaro/zero-postgres/pull/36))
+- infra: update Rust crate tokio to v1.51.1 ([#35](https://github.com/elbaro/zero-postgres/pull/35))
+- infra: update Rust crate tokio to v1.51.0 ([#34](https://github.com/elbaro/zero-postgres/pull/34))
+- infra: update non-breaking dependencies ([#33](https://github.com/elbaro/zero-postgres/pull/33))
+- infra: update Rust crate zerocopy to v0.8.48 ([#32](https://github.com/elbaro/zero-postgres/pull/32))
+- infra: update Rust crate rust_decimal to v1.41.0 ([#31](https://github.com/elbaro/zero-postgres/pull/31))
+- infra: update Rust crate uuid to v1.23.0 ([#30](https://github.com/elbaro/zero-postgres/pull/30))
+- [**breaking**] infra!: update breaking dependencies ([#25](https://github.com/elbaro/zero-postgres/pull/25))
+- infra: update Rust crate zerocopy to v0.8.47 ([#28](https://github.com/elbaro/zero-postgres/pull/28))
+- infra: update non-breaking dependencies ([#24](https://github.com/elbaro/zero-postgres/pull/24))
+- infra: enable platform automerge and remove schedule restriction
+- infra: disable Renovate platformAutomerge
+- tidy: move unwrap/expect clippy lints from Cargo.toml to lib.rs
+
 ## [v0.9.0](https://github.com/elbaro/zero-postgres/compare/v0.8.0...v0.9.0) - 2026-03-02
 
 ### <!-- 0 -->New features
