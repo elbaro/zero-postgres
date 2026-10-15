@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.10.0](https://github.com/elbaro/zero-postgres/compare/v0.9.0...v0.10.0) - 2026-10-15
+
+### <!-- 0 -->New features
+- add Opts::tls_config for custom rustls configs
+- [**breaking**] rename SslMode to TlsMode and the sslmode URL parameter to tls_mode
+
+### <!-- 1 -->Bug fixes
+- release the sync pool permit when connecting fails
+- make async pools safe to drop without a runtime and limit compio
+- make #[derive(RefFromRow)] compile and check every column
+- [**breaking**] replace native-tls with rustls and native root certificates
+- [**breaking**] decide TLS support per driver in ConnectionStateMachine
+- [**breaking**] continue the startup when the server negotiates protocol 3.0
+- percent-decode the user, password and database in connection URLs
+- decode pre-2000 binary dates into chrono NaiveDate correctly
+- stop capping tracing levels in applications that depend on the crate
+- return a decode error for time::Date out of range such as infinity
+- prefix the version byte when encoding strings as JSONB
+- map Diesel exclusion, restrict and read-only SQLSTATEs to their error kinds
+- hold the tokio pool permit until the connection reset finishes
+- report rows affected for MERGE
+- new release-plz syntax, breaking digest crate upgrade
+
+### <!-- 3 -->Documentation
+- expand Conn::transaction docs and link async versions to sync
+- remove supported pg versions
+- list the supported PostgreSQL versions in the README
+- remove comments that justify the code instead of describing it
+- trim the crate doc to a summary and the user guide link
+- remove license section from README
+
+### <!-- 9 -->Other
+- refactor: use tokio's semaphore in the compio pool instead of async-lock
+- revert: allow clippy try_from_instead_of_from_str
+- refactor: use as_chunks in decode_hex
+- refactor: reorganize codes
+- tidy: update time crate
+- tidy: move unwrap/expect clippy lints from Cargo.toml to lib.rs
+
 ## [v0.9.0](https://github.com/elbaro/zero-postgres/compare/v0.8.0...v0.9.0) - 2026-03-02
 
 ### <!-- 0 -->New features
