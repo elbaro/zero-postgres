@@ -20,22 +20,22 @@ default = ["sync", "tokio", "derive"]
 derive = ["dep:zero-postgres-derive"]
 sync = []
 tokio = ["dep:tokio", "tokio/io-util", "tokio/net", "tokio/rt"]
-sync-tls = ["dep:rustls", "dep:rustls-native-certs"]
-tokio-tls = ["dep:rustls", "dep:rustls-native-certs", "dep:tokio-rustls"]
+sync-tls = ["dep:rustls", "dep:rustls-platform-verifier"]
+tokio-tls = ["dep:rustls", "dep:rustls-platform-verifier", "dep:tokio-rustls"]
 with-uuid = ["dep:uuid"]
 with-time = ["dep:time"]
 with-chrono = ["dep:chrono"]
 with-rust-decimal = ["dep:rust_decimal"]
 lowlevel = []
 compio = ["dep:compio", "dep:tokio"]
-compio-tls = ["compio/rustls", "dep:rustls", "dep:rustls-native-certs"]
+compio-tls = ["compio/rustls", "dep:rustls", "dep:rustls-platform-verifier"]
 diesel = ["dep:diesel", "sync"]
 
 [dependencies]
 thiserror = "2"
 tokio = { version = "1", features = ["sync"], optional = true }
 rustls = { version = "0.23", optional = true }
-rustls-native-certs = { version = "0.8", optional = true }
+rustls-platform-verifier = { version = "0.7", optional = true }
 tokio-rustls = { version = "0.26", optional = true }
 compio = { version = "0.19", features = ["io", "net", "runtime", "macros"], optional = true }
 zerocopy = { version = "0.8", features = ["derive"] }

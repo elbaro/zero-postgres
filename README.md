@@ -18,7 +18,7 @@ Python binding: [pyro-postgres](https://github.com/elbaro/pyro-postgres/).
 - `compio-tls` - TLS support for compio (experimental)
 - `diesel` - Diesel support (experimental)
 
-TLS flags use `rustls` with the platform's native root certificates.
+TLS flags use `rustls` with the platform certificate verifier.
 To trust a private CA or present a client certificate, set `Opts::tls_config`
 to a `rustls::ClientConfig` built with the re-exported `zero_postgres::rustls`.
 

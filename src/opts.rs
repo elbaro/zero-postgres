@@ -89,8 +89,8 @@ pub struct Opts {
     /// # }
     /// ```
     ///
-    /// `None` uses the platform's native root certificates, loaded once and
-    /// shared by all connections.
+    /// `None` uses the platform certificate verifier, built once and shared by
+    /// all connections.
     ///
     /// Default: `None`
     #[cfg(any(feature = "sync-tls", feature = "tokio-tls", feature = "compio-tls"))]

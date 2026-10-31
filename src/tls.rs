@@ -1,23 +1,24 @@
 use std::sync::{Arc, OnceLock};
 
-use rustls::{ClientConfig, RootCertStore};
+use rustls::ClientConfig;
+use rustls_platform_verifier::BuilderVerifierExt;
 
 use crate::error::{Error, Result};
 use crate::opts::Opts;
 
-/// Returns `opts.tls_config`, or the shared native config when it is unset.
+/// Returns `opts.tls_config`, or the shared platform config when it is unset.
 pub fn client_config(opts: &Opts) -> Result<Arc<ClientConfig>> {
     match &opts.tls_config {
         Some(config) => Ok(Arc::clone(config)),
-        None => native_client_config(),
+        None => platform_client_config(),
     }
 }
 
 /// Returns the rustls client config shared by all TLS connections without
 /// `Opts::tls_config`.
 ///
-/// The OS trust store is loaded on the first call and reused afterwards.
-fn native_client_config() -> Result<Arc<ClientConfig>> {
+/// The platform verifier is built on the first call and reused afterwards.
+fn platform_client_config() -> Result<Arc<ClientConfig>> {
     static CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
     if let Some(config) = CONFIG.get() {
         return Ok(Arc::clone(config));
@@ -27,25 +28,12 @@ fn native_client_config() -> Result<Arc<ClientConfig>> {
 }
 
 fn build_client_config() -> Result<ClientConfig> {
-    let native_certs = rustls_native_certs::load_native_certs();
-    let mut roots = RootCertStore::empty();
-    let (added, _) = roots.add_parsable_certificates(native_certs.certs);
-    if added == 0 {
-        return Err(Error::Io(std::io::Error::other(format!(
-            "no native root certificates found: {:?}",
-            native_certs.errors
-        ))));
-    }
-    for error in native_certs.errors {
-        log::warn!("failed to load some native root certificates: {error}");
-    }
-
     // An explicit provider avoids a panic when both aws-lc-rs and ring are
     // enabled in the dependency graph and no process default is installed.
     let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
     Ok(ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()?
-        .with_root_certificates(roots)
+        .with_platform_verifier()?
         .with_no_client_auth())
 }
 
