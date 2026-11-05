@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostgreSQL Wire Protocol Reference</title>
+    <style>
+        :root {
+            --bg: #14161b;
+            --surface: #1c1f26;
+            --code-bg: #0e1014;
+            --border: #2f343e;
+            --text: #d9dce3;
+            --text-muted: #9aa1ad;
+            --heading: #f4f5f7;
+            --accent: #57c7b8;
+            --accent-soft: #a5e4da;
+            --link: #7fb3ff;
+            --code-text: #f0b35e;
+            --note: #c3a6ff;
+            --error: #ff8f85;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        h1 { color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 0.5rem; }
+        h2 { color: var(--accent); font-size: 1.7rem; margin-top: 3rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.3rem; }
+        h3 { color: var(--accent); font-size: 1.3rem; margin-top: 2rem; padding-left: 0.6rem; border-left: 4px solid var(--accent); }
+        h4 { color: var(--accent-soft); font-size: 1.05rem; margin-top: 1.5rem; }
+        code {
+            background: var(--code-bg);
+            color: var(--code-text);
+            border: 1px solid var(--border);
+            padding: 0.1em 0.35em;
+            border-radius: 3px;
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background: var(--code-bg);
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+        pre code { background: none; color: var(--text); border: none; padding: 0; }
+        .table-wrap { overflow-x: auto; margin: 1rem 0; }
+        caption { text-align: left; font-weight: 600; color: var(--accent-soft); padding-bottom: 0.4rem; }
+        .layout td:first-child { width: 12rem; white-space: nowrap; }
+        .layout .nested td:first-child { padding-left: 2rem; }
+        .layout .group td { color: var(--text-muted); font-style: italic; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 0.5rem 0.75rem;
+            text-align: left;
+        }
+        th { background: var(--surface); color: var(--accent-soft); }
+        tr:nth-child(even) td { background: var(--surface); }
+        a { color: var(--link); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        strong { color: var(--heading); }
+        hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+        ul, ol { padding-left: 1.5rem; }
+        li { margin: 0.3rem 0; }
+        .toc { background: var(--surface); padding: 1rem 1.5rem; border-radius: 6px; margin-bottom: 2rem; }
+        .toc ul { list-style: none; padding-left: 0; }
+        .toc ul ul { padding-left: 1.25rem; }
+        .toc li { margin: 0.3rem 0; }
+        .sequence { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; margin: 1rem 0; overflow-x: auto; }
+        .sequence svg { display: block; width: 100%; min-width: 640px; height: auto; font-size: 14px; }
+        .seq-life { stroke: var(--border); stroke-width: 2; }
+        .seq-actor { fill: var(--surface); stroke: var(--accent); }
+        .seq-actor-text { fill: var(--heading); font-weight: 600; }
+        .seq-arrow { stroke-width: 2; }
+        .seq-dash { stroke-dasharray: 6 5; }
+        .seq-c2s .seq-arrow { stroke: var(--accent); }
+        .seq-c2s .seq-head { fill: var(--accent); }
+        .seq-s2c .seq-arrow { stroke: var(--link); }
+        .seq-s2c .seq-head { fill: var(--link); }
+        .seq-err .seq-arrow { stroke: var(--error); }
+        .seq-err .seq-head { fill: var(--error); }
+        .seq-err .seq-label { fill: var(--error); }
+        .seq-dim { opacity: 0.45; }
+        .seq-label { fill: var(--text); }
+        .seq-note { fill: var(--text-muted); font-size: 13px; }
+        .seq-band { fill: var(--surface); stroke: var(--border); }
+        .seq-band-text { fill: var(--text-muted); font-size: 13px; }
+        .seq-frame { fill: none; stroke: var(--text-muted); stroke-opacity: 0.5; }
+        .seq-tab { fill: var(--surface); stroke: var(--text-muted); stroke-opacity: 0.5; }
+        .seq-tab-text { fill: var(--accent-soft); font-size: 12px; font-weight: 600; }
+        .seq-divider { stroke: var(--text-muted); stroke-opacity: 0.5; stroke-dasharray: 3 4; }
+        .observed { border-left: 3px solid var(--note); background: var(--surface); padding: 0.5rem 0.75rem; margin: 1rem 0; border-radius: 0 6px 6px 0; }
+        .observed::before { content: "Observed on 19rc1: "; color: var(--note); font-weight: 600; }
+    </style>
+</head>
+<body>
+
+<h1>PostgreSQL Wire Protocol Reference</h1>
+<p>This is a LLM-generated compilation of <a href="https://www.postgresql.org/docs/19/protocol.html">PostgreSQL 19, Chapter 54. Frontend/Backend Protocol</a> and <a href="https://www.postgresql.org/docs/19/libpq-pipeline-mode.html">Section 32.5. libpq Pipeline Mode</a>.<br>
+Streaming and logical replication are out of scope.</p>
+
+<div class="toc">
+<strong>Contents</strong>
+<ul>
+<li><a href="#overview">Protocol Overview</a>
+  <ul>
+  <li><a href="#versions">Protocol Versions</a></li>
+  <li><a href="#framing">Message Framing</a></li>
+  <li><a href="#types">Message Data Types</a></li>
+  <li><a href="#formats">Format Codes</a></li>
+  <li><a href="#index">Message Index</a></li>
+  </ul></li>
+<li><a href="#startup">Connection Startup</a>
+  <ul>
+  <li><a href="#encryption">Session Encryption</a></li>
+  <li><a href="#startupmessage">StartupMessage</a></li>
+  <li><a href="#negotiate">Version and Extension Negotiation</a></li>
+  <li><a href="#auth">Authentication</a></li>
+  <li><a href="#sasl">SASL Authentication</a></li>
+  <li><a href="#postauth">After AuthenticationOk</a></li>
+  </ul></li>
+<li><a href="#simple">Simple Query Protocol</a></li>
+<li><a href="#extended">Extended Query Protocol</a>
+  <ul>
+  <li><a href="#extended-messages">Messages</a></li>
+  <li><a href="#extended-errors">Error Recovery</a></li>
+  <li><a href="#lifetimes">Statement and Portal Lifetimes</a></li>
+  </ul></li>
+<li><a href="#pipelining">Pipelining</a></li>
+<li><a href="#copy">COPY Protocol</a></li>
+<li><a href="#function-call">Function Call Protocol</a></li>
+<li><a href="#async">Asynchronous Messages</a></li>
+<li><a href="#errors">Error and Notice Messages</a></li>
+<li><a href="#cancel">Query Cancellation</a></li>
+<li><a href="#terminate">Connection Termination</a></li>
+<li><a href="#notes">Implementation Checklist</a></li>
+<li><a href="#refs">References</a></li>
+</ul>
+</div>
+
+<h2 id="overview">Protocol Overview</h2>
+<ul>
+<li><strong>Transport</strong>: TCP/IP or Unix domain sockets, default port 5432</li>
+<li><strong>Byte order</strong>: network byte order (big-endian) for all integers</li>
+<li><strong>Roles</strong>: the client is the <em>frontend</em> (F) and the server process is the <em>backend</em> (B)</li>
+</ul>
+
+<h3 id="versions">Protocol Versions</h3>
+<div class="table-wrap"><table>
+<tr><th>Version</th><th>Wire value</th><th>Status</th></tr>
+<tr><td>3.2</td><td><code>196610</code> (<code>0x00030002</code>)</td><td>Latest. PostgreSQL 18 and later. Makes the cancellation secret key variable-length.</td></tr>
+<tr><td>3.0</td><td><code>196608</code> (<code>0x00030000</code>)</td><td>PostgreSQL 7.4 and later. libpq still requests this by default.</td></tr>
+<tr><td>3.1</td><td><code>196609</code></td><td>Reserved and never used, because old pgbouncer versions wrongly claimed to support it.</td></tr>
+<tr><td>3.9999</td><td><code>0x0003270F</code></td><td>Reserved for greasing. libpq may send it to test that servers and middleware negotiate correctly.</td></tr>
+<tr><td>2.0</td><td>&nbsp;</td><td>Obsolete. Supported up to PostgreSQL 13.</td></tr>
+</table></div>
+<p>See <a href="#negotiate">Version and Extension Negotiation</a> for how client and server settle on a version.</p>
+
+<h3 id="framing">Message Framing</h3>
+<pre><code>┌─────────┬────────────┬──────────────────┐
+│ Type    │ Length     │ Payload          │
+│ 1 byte  │ 4 bytes    │ (Length-4) bytes │
+└─────────┴────────────┴──────────────────┘</code></pre>
+<ul>
+<li><strong>Type</strong>: a single ASCII character. The same byte can mean different messages in each direction; see <a href="#index">Message Index</a>.</li>
+<li><strong>Length</strong>: Int32 counting itself and the payload, but not the type byte. An empty message has length 4.</li>
+</ul>
+<p>Exceptions to this framing:</p>
+<ul>
+<li>StartupMessage, SSLRequest, GSSENCRequest and CancelRequest have no type byte. They start with the length.</li>
+<li>The replies to SSLRequest and GSSENCRequest (<code>S</code>, <code>G</code> or <code>N</code>) are a single unframed byte.</li>
+<li>GSSAPI handshake tokens and encrypted packets use their own framing; see <a href="#encryption">Session Encryption</a>.</li>
+</ul>
+
+<h3 id="types">Message Data Types</h3>
+<p>This page uses the notation from the official documentation.</p>
+<div class="table-wrap"><table>
+<tr><th>Notation</th><th>Meaning</th></tr>
+<tr><td><code>Int8</code>, <code>Int16</code>, <code>Int32</code></td><td>n-bit integer in network byte order. A parenthesised value such as <code>Int32(8)</code> is the exact value that appears.</td></tr>
+<tr><td><code>Int16[M]</code></td><td>Array of M integers. An earlier field gives M.</td></tr>
+<tr><td><code>String</code></td><td>Null-terminated string with no length limit. Its encoding is not fixed by the protocol; see <a href="#notes">Implementation Checklist</a>.</td></tr>
+<tr><td><code>Byten</code>, <code>Byte1('c')</code></td><td>Exactly n bytes. If n is not a constant, an earlier field or the message length determines it.</td></tr>
+</table></div>
+<p>The documentation does not assign a signedness to <code>Intn</code>. Read value lengths as signed, since <code>-1</code> means NULL. Read object IDs as unsigned, since the <code>oid</code> type is an unsigned 32-bit integer.</p>
+
+<h3 id="formats">Format Codes</h3>
+<ul>
+<li><code>0</code> = text: the string produced and accepted by the data type's output and input functions. On the wire it has no trailing null byte, and it cannot contain embedded null bytes.</li>
+<li><code>1</code> = binary: a type-specific representation. Integers are in network byte order. Representations of complex types can change between server versions.</li>
+</ul>
+<p>All other codes are reserved.</p>
+
+<h3 id="index">Message Index</h3>
+<h4>Frontend (client to server)</h4>
+<div class="table-wrap"><table>
+<tr><th>Byte</th><th>Message</th><th>Section</th></tr>
+<tr><td>none</td><td>StartupMessage</td><td><a href="#startupmessage">Startup</a></td></tr>
+<tr><td>none</td><td>SSLRequest, GSSENCRequest</td><td><a href="#encryption">Encryption</a></td></tr>
+<tr><td>none</td><td>CancelRequest</td><td><a href="#cancel">Cancellation</a></td></tr>
+<tr><td><code>p</code></td><td>PasswordMessage, GSSResponse, SASLInitialResponse, SASLResponse (context decides which)</td><td><a href="#auth">Authentication</a></td></tr>
+<tr><td><code>Q</code></td><td>Query</td><td><a href="#simple">Simple Query</a></td></tr>
+<tr><td><code>P</code></td><td>Parse</td><td rowspan="7"><a href="#extended-messages">Extended Query</a></td></tr>
+<tr><td><code>B</code></td><td>Bind</td></tr>
+<tr><td><code>D</code></td><td>Describe</td></tr>
+<tr><td><code>E</code></td><td>Execute</td></tr>
+<tr><td><code>C</code></td><td>Close</td></tr>
+<tr><td><code>S</code></td><td>Sync</td></tr>
+<tr><td><code>H</code></td><td>Flush</td></tr>
+<tr><td><code>d</code>, <code>c</code>, <code>f</code></td><td>CopyData, CopyDone, CopyFail</td><td><a href="#copy">COPY</a></td></tr>
+<tr><td><code>F</code></td><td>FunctionCall</td><td><a href="#function-call">Function Call</a></td></tr>
+<tr><td><code>X</code></td><td>Terminate</td><td><a href="#terminate">Termination</a></td></tr>
+</table></div>
+
+<h4>Backend (server to client)</h4>
+<div class="table-wrap"><table>
+<tr><th>Byte</th><th>Message</th><th>Section</th></tr>
+<tr><td><code>R</code></td><td>Authentication* (subtype in the first Int32)</td><td><a href="#auth">Authentication</a></td></tr>
+<tr><td><code>v</code></td><td>NegotiateProtocolVersion</td><td><a href="#negotiate">Negotiation</a></td></tr>
+<tr><td><code>K</code></td><td>BackendKeyData</td><td><a href="#postauth">After AuthenticationOk</a></td></tr>
+<tr><td><code>Z</code></td><td>ReadyForQuery</td><td><a href="#postauth">After AuthenticationOk</a></td></tr>
+<tr><td><code>S</code></td><td>ParameterStatus</td><td><a href="#async">Asynchronous</a></td></tr>
+<tr><td><code>A</code></td><td>NotificationResponse</td><td><a href="#async">Asynchronous</a></td></tr>
+<tr><td><code>E</code>, <code>N</code></td><td>ErrorResponse, NoticeResponse</td><td><a href="#errors">Errors</a></td></tr>
+<tr><td><code>T</code></td><td>RowDescription</td><td rowspan="4"><a href="#simple">Simple Query</a></td></tr>
+<tr><td><code>D</code></td><td>DataRow</td></tr>
+<tr><td><code>C</code></td><td>CommandComplete</td></tr>
+<tr><td><code>I</code></td><td>EmptyQueryResponse</td></tr>
+<tr><td><code>1</code>, <code>2</code>, <code>3</code></td><td>ParseComplete, BindComplete, CloseComplete</td><td rowspan="3"><a href="#extended-messages">Extended Query</a></td></tr>
+<tr><td><code>t</code>, <code>n</code></td><td>ParameterDescription, NoData</td></tr>
+<tr><td><code>s</code></td><td>PortalSuspended</td></tr>
+<tr><td><code>G</code>, <code>H</code>, <code>W</code></td><td>CopyInResponse, CopyOutResponse, CopyBothResponse</td><td rowspan="2"><a href="#copy">COPY</a></td></tr>
+<tr><td><code>d</code>, <code>c</code></td><td>CopyData, CopyDone</td></tr>
+<tr><td><code>V</code></td><td>FunctionCallResponse</td><td><a href="#function-call">Function Call</a></td></tr>
+</table></div>
+
+<h4>Messages with an empty payload</h4>
+<p>These are always <code>Byte1(type) Int32(4)</code>, so their layouts are not repeated below: Sync (<code>S</code>), Flush (<code>H</code>), Terminate (<code>X</code>), CopyDone (<code>c</code>), ParseComplete (<code>1</code>), BindComplete (<code>2</code>), CloseComplete (<code>3</code>), NoData (<code>n</code>), PortalSuspended (<code>s</code>), EmptyQueryResponse (<code>I</code>).</p>
+
+<hr>
+
+<h2 id="startup">Connection Startup</h2>
+<p>In the diagrams on this page, a dashed arrow is a message that is not always sent, and a box shows exactly which messages its label applies to. Asynchronous messages are not drawn: once startup has finished, NoticeResponse, ParameterStatus and NotificationResponse can arrive between any of the drawn messages. See <a href="#async">Asynchronous Messages</a>.</p>
+<div class="sequence"><svg viewBox="0 0 880 856" role="img" aria-label="Connection startup sequence: SSLRequest or GSSENCRequest; 'S', 'G', 'N' or ErrorResponse; StartupMessage; NegotiateProtocolVersion; Authentication* request; credentials reply; AuthenticationSASLFinal; AuthenticationOk; ErrorResponse; ParameterStatus; BackendKeyData; ReadyForQuery; ErrorResponse"><title>Connection startup</title><line class="seq-life" x1="100" y1="44" x2="100" y2="848"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="848"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="256" width="516" height="110" rx="6"/><rect class="seq-tab" x="72" y="256" width="390.40000000000003" height="24" rx="6"/><text class="seq-tab-text" x="80" y="272">zero, one or several rounds, depending on the method</text><rect class="seq-frame" x="72" y="420" width="516" height="110" rx="6"/><rect class="seq-tab" x="72" y="420" width="116.8" height="24" rx="6"/><text class="seq-tab-text" x="80" y="436">exactly one of</text><rect class="seq-frame" x="72" y="548" width="516" height="272" rx="6"/><rect class="seq-tab" x="72" y="548" width="174.4" height="24" rx="6"/><text class="seq-tab-text" x="80" y="564">after AuthenticationOk</text><line class="seq-divider" x1="72" y1="750" x2="588" y2="750"/><text class="seq-tab-text" x="80" y="768">or at any point</text><rect class="seq-frame" x="84" y="584" width="492" height="74" rx="6"/><rect class="seq-tab" x="84" y="584" width="268.0" height="24" rx="6"/><text class="seq-tab-text" x="92" y="600">repeats once per reported parameter</text><g class="seq-c2s"><line class="seq-arrow seq-dash" x1="100" y1="90" x2="551" y2="90"/><polygon class="seq-head" points="560,90 551,85 551,95"/><text class="seq-label" x="330.0" y="82" text-anchor="middle">SSLRequest or GSSENCRequest</text><text class="seq-note" x="604" y="94">optional</text></g><g class="seq-s2c"><line class="seq-arrow seq-dash" x1="560" y1="126" x2="109" y2="126"/><polygon class="seq-head" points="100,126 109,121 109,131"/><text class="seq-label" x="330.0" y="118" text-anchor="middle">'S', 'G', 'N' or ErrorResponse</text><text class="seq-note" x="604" y="130">reply to the request</text></g><rect class="seq-band" x="100" y="138" width="460" height="30" rx="4"/><text class="seq-band-text" x="330.0" y="158" text-anchor="middle">If accepted: encryption handshake</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="206" x2="551" y2="206"/><polygon class="seq-head" points="560,206 551,201 551,211"/><text class="seq-label" x="330.0" y="198" text-anchor="middle">StartupMessage</text></g><g class="seq-s2c"><line class="seq-arrow seq-dash" x1="560" y1="242" x2="109" y2="242"/><polygon class="seq-head" points="100,242 109,237 109,247"/><text class="seq-label" x="330.0" y="234" text-anchor="middle">NegotiateProtocolVersion</text><text class="seq-note" x="604" y="246">optional; can also follow AuthenticationOk</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="314" x2="109" y2="314"/><polygon class="seq-head" points="100,314 109,309 109,319"/><text class="seq-label" x="330.0" y="306" text-anchor="middle">Authentication* request</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="350" x2="551" y2="350"/><polygon class="seq-head" points="560,350 551,345 551,355"/><text class="seq-label" x="330.0" y="342" text-anchor="middle">credentials reply</text></g><g class="seq-s2c"><line class="seq-arrow seq-dash" x1="560" y1="406" x2="109" y2="406"/><polygon class="seq-head" points="100,406 109,401 109,411"/><text class="seq-label" x="330.0" y="398" text-anchor="middle">AuthenticationSASLFinal</text><text class="seq-note" x="604" y="410">SASL, if the mechanism uses it</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="478" x2="109" y2="478"/><polygon class="seq-head" points="100,478 109,473 109,483"/><text class="seq-label" x="330.0" y="470" text-anchor="middle">AuthenticationOk</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="514" x2="109" y2="514"/><polygon class="seq-head" points="100,514 109,509 109,519"/><text class="seq-label" x="330.0" y="506" text-anchor="middle">ErrorResponse</text><text class="seq-note" x="604" y="518">server then closes</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="642" x2="109" y2="642"/><polygon class="seq-head" points="100,642 109,637 109,647"/><text class="seq-label" x="330.0" y="634" text-anchor="middle">ParameterStatus</text></g><g class="seq-s2c"><line class="seq-arrow seq-dash" x1="560" y1="698" x2="109" y2="698"/><polygon class="seq-head" points="100,698 109,693 109,703"/><text class="seq-label" x="330.0" y="690" text-anchor="middle">BackendKeyData</text><text class="seq-note" x="604" y="702">some third-party servers omit it</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="734" x2="109" y2="734"/><polygon class="seq-head" points="100,734 109,729 109,739"/><text class="seq-label" x="330.0" y="726" text-anchor="middle">ReadyForQuery</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="804" x2="109" y2="804"/><polygon class="seq-head" points="100,804 109,799 109,809"/><text class="seq-label" x="330.0" y="796" text-anchor="middle">ErrorResponse</text><text class="seq-note" x="604" y="808">server then closes</text></g></svg></div>
+<p>Code the startup phase as a state machine that accepts any of these messages when it could make sense. Do not hard-code this exact sequence.</p>
+
+<h3 id="encryption">Session Encryption</h3>
+<p>Encryption is requested before StartupMessage. The protocol cannot force it, so a client that requires encryption must close the connection when the server declines. A server administrator can separately reject unencrypted sessions during authentication.</p>
+
+<h4>SSLRequest (no type byte)</h4>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Int32(8)</code></td><td>Length</td></tr>
+<tr><td><code>Int32(80877103)</code></td><td>SSL request code</td></tr>
+</table></div>
+<p>The server replies with one of:</p>
+<ul>
+<li><code>S</code> (one byte): perform the TLS handshake, then send StartupMessage inside TLS.</li>
+<li><code>N</code> (one byte): the server is unwilling. The client may close, send StartupMessage unencrypted, or send GSSENCRequest instead.</li>
+<li>ErrorResponse: close the connection. Do not show the message to the user, because the server is not authenticated yet (CVE-2024-10977). The client may open a fresh connection without requesting SSL.</li>
+</ul>
+<p>Read exactly one byte before handing the socket to the TLS library, or treat any extra buffered bytes as a protocol violation. Extra bytes may be a man-in-the-middle buffer-stuffing attack (CVE-2021-23222).</p>
+<p>Starting the TLS handshake without waiting for the reply saves a round trip, but if the server replies <code>N</code> it simply disconnects.</p>
+
+<h4>Direct TLS</h4>
+<p>A client can start the TLS handshake immediately without SSLRequest, then send StartupMessage inside TLS. The client must use ALPN with the protocol name <code>postgresql</code> (RFC 7301). This mode cannot negotiate GSSAPI or fall back to an unencrypted connection. The server refuses any other encryption request on such a connection.</p>
+
+<h4>GSSENCRequest (no type byte)</h4>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Int32(8)</code></td><td>Length</td></tr>
+<tr><td><code>Int32(80877104)</code></td><td>GSSAPI encryption request code</td></tr>
+</table></div>
+<p>The server replies with <code>G</code>, <code>N</code>, or ErrorResponse. <code>N</code> and ErrorResponse are handled as for SSLRequest, and the one-byte read rule also applies. After <code>N</code>, the client may send SSLRequest instead.</p>
+<p>After <code>G</code>:</p>
+<ol>
+<li>Call <code>gss_init_sec_context()</code> in a loop, starting with empty input and then using each server result, until it returns no output. Prefix each token sent to the server with its length as an Int32.</li>
+<li>Encrypt StartupMessage and all later data with <code>gss_wrap()</code>, prefixing each result with its length as an Int32.</li>
+<li>Keep encrypted packets under 16 kB, which is the limit the server accepts. Use <code>gss_wrap_size_limit()</code> to split larger messages across <code>gss_wrap()</code> calls. The server will not send packets larger than 16 kB.</li>
+</ol>
+
+<h3 id="startupmessage">StartupMessage</h3>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Int32</code></td><td>Length, including self</td></tr>
+<tr><td><code>Int32</code></td><td>Protocol version: major in the high 16 bits, minor in the low 16 bits (see <a href="#versions">Protocol Versions</a>)</td></tr>
+<tr class="group"><td colspan="2">For each parameter:</td></tr>
+<tr class="nested"><td><code>String</code></td><td>Parameter name</td></tr>
+<tr class="nested"><td><code>String</code></td><td>Parameter value</td></tr>
+<tr><td><code>Byte1(0)</code></td><td>Terminator</td></tr>
+</table></div>
+<div class="table-wrap"><table>
+<tr><th>Parameter</th><th>Meaning</th></tr>
+<tr><td><code>user</code></td><td>Database user name. Required; there is no default.</td></tr>
+<tr><td><code>database</code></td><td>Database name. Defaults to the user name.</td></tr>
+<tr><td><code>options</code></td><td>Backend command-line arguments, separated by spaces. Write a space inside an argument as <code>\ </code> and a literal backslash as <code>\\</code>. Deprecated in favour of individual run-time parameters.</td></tr>
+<tr><td><code>replication</code></td><td><code>false</code> (default), <code>true</code> for physical replication mode, or <code>database</code> for logical replication mode.</td></tr>
+<tr><td><code>_pq_.*</code></td><td>Protocol extension request; see <a href="#negotiate">Negotiation</a>.</td></tr>
+<tr><td>anything else</td><td>A run-time parameter, such as <code>client_encoding</code> or <code>application_name</code>, applied as a session default after <code>options</code> is parsed. A failure to apply it produces ErrorResponse and ends the connection.</td></tr>
+</table></div>
+
+<p>Parameters can appear in any order.</p>
+
+<h3 id="negotiate">Version and Extension Negotiation</h3>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('v')</code></td><td>NegotiateProtocolVersion</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int32</code></td><td>Newest protocol version the server supports for the requested major version</td></tr>
+<tr><td><code>Int32</code></td><td>Number of protocol options the server did not recognize</td></tr>
+<tr class="group"><td colspan="2">For each option:</td></tr>
+<tr class="nested"><td><code>String</code></td><td>Option name</td></tr>
+</table></div>
+<p>The server sends this when it does not support the requested minor version, or when the startup message contains an unrecognized <code>_pq_.</code> option. If it is not sent, the server supports the requested version and every requested option.</p>
+<ul>
+<li>This message does not end the connection. Authentication continues on the same connection using the version the server indicated.</li>
+<li>If the client cannot use that version, or needs a rejected option, it should close the connection immediately.</li>
+<li>If the server does not support the requested <em>major</em> version, it rejects the connection with ErrorResponse. A server may also reject an unsupported minor version instead of negotiating.</li>
+<li>Messages use the layouts of the negotiated version, which affects the secret key size in BackendKeyData and CancelRequest.</li>
+</ul>
+<p>No <code>_pq_.</code> extensions are currently defined. <code>_pq_.test_protocol_negotiation</code> is reserved for greasing, and all other names are reserved for future use.</p>
+<p class="observed">The version field holds the full version number, not a bare minor number: a request for 3.9999 returns <code>196610</code> (<code>0x00030002</code>). The server sent this message before the first Authentication message. The documentation also allows it after AuthenticationOk, so accept it in both places.</p>
+
+<h3 id="auth">Authentication</h3>
+<p>Every authentication request has this layout, where the subtype selects the row in the table below:</p>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('R')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int32</code></td><td>Subtype</td></tr>
+<tr><td><code>Byten</code></td><td>Subtype-specific data, if any</td></tr>
+</table></div>
+<div class="table-wrap"><table>
+<tr><th>Subtype</th><th>Message</th><th>Data after subtype</th><th>Client reply</th></tr>
+<tr><td><code>0</code></td><td>AuthenticationOk</td><td>none</td><td>None; keep reading</td></tr>
+<tr><td><code>2</code></td><td>AuthenticationKerberosV5</td><td>none</td><td>No longer supported by the server</td></tr>
+<tr><td><code>3</code></td><td>AuthenticationCleartextPassword</td><td>none</td><td>PasswordMessage</td></tr>
+<tr><td><code>5</code></td><td>AuthenticationMD5Password</td><td><code>Byte4</code> salt</td><td>PasswordMessage</td></tr>
+<tr><td><code>7</code></td><td>AuthenticationGSS</td><td>none</td><td>GSSResponse</td></tr>
+<tr><td><code>8</code></td><td>AuthenticationGSSContinue</td><td><code>Byten</code> GSSAPI or SSPI data</td><td>GSSResponse, if more data is needed</td></tr>
+<tr><td><code>9</code></td><td>AuthenticationSSPI</td><td>none</td><td>GSSResponse</td></tr>
+<tr><td><code>10</code></td><td>AuthenticationSASL</td><td>Mechanism name <code>String</code>s, in server preference order, then <code>Byte1(0)</code></td><td>SASLInitialResponse</td></tr>
+<tr><td><code>11</code></td><td>AuthenticationSASLContinue</td><td><code>Byten</code> challenge</td><td>SASLResponse</td></tr>
+<tr><td><code>12</code></td><td>AuthenticationSASLFinal</td><td><code>Byten</code> additional data</td><td>None; keep reading</td></tr>
+</table></div>
+<p>The exchange ends with AuthenticationOk or ErrorResponse. ErrorResponse here is followed by the server closing the connection. If no credential is required, the server sends AuthenticationOk without a prior request. If the client does not support the requested method, it should close the connection immediately.</p>
+
+<h4>Client replies</h4>
+<p>All replies use type byte <code>p</code>. The receiver identifies the message from the authentication state.</p>
+<div class="table-wrap"><table class="layout">
+<caption>PasswordMessage</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('p')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>String</code></td><td>Password, plain or MD5-hashed as requested</td></tr>
+</table></div>
+<div class="table-wrap"><table class="layout">
+<caption>GSSResponse</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('p')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Byten</code></td><td>GSSAPI or SSPI data</td></tr>
+</table></div>
+<div class="table-wrap"><table class="layout">
+<caption>SASLInitialResponse</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('p')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>String</code></td><td>Selected mechanism name</td></tr>
+<tr><td><code>Int32</code></td><td>Length of the initial response that follows, or -1 if there is none</td></tr>
+<tr><td><code>Byten</code></td><td>Initial response</td></tr>
+</table></div>
+<div class="table-wrap"><table class="layout">
+<caption>SASLResponse</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('p')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Byten</code></td><td>Mechanism-specific data</td></tr>
+</table></div>
+
+<h4>MD5 password</h4>
+<p>MD5 is deprecated and will be removed in a future release. <code>md5()</code> below returns lowercase hex text, and <code>+</code> is byte concatenation:</p>
+<pre><code>"md5" + md5(md5(password + username) + salt)</code></pre>
+<p class="observed">A successful MD5 login produced a WARNING NoticeResponse straight after AuthenticationOk.</p>
+
+<h3 id="sasl">SASL Authentication</h3>
+<p>PostgreSQL implements three mechanisms: <code>SCRAM-SHA-256</code>, <code>SCRAM-SHA-256-PLUS</code> and <code>OAUTHBEARER</code>. More may be added, so ignore names the client does not support.</p>
+<ol>
+<li>The server sends AuthenticationSASL with its mechanism list.</li>
+<li>The client sends SASLInitialResponse with its chosen mechanism and any initial response.</li>
+<li>One or more rounds of AuthenticationSASLContinue and SASLResponse follow.</li>
+<li>The server sends AuthenticationSASLFinal only if the mechanism defines completion data, then AuthenticationOk.</li>
+</ol>
+<p>The server can abort at any stage with ErrorResponse.</p>
+
+<h4>SCRAM-SHA-256</h4>
+<p>Defined by RFC 5802 and RFC 7677.</p>
+<div class="table-wrap"><table>
+<tr><th>Message</th><th>SCRAM content</th></tr>
+<tr><td>SASLInitialResponse</td><td>client-first-message: <code>&lt;gs2-header&gt;n=,r=&lt;client-nonce&gt;</code></td></tr>
+<tr><td>AuthenticationSASLContinue</td><td>server-first-message: <code>r=&lt;combined-nonce&gt;,s=&lt;salt-base64&gt;,i=&lt;iterations&gt;</code></td></tr>
+<tr><td>SASLResponse</td><td>client-final-message: <code>c=&lt;binding-base64&gt;,r=&lt;combined-nonce&gt;,p=&lt;proof-base64&gt;</code></td></tr>
+<tr><td>AuthenticationSASLFinal</td><td>server-final-message: <code>v=&lt;server-signature-base64&gt;</code></td></tr>
+</table></div>
+<p>The GS2 header and the <code>c=</code> value depend on the channel binding choice:</p>
+<div class="table-wrap"><table>
+<tr><th>Situation</th><th>Mechanism</th><th>GS2 header</th><th><code>c=</code> value is base64 of</th></tr>
+<tr><td>Client does not support channel binding</td><td><code>SCRAM-SHA-256</code></td><td><code>n,,</code></td><td><code>n,,</code> (<code>biws</code>)</td></tr>
+<tr><td>Client supports it, but the server did not offer <code>-PLUS</code></td><td><code>SCRAM-SHA-256</code></td><td><code>y,,</code></td><td><code>y,,</code> (<code>eSws</code>)</td></tr>
+<tr><td>Client uses channel binding</td><td><code>SCRAM-SHA-256-PLUS</code></td><td><code>p=tls-server-end-point,,</code></td><td>GS2 header followed by the certificate hash</td></tr>
+</table></div>
+<p>PostgreSQL's only channel binding type is <code>tls-server-end-point</code> (RFC 5929). The certificate hash covers the server's DER certificate, using the certificate's signature hash algorithm, or SHA-256 if that algorithm is MD5 or SHA-1. A client should prefer <code>-PLUS</code> when it can use it.</p>
+<p>The proof and signature calculation:</p>
+<pre><code>SaltedPassword  = PBKDF2-HMAC-SHA-256(password, salt, iterations)
+ClientKey       = HMAC(SaltedPassword, "Client Key")
+StoredKey       = SHA-256(ClientKey)
+AuthMessage     = client-first-message-bare + "," + server-first-message + ","
+                  + client-final-message-without-proof
+ClientSignature = HMAC(StoredKey, AuthMessage)
+ClientProof     = ClientKey XOR ClientSignature
+ServerKey       = HMAC(SaltedPassword, "Server Key")
+ServerSignature = HMAC(ServerKey, AuthMessage)</code></pre>
+<p>Here <code>client-first-message-bare</code> is the client-first-message without its GS2 header. PostgreSQL differs from the SCRAM specifications in two ways:</p>
+<ul>
+<li><strong>User name</strong>: the server ignores <code>n=</code> and uses the name from StartupMessage, so <code>n=</code> can be empty.</li>
+<li><strong>Password</strong>: the server applies SASLprep when a password is set, but keeps the raw bytes if the password is not valid UTF-8 or contains sequences that SASLprep prohibits. A client must prepare the password the same way to derive the same key.</li>
+</ul>
+<p>The client must check that the combined nonce starts with its own nonce, and must compare <code>v=</code> with its computed ServerSignature before trusting AuthenticationOk.</p>
+<p class="observed">The documentation ties <code>SCRAM-SHA-256-PLUS</code> to the server build, but the server source (<code>auth-scram.c</code>) advertises it only on a connection that is using TLS.</p>
+
+<h4>OAUTHBEARER</h4>
+<p>Defined by RFC 7628. It has no channel binding variant and no AuthenticationSASLFinal. The initial response is a GS2 header followed by key/value pairs; the server only uses the <code>auth</code> key, which holds the bearer token, and currently ignores the GS2 authzid and the <code>host</code> and <code>port</code> keys. A client with no token uses two connections:</p>
+<ol>
+<li>Discovery: send SASLInitialResponse with an empty <code>auth</code> value. The server replies with AuthenticationSASLContinue holding an error status, a well-known URI and scopes. The client answers with a SASLResponse holding the single byte <code>0x01</code>, and the server fails the exchange with ErrorResponse.</li>
+<li>Reconnect: after obtaining a token by any OAuth flow, send it in <code>auth</code>. If the client is authorized, the server replies with AuthenticationOk.</li>
+</ol>
+
+<h3 id="postauth">After AuthenticationOk</h3>
+<p>The client sends nothing until ReadyForQuery. The server can still fail startup with ErrorResponse, or send NegotiateProtocolVersion or NoticeResponse. Normally it sends ParameterStatus messages, BackendKeyData, then ReadyForQuery.</p>
+<div class="table-wrap"><table class="layout">
+<caption>BackendKeyData</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('K')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int32</code></td><td>Backend process ID</td></tr>
+<tr><td><code>Byten</code></td><td>Secret key, extending to the end of the message</td></tr>
+</table></div>
+<div class="table-wrap"><table class="layout">
+<caption>ReadyForQuery</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('Z')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32(5)</code></td><td>Length</td></tr>
+<tr><td><code>Byte1</code></td><td>Transaction status:<br>'I' = idle, not in a transaction block<br>'T' = in a transaction block<br>'E' = in a failed transaction block; queries are rejected until it ends</td></tr>
+</table></div>
+<p>The secret key is always 4 bytes before protocol 3.2. From 3.2 it is 4 to 256 bytes. PostgreSQL sends at most 32 bytes, and middleware may use longer keys, so the client must not assume a fixed size. Third-party servers without cancellation support may omit BackendKeyData.</p>
+<p>ParameterStatus is described under <a href="#async">Asynchronous Messages</a>.</p>
+<p class="observed">All ParameterStatus messages came before BackendKeyData. The key was 32 bytes under protocol 3.2 and 4 bytes under 3.0.</p>
+
+<hr>
+
+<h2 id="simple">Simple Query Protocol</h2>
+<div class="sequence"><svg viewBox="0 0 880 640" role="img" aria-label="Simple query sequence: Query; EmptyQueryResponse; RowDescription; DataRow; CommandComplete; ErrorResponse; ReadyForQuery"><title>Simple query</title><line class="seq-life" x1="100" y1="44" x2="100" y2="632"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="632"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="104" width="516" height="74" rx="6"/><rect class="seq-tab" x="72" y="104" width="217.6" height="24" rx="6"/><text class="seq-tab-text" x="80" y="120">if the query string is empty</text><rect class="seq-frame" x="72" y="196" width="516" height="372" rx="6"/><rect class="seq-tab" x="72" y="196" width="224.8" height="24" rx="6"/><text class="seq-tab-text" x="80" y="212">otherwise, for each statement</text><line class="seq-divider" x1="72" y1="498" x2="588" y2="498"/><text class="seq-tab-text" x="80" y="516">or at any point, ending the whole query string</text><rect class="seq-frame" x="84" y="232" width="492" height="166" rx="6"/><rect class="seq-tab" x="84" y="232" width="224.8" height="24" rx="6"/><text class="seq-tab-text" x="92" y="248">if the statement returns rows</text><rect class="seq-frame" x="96" y="304" width="468" height="74" rx="6"/><rect class="seq-tab" x="96" y="304" width="203.20000000000002" height="24" rx="6"/><text class="seq-tab-text" x="104" y="320">repeats zero or more times</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="90" x2="551" y2="90"/><polygon class="seq-head" points="560,90 551,85 551,95"/><text class="seq-label" x="330.0" y="82" text-anchor="middle">Query</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="162" x2="109" y2="162"/><polygon class="seq-head" points="100,162 109,157 109,167"/><text class="seq-label" x="330.0" y="154" text-anchor="middle">EmptyQueryResponse</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="290" x2="109" y2="290"/><polygon class="seq-head" points="100,290 109,285 109,295"/><text class="seq-label" x="330.0" y="282" text-anchor="middle">RowDescription</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="362" x2="109" y2="362"/><polygon class="seq-head" points="100,362 109,357 109,367"/><text class="seq-label" x="330.0" y="354" text-anchor="middle">DataRow</text></g><rect class="seq-band" x="100" y="414" width="460" height="30" rx="4"/><text class="seq-band-text" x="330.0" y="434" text-anchor="middle">If the statement is COPY: see COPY Protocol</text><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="482" x2="109" y2="482"/><polygon class="seq-head" points="100,482 109,477 109,487"/><text class="seq-label" x="330.0" y="474" text-anchor="middle">CommandComplete</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="552" x2="109" y2="552"/><polygon class="seq-head" points="100,552 109,547 109,557"/><text class="seq-label" x="330.0" y="544" text-anchor="middle">ErrorResponse</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="608" x2="109" y2="608"/><polygon class="seq-head" points="100,608 109,603 109,613"/><text class="seq-label" x="330.0" y="600" text-anchor="middle">ReadyForQuery</text><text class="seq-note" x="604" y="612">always last</text></g></svg></div>
+<div class="table-wrap"><table class="layout">
+<caption>Query</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('Q')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>String</code></td><td>SQL text; may contain several statements</td></tr>
+</table></div>
+
+<h3>Responses per statement</h3>
+<div class="table-wrap"><table>
+<tr><th>Statement</th><th>Response</th></tr>
+<tr><td>Returns rows (<code>SELECT</code>, <code>SHOW</code>, <code>EXPLAIN</code>, <code>FETCH</code>, <code>INSERT ... RETURNING</code>)</td><td>RowDescription, zero or more DataRow, CommandComplete</td></tr>
+<tr><td><code>COPY</code> to or from the client</td><td><a href="#copy">COPY sub-protocol</a></td></tr>
+<tr><td>Any other</td><td>CommandComplete</td></tr>
+<tr><td>Empty or whitespace-only query string</td><td>EmptyQueryResponse in place of CommandComplete</td></tr>
+</table></div>
+<p>An error can occur partway through a statement's messages. ErrorResponse aborts the rest of the query string, and ReadyForQuery always follows. Values are in text format, unless the statement is a <code>FETCH</code> from a cursor declared <code>BINARY</code>; the format codes in RowDescription show which applies.</p>
+
+<h3>Multiple statements in one Query</h3>
+<ul>
+<li>Without explicit transaction control, the statements run in one implicit transaction block, which commits at the end of the message or rolls back on error.</li>
+<li>A <code>COMMIT</code> or <code>ROLLBACK</code> closes the current block. Any following statements run in a new implicit block. In an implicit block, the server also issues a warning, since there was no matching <code>BEGIN</code>.</li>
+<li>If an earlier message already opened a block, the Query continues it, however many statements it holds, and nothing commits at the end of the message unless the string commits it.</li>
+<li>A <code>BEGIN</code> starts a regular block that stays open across messages until an explicit <code>COMMIT</code> or <code>ROLLBACK</code>. Earlier statements in the same message join it.</li>
+<li>Execution stops at the first error, so <code>BEGIN; SELECT 1/0; ROLLBACK;</code> leaves the session in a failed block, and another <code>ROLLBACK</code> is needed.</li>
+<li>The whole string gets lexical and syntax analysis before anything runs, so a syntax error in a later statement prevents all of them from running. Errors found at semantic analysis or later, such as a misspelled table name, do not have this effect, so earlier statements can already have committed.</li>
+<li>Savepoints are not allowed in an implicit block.</li>
+<li>All statements in the message see the same <code>statement_timestamp()</code>.</li>
+</ul>
+
+<h3>RowDescription</h3>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('T')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int16</code></td><td>Number of fields (can be zero)</td></tr>
+<tr class="group"><td colspan="2">For each field:</td></tr>
+<tr class="nested"><td><code>String</code></td><td>Field name</td></tr>
+<tr class="nested"><td><code>Int32</code></td><td>Table OID, or 0 if not a table column</td></tr>
+<tr class="nested"><td><code>Int16</code></td><td>Column attribute number, or 0 if not a table column</td></tr>
+<tr class="nested"><td><code>Int32</code></td><td>Data type OID</td></tr>
+<tr class="nested"><td><code>Int16</code></td><td>Type size (pg_type.typlen); negative means variable width (-1 = varlena, -2 = null-terminated)</td></tr>
+<tr class="nested"><td><code>Int32</code></td><td>Type modifier (pg_attribute.atttypmod); meaning is type-specific</td></tr>
+<tr class="nested"><td><code>Int16</code></td><td>Format code; always 0 from the statement variant of Describe</td></tr>
+</table></div>
+
+<h3>DataRow</h3>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('D')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int16</code></td><td>Number of column values (can be zero)</td></tr>
+<tr class="group"><td colspan="2">For each column:</td></tr>
+<tr class="nested"><td><code>Int32</code></td><td>Value length excluding itself; can be 0; -1 means NULL</td></tr>
+<tr class="nested"><td><code>Byten</code></td><td>Value; absent when NULL</td></tr>
+</table></div>
+
+<h3 id="commandcomplete">CommandComplete</h3>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('C')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>String</code></td><td>Command tag</td></tr>
+</table></div>
+<p>The tag is usually a single word naming the command. These commands add a row count:</p>
+<div class="table-wrap"><table>
+<tr><th>Tag</th><th>Commands and count</th></tr>
+<tr><td><code>INSERT 0 rows</code></td><td>Rows inserted. The middle field is an obsolete OID and is always 0.</td></tr>
+<tr><td><code>UPDATE rows</code>, <code>DELETE rows</code></td><td>Rows updated or deleted.</td></tr>
+<tr><td><code>MERGE rows</code></td><td>Rows inserted, updated or deleted.</td></tr>
+<tr><td><code>SELECT rows</code></td><td><code>SELECT</code> and <code>CREATE TABLE AS</code>: rows retrieved.</td></tr>
+<tr><td><code>FETCH rows</code>, <code>MOVE rows</code></td><td>Rows fetched from the cursor, or rows the cursor moved by.</td></tr>
+<tr><td><code>COPY rows</code></td><td>Rows copied.</td></tr>
+</table></div>
+
+<hr>
+
+<h2 id="extended">Extended Query Protocol</h2>
+<p>This protocol splits a query into separate steps. Parse creates a <em>prepared statement</em> from query text. Bind creates a <em>portal</em> from a statement and parameter values. Execute runs a portal. Both object types exist in unnamed and named forms and belong to one session. Unnamed objects are optimized for running a query once, and named objects for repeated use.</p>
+<div class="sequence"><svg viewBox="0 0 880 952" role="img" aria-label="Extended query sequence: Parse; Bind; Describe; Execute; Sync; ParseComplete; BindComplete; ParameterDescription; RowDescription or NoData; DataRow; CommandComplete; PortalSuspended; EmptyQueryResponse; ErrorResponse; ReadyForQuery"><title>Extended query</title><line class="seq-life" x1="100" y1="44" x2="100" y2="944"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="944"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="334" width="516" height="110" rx="6"/><rect class="seq-tab" x="72" y="334" width="203.20000000000002" height="24" rx="6"/><text class="seq-tab-text" x="80" y="350">reply to Describe, if sent</text><rect class="seq-frame" x="72" y="462" width="516" height="374" rx="6"/><rect class="seq-tab" x="72" y="462" width="131.2" height="24" rx="6"/><text class="seq-tab-text" x="80" y="478">reply to Execute</text><rect class="seq-frame" x="84" y="498" width="492" height="74" rx="6"/><rect class="seq-tab" x="84" y="498" width="203.20000000000002" height="24" rx="6"/><text class="seq-tab-text" x="92" y="514">repeats zero or more times</text><rect class="seq-frame" x="84" y="634" width="492" height="182" rx="6"/><rect class="seq-tab" x="84" y="634" width="116.8" height="24" rx="6"/><text class="seq-tab-text" x="92" y="650">exactly one of</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="90" x2="551" y2="90"/><polygon class="seq-head" points="560,90 551,85 551,95"/><text class="seq-label" x="330.0" y="82" text-anchor="middle">Parse</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="126" x2="551" y2="126"/><polygon class="seq-head" points="560,126 551,121 551,131"/><text class="seq-label" x="330.0" y="118" text-anchor="middle">Bind</text></g><g class="seq-c2s"><line class="seq-arrow seq-dash" x1="100" y1="162" x2="551" y2="162"/><polygon class="seq-head" points="560,162 551,157 551,167"/><text class="seq-label" x="330.0" y="154" text-anchor="middle">Describe</text><text class="seq-note" x="604" y="166">optional</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="198" x2="551" y2="198"/><polygon class="seq-head" points="560,198 551,193 551,203"/><text class="seq-label" x="330.0" y="190" text-anchor="middle">Execute</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="234" x2="551" y2="234"/><polygon class="seq-head" points="560,234 551,229 551,239"/><text class="seq-label" x="330.0" y="226" text-anchor="middle">Sync</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="284" x2="109" y2="284"/><polygon class="seq-head" points="100,284 109,279 109,289"/><text class="seq-label" x="330.0" y="276" text-anchor="middle">ParseComplete</text><text class="seq-note" x="604" y="288">reply to Parse</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="320" x2="109" y2="320"/><polygon class="seq-head" points="100,320 109,315 109,325"/><text class="seq-label" x="330.0" y="312" text-anchor="middle">BindComplete</text><text class="seq-note" x="604" y="324">reply to Bind</text></g><g class="seq-s2c"><line class="seq-arrow seq-dash" x1="560" y1="392" x2="109" y2="392"/><polygon class="seq-head" points="100,392 109,387 109,397"/><text class="seq-label" x="330.0" y="384" text-anchor="middle">ParameterDescription</text><text class="seq-note" x="604" y="396">only for a statement Describe</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="428" x2="109" y2="428"/><polygon class="seq-head" points="100,428 109,423 109,433"/><text class="seq-label" x="330.0" y="420" text-anchor="middle">RowDescription or NoData</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="556" x2="109" y2="556"/><polygon class="seq-head" points="100,556 109,551 109,561"/><text class="seq-label" x="330.0" y="548" text-anchor="middle">DataRow</text></g><rect class="seq-band" x="100" y="588" width="460" height="30" rx="4"/><text class="seq-band-text" x="330.0" y="608" text-anchor="middle">If the statement is COPY: see COPY Protocol</text><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="692" x2="109" y2="692"/><polygon class="seq-head" points="100,692 109,687 109,697"/><text class="seq-label" x="330.0" y="684" text-anchor="middle">CommandComplete</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="728" x2="109" y2="728"/><polygon class="seq-head" points="100,728 109,723 109,733"/><text class="seq-label" x="330.0" y="720" text-anchor="middle">PortalSuspended</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="764" x2="109" y2="764"/><polygon class="seq-head" points="100,764 109,759 109,769"/><text class="seq-label" x="330.0" y="756" text-anchor="middle">EmptyQueryResponse</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="800" x2="109" y2="800"/><polygon class="seq-head" points="100,800 109,795 109,805"/><text class="seq-label" x="330.0" y="792" text-anchor="middle">ErrorResponse</text></g><rect class="seq-band" x="100" y="852" width="460" height="30" rx="4"/><text class="seq-band-text" x="330.0" y="872" text-anchor="middle">Any failing step: ErrorResponse, then skip to Sync</text><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="920" x2="109" y2="920"/><polygon class="seq-head" points="100,920 109,915 109,925"/><text class="seq-label" x="330.0" y="912" text-anchor="middle">ReadyForQuery</text><text class="seq-note" x="604" y="924">reply to Sync</text></g></svg></div>
+<p>Replies are not delivered one message at a time. The server combines its output into as few packets as it can, so a client that sends Parse and waits for ParseComplete without sending Flush or Sync can wait forever.</p>
+<p>Unlike simple Query, Execute does not produce RowDescription or ReadyForQuery. Send Describe before Execute to learn the row layout.</p>
+
+<p>A client can also read results before Sync and fetch a portal in parts. Flush makes the replies arrive without ending the transaction, so the portal stays open across the fetches:</p>
+<div class="sequence"><svg viewBox="0 0 880 802" role="img" aria-label="Fetching a portal in parts sequence: Bind; Execute; Flush; BindComplete; DataRow; PortalSuspended; Execute; Flush; DataRow; PortalSuspended or CommandComplete; Close; Sync; CloseComplete; ReadyForQuery"><title>Fetching a portal in parts</title><line class="seq-life" x1="100" y1="44" x2="100" y2="794"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="794"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="212" width="516" height="74" rx="6"/><rect class="seq-tab" x="72" y="212" width="203.20000000000002" height="24" rx="6"/><text class="seq-tab-text" x="80" y="228">repeats zero or more times</text><rect class="seq-frame" x="72" y="340" width="516" height="238" rx="6"/><rect class="seq-tab" x="72" y="340" width="253.6" height="24" rx="6"/><text class="seq-tab-text" x="80" y="356">repeats until the portal finishes</text><rect class="seq-frame" x="84" y="448" width="492" height="74" rx="6"/><rect class="seq-tab" x="84" y="448" width="203.20000000000002" height="24" rx="6"/><text class="seq-tab-text" x="92" y="464">repeats zero or more times</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="90" x2="551" y2="90"/><polygon class="seq-head" points="560,90 551,85 551,95"/><text class="seq-label" x="330.0" y="82" text-anchor="middle">Bind</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="126" x2="551" y2="126"/><polygon class="seq-head" points="560,126 551,121 551,131"/><text class="seq-label" x="330.0" y="118" text-anchor="middle">Execute</text><text class="seq-note" x="604" y="130">nonzero row limit</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="162" x2="551" y2="162"/><polygon class="seq-head" points="560,162 551,157 551,167"/><text class="seq-label" x="330.0" y="154" text-anchor="middle">Flush</text><text class="seq-note" x="604" y="166">delivers pending replies</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="198" x2="109" y2="198"/><polygon class="seq-head" points="100,198 109,193 109,203"/><text class="seq-label" x="330.0" y="190" text-anchor="middle">BindComplete</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="270" x2="109" y2="270"/><polygon class="seq-head" points="100,270 109,265 109,275"/><text class="seq-label" x="330.0" y="262" text-anchor="middle">DataRow</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="326" x2="109" y2="326"/><polygon class="seq-head" points="100,326 109,321 109,331"/><text class="seq-label" x="330.0" y="318" text-anchor="middle">PortalSuspended</text><text class="seq-note" x="604" y="330">row limit reached</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="398" x2="551" y2="398"/><polygon class="seq-head" points="560,398 551,393 551,403"/><text class="seq-label" x="330.0" y="390" text-anchor="middle">Execute</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="434" x2="551" y2="434"/><polygon class="seq-head" points="560,434 551,429 551,439"/><text class="seq-label" x="330.0" y="426" text-anchor="middle">Flush</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="506" x2="109" y2="506"/><polygon class="seq-head" points="100,506 109,501 109,511"/><text class="seq-label" x="330.0" y="498" text-anchor="middle">DataRow</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="562" x2="109" y2="562"/><polygon class="seq-head" points="100,562 109,557 109,567"/><text class="seq-label" x="330.0" y="554" text-anchor="middle">PortalSuspended or CommandComplete</text></g><g class="seq-c2s"><line class="seq-arrow seq-dash" x1="100" y1="618" x2="551" y2="618"/><polygon class="seq-head" points="560,618 551,613 551,623"/><text class="seq-label" x="330.0" y="610" text-anchor="middle">Close</text><text class="seq-note" x="604" y="622">optional</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="654" x2="551" y2="654"/><polygon class="seq-head" points="560,654 551,649 551,659"/><text class="seq-label" x="330.0" y="646" text-anchor="middle">Sync</text></g><g class="seq-s2c"><line class="seq-arrow seq-dash" x1="560" y1="690" x2="109" y2="690"/><polygon class="seq-head" points="100,690 109,685 109,695"/><text class="seq-label" x="330.0" y="682" text-anchor="middle">CloseComplete</text><text class="seq-note" x="604" y="694">reply to Close</text></g><rect class="seq-band" x="100" y="702" width="460" height="30" rx="4"/><text class="seq-band-text" x="330.0" y="722" text-anchor="middle">Any failing step: ErrorResponse, then skip to Sync</text><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="770" x2="109" y2="770"/><polygon class="seq-head" points="100,770 109,765 109,775"/><text class="seq-label" x="330.0" y="762" text-anchor="middle">ReadyForQuery</text><text class="seq-note" x="604" y="774">reply to Sync</text></g></svg></div>
+
+<h3 id="extended-messages">Messages</h3>
+
+<h4>Parse</h4>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('P')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>String</code></td><td>Destination statement name; empty selects the unnamed statement</td></tr>
+<tr><td><code>String</code></td><td>Query text, with $1, $2, ... placeholders</td></tr>
+<tr><td><code>Int16</code></td><td>Number of parameter types specified (not the number of parameters)</td></tr>
+<tr><td><code>Int32[N]</code></td><td>Parameter type OIDs; 0 leaves that type unspecified</td></tr>
+</table></div>
+<p>Reply: ParseComplete or ErrorResponse.</p>
+<ul>
+<li>The query text can hold only one SQL statement; otherwise the server reports a syntax error.</li>
+<li>The type array can be shorter than the number of placeholders. Unspecified types are inferred the same way as untyped string literals.</li>
+<li>A parameter can be declared with the OID of <code>void</code> to stand for an OUT argument of a function. Pass NULL for it in Bind.</li>
+</ul>
+
+<h4>Bind</h4>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('B')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>String</code></td><td>Destination portal name; empty selects the unnamed portal</td></tr>
+<tr><td><code>String</code></td><td>Source statement name; empty selects the unnamed statement</td></tr>
+<tr><td><code>Int16</code></td><td>Number of parameter format codes (C)</td></tr>
+<tr><td><code>Int16[C]</code></td><td>Parameter format codes</td></tr>
+<tr><td><code>Int16</code></td><td>Number of parameter values; must match what the statement needs</td></tr>
+<tr class="group"><td colspan="2">For each parameter:</td></tr>
+<tr class="nested"><td><code>Int32</code></td><td>Value length excluding itself; can be 0; -1 means NULL</td></tr>
+<tr class="nested"><td><code>Byten</code></td><td>Value; absent when NULL</td></tr>
+<tr><td><code>Int16</code></td><td>Number of result-column format codes (R)</td></tr>
+<tr><td><code>Int16[R]</code></td><td>Result-column format codes</td></tr>
+</table></div>
+<p>Reply: BindComplete or ErrorResponse.</p>
+<p>Both format code lists follow the same rule. Zero codes means all text, or that there are no such values. One code applies to all values. Otherwise the list has one code per value. Result formats come only from Bind; a cursor's <code>BINARY</code> attribute is ignored in this protocol.</p>
+<p>The server typically plans the query while processing Bind, and may reuse a generic plan on later Binds of the same statement.</p>
+
+<h4>Describe</h4>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('D')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Byte1</code></td><td>'S' for a prepared statement, 'P' for a portal</td></tr>
+<tr><td><code>String</code></td><td>Name; empty selects the unnamed object</td></tr>
+</table></div>
+<ul>
+<li><strong>Statement</strong>: ParameterDescription, then RowDescription or NoData. The result formats are not known yet, so every format code in RowDescription is 0.</li>
+<li><strong>Portal</strong>: RowDescription or NoData, with the formats chosen in Bind.</li>
+<li>ErrorResponse if the object does not exist.</li>
+</ul>
+<div class="table-wrap"><table class="layout">
+<caption>ParameterDescription</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('t')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int16</code></td><td>Number of parameters (can be zero)</td></tr>
+<tr><td><code>Int32[N]</code></td><td>Parameter type OIDs</td></tr>
+</table></div>
+
+<h4>Execute</h4>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('E')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>String</code></td><td>Portal name; empty selects the unnamed portal</td></tr>
+<tr><td><code>Int32</code></td><td>Maximum rows to return; 0 means no limit</td></tr>
+</table></div>
+<p>The row limit applies only to portals that return rows; other commands always run to completion. The reply is zero or more DataRow messages, or a <a href="#copy">COPY sub-protocol</a>, ending in exactly one of:</p>
+<ul>
+<li><strong>CommandComplete</strong>: the portal finished.</li>
+<li><strong>PortalSuspended</strong>: the row limit was reached. Send Execute again for the same portal to continue. CommandComplete is not sent until the portal finishes.</li>
+<li><strong>EmptyQueryResponse</strong>: the portal came from an empty query string.</li>
+<li><strong>ErrorResponse</strong>.</li>
+</ul>
+
+<h4>Close</h4>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('C')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Byte1</code></td><td>'S' for a prepared statement, 'P' for a portal</td></tr>
+<tr><td><code>String</code></td><td>Name; empty selects the unnamed object</td></tr>
+</table></div>
+<p>Reply: CloseComplete, or ErrorResponse if releasing resources fails. Closing a nonexistent name is not an error.</p>
+<p>The documentation says that closing a statement also closes portals built from it.</p>
+<p class="observed">A portal bound from a statement still executed after that statement was closed in the same transaction. Close portals explicitly, and do not rely on either behaviour.</p>
+
+<h4>Sync</h4>
+<p>Marks the end of a series of extended-query messages. If the session is not in a <code>BEGIN</code> block, Sync closes the current transaction, committing on success and rolling back on error. Inside a <code>BEGIN</code> block, the transaction stays open. The reply is ReadyForQuery, whose status byte shows which case applies. Each Sync produces exactly one ReadyForQuery.</p>
+
+<h4>Flush</h4>
+<p>Forces the server to deliver pending output. It produces no message of its own, does not end a transaction, and does not cause ReadyForQuery. It is needed after any extended-query command other than Sync if the client wants to see the results before sending more.</p>
+
+<h3 id="extended-errors">Error Recovery</h3>
+<p>When any extended-query message fails, the server sends ErrorResponse, then reads and discards all messages until Sync, then sends ReadyForQuery. No skipping happens if the error occurs while processing Sync itself, which keeps the one-to-one match between Sync and ReadyForQuery.</p>
+
+<h3 id="lifetimes">Statement and Portal Lifetimes</h3>
+<div class="table-wrap"><table>
+<tr><th>Object</th><th>Destroyed by</th><th>Redefining</th></tr>
+<tr><td>Unnamed statement</td><td>Next Parse to the unnamed statement; a Query message; Close; session end</td><td>Allowed without Close</td></tr>
+<tr><td>Named statement</td><td>Close; session end</td><td>Requires Close first; otherwise error <code>42P05</code></td></tr>
+<tr><td>Unnamed portal</td><td>End of transaction; next Bind to the unnamed portal; a Query message; Close; session end</td><td>Allowed without Close</td></tr>
+<tr><td>Named portal</td><td>End of transaction; Close; session end</td><td>Requires Close first</td></tr>
+</table></div>
+<p>Sync ends a portal only when it ends the transaction, and a portal survives Sync inside a <code>BEGIN</code> block. Flush never ends a portal. An incomplete portal keeps its resources until one of the above events.</p>
+<pre><code># No BEGIN: Sync ends the implicit transaction and destroys the portal
+Bind "p1", Execute "p1" (max 1), Sync    → ..., PortalSuspended, ReadyForQuery 'I'
+Execute "p1", Sync                       → ErrorResponse 34000, ReadyForQuery 'I'
+
+# No BEGIN: Flush keeps the transaction and the portal alive
+Bind "p1", Execute "p1" (max 1), Flush   → ..., PortalSuspended
+Execute "p1" (max 1), Flush              → DataRow, PortalSuspended
+
+# Inside BEGIN: the portal survives Sync and ends at COMMIT or ROLLBACK
+Bind "p1", Execute "p1" (max 1), Sync    → ..., PortalSuspended, ReadyForQuery 'T'
+Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQuery 'T'</code></pre>
+<p>SQL can reach the same objects: <code>DECLARE CURSOR</code> and <code>FETCH</code> use named portals, and <code>PREPARE</code> and <code>EXECUTE</code> use named prepared statements.</p>
+<p>A simple Query message behaves approximately like Parse, Bind, portal Describe, Execute, Close and Sync on the unnamed objects, without ParseComplete, BindComplete, CloseComplete or NoData.</p>
+
+<hr>
+
+<h2 id="pipelining">Pipelining</h2>
+<p>Pipelining means sending further queries without waiting for earlier ones to finish, which reduces network round trips. There is no pipeline message or server mode; the client sends ordinary extended-query messages. The server starts executing commands as they arrive and returns results in the order received.</p>
+
+<h3>Segments</h3>
+<p>Each Sync ends one segment of the pipeline. Without an explicit <code>BEGIN</code>, the commands in a segment form one implicit transaction block, so a failure rolls back the whole segment and skips the rest of it. Segments that must commit independently are separated by Sync. The server only detects the implicit block when the first command ends without a Sync.</p>
+<div class="sequence"><svg viewBox="0 0 880 828" role="img" aria-label="Pipeline with a failing query sequence: Parse, Bind, Execute; Parse, Bind, Execute; Parse, Bind, Execute; Sync; Parse, Bind, Execute; Sync; ParseComplete, BindComplete; CommandComplete; ParseComplete, BindComplete; ErrorResponse; ReadyForQuery 'I'; ParseComplete, BindComplete; CommandComplete; ReadyForQuery 'I'"><title>Pipeline with a failing query</title><line class="seq-life" x1="100" y1="44" x2="100" y2="820"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="820"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="68" width="516" height="182" rx="6"/><rect class="seq-tab" x="72" y="68" width="80.8" height="24" rx="6"/><text class="seq-tab-text" x="80" y="84">segment 1</text><rect class="seq-frame" x="72" y="268" width="516" height="110" rx="6"/><rect class="seq-tab" x="72" y="268" width="80.8" height="24" rx="6"/><text class="seq-tab-text" x="80" y="284">segment 2</text><rect class="seq-frame" x="72" y="410" width="516" height="218" rx="6"/><rect class="seq-tab" x="72" y="410" width="160.0" height="24" rx="6"/><text class="seq-tab-text" x="80" y="426">replies to segment 1</text><rect class="seq-frame" x="72" y="646" width="516" height="146" rx="6"/><rect class="seq-tab" x="72" y="646" width="160.0" height="24" rx="6"/><text class="seq-tab-text" x="80" y="662">replies to segment 2</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="126" x2="551" y2="126"/><polygon class="seq-head" points="560,126 551,121 551,131"/><text class="seq-label" x="330.0" y="118" text-anchor="middle">Parse, Bind, Execute</text><text class="seq-note" x="604" y="130">query 1 succeeds</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="162" x2="551" y2="162"/><polygon class="seq-head" points="560,162 551,157 551,167"/><text class="seq-label" x="330.0" y="154" text-anchor="middle">Parse, Bind, Execute</text><text class="seq-note" x="604" y="166">query 2 fails</text></g><g class="seq-c2s seq-dim"><line class="seq-arrow" x1="100" y1="198" x2="551" y2="198"/><polygon class="seq-head" points="560,198 551,193 551,203"/><text class="seq-label" x="330.0" y="190" text-anchor="middle">Parse, Bind, Execute</text><text class="seq-note" x="604" y="202">query 3 skipped</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="234" x2="551" y2="234"/><polygon class="seq-head" points="560,234 551,229 551,239"/><text class="seq-label" x="330.0" y="226" text-anchor="middle">Sync</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="326" x2="551" y2="326"/><polygon class="seq-head" points="560,326 551,321 551,331"/><text class="seq-label" x="330.0" y="318" text-anchor="middle">Parse, Bind, Execute</text><text class="seq-note" x="604" y="330">query 4</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="362" x2="551" y2="362"/><polygon class="seq-head" points="560,362 551,357 551,367"/><text class="seq-label" x="330.0" y="354" text-anchor="middle">Sync</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="468" x2="109" y2="468"/><polygon class="seq-head" points="100,468 109,463 109,473"/><text class="seq-label" x="330.0" y="460" text-anchor="middle">ParseComplete, BindComplete</text><text class="seq-note" x="604" y="472">query 1</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="504" x2="109" y2="504"/><polygon class="seq-head" points="100,504 109,499 109,509"/><text class="seq-label" x="330.0" y="496" text-anchor="middle">CommandComplete</text><text class="seq-note" x="604" y="508">query 1, rolled back</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="540" x2="109" y2="540"/><polygon class="seq-head" points="100,540 109,535 109,545"/><text class="seq-label" x="330.0" y="532" text-anchor="middle">ParseComplete, BindComplete</text><text class="seq-note" x="604" y="544">query 2</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="576" x2="109" y2="576"/><polygon class="seq-head" points="100,576 109,571 109,581"/><text class="seq-label" x="330.0" y="568" text-anchor="middle">ErrorResponse</text><text class="seq-note" x="604" y="580">query 2</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="612" x2="109" y2="612"/><polygon class="seq-head" points="100,612 109,607 109,617"/><text class="seq-label" x="330.0" y="604" text-anchor="middle">ReadyForQuery 'I'</text><text class="seq-note" x="604" y="616">segment 1 rolled back</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="704" x2="109" y2="704"/><polygon class="seq-head" points="100,704 109,699 109,709"/><text class="seq-label" x="330.0" y="696" text-anchor="middle">ParseComplete, BindComplete</text><text class="seq-note" x="604" y="708">query 4</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="740" x2="109" y2="740"/><polygon class="seq-head" points="100,740 109,735 109,745"/><text class="seq-label" x="330.0" y="732" text-anchor="middle">CommandComplete</text><text class="seq-note" x="604" y="744">query 4</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="776" x2="109" y2="776"/><polygon class="seq-head" points="100,776 109,771 109,781"/><text class="seq-label" x="330.0" y="768" text-anchor="middle">ReadyForQuery 'I'</text><text class="seq-note" x="604" y="780">segment 2 committed</text></g></svg></div>
+
+<p>This example uses statements that return no rows and sends no Describe. Those replies follow the <a href="#extended">Extended Query</a> diagram.</p>
+
+<h3>Transaction outcomes</h3>
+<div class="table-wrap"><table>
+<tr><th>Pipeline</th><th>On error</th><th>Status at Sync</th></tr>
+<tr><td>No <code>BEGIN</code></td><td>The earlier commands in the segment roll back and the later ones are skipped. The next segment starts clean.</td><td><code>'I'</code></td></tr>
+<tr><td><code>BEGIN ... COMMIT</code> in one segment</td><td>Same, but <code>COMMIT</code> is skipped too, so the block stays failed. Later commands fail with <code>25P02</code> until <code>ROLLBACK</code>.</td><td><code>'E'</code></td></tr>
+<tr><td>Several explicit transactions in one segment</td><td>Transactions already committed stay committed. The current one aborts, and the following ones are skipped.</td><td><code>'E'</code> if a block is still failed, otherwise <code>'I'</code></td></tr>
+</table></div>
+<p>Skipping applies to every command until Sync, even one that would roll back the transaction, so a <code>ROLLBACK</code> in the same segment does not run.</p>
+<p>Work is committed only once the client receives the CommandComplete for <code>COMMIT</code> (or the ReadyForQuery for an implicit commit), not when the client sends it. Since errors arrive later, the client must be able to resend work done after the last confirmed commit.</p>
+<p class="observed">The tests confirmed <code>'I'</code> with the earlier insert rolled back in the first row, and <code>'E'</code> then <code>25P02</code> in the second row.</p>
+
+<h3>Client requirements</h3>
+<ul>
+<li><strong>Detect completion by counting ReadyForQuery</strong> against the number of Syncs sent. Skipped commands produce no messages, so counting command responses is unreliable.</li>
+<li><strong>Match results with a FIFO queue</strong> of what was sent, because messages carry no request ID.</li>
+<li><strong>Read while writing.</strong> The server blocks when it cannot send results, and the client blocks when it cannot send queries. If the client sends enough to fill both directions before reading, the two deadlock. Use non-blocking I/O or a separate read path for large pipelines.</li>
+<li><strong>Send Flush or Sync</strong> before waiting for any result.</li>
+</ul>
+
+<h3>Restrictions and edge cases</h3>
+<ul>
+<li>A later command can depend on an earlier one in the same pipeline, such as using a table it creates or a statement it prepares.</li>
+<li>Commands that cannot run in a transaction block, such as <code>CREATE DATABASE</code>, fail in a pipeline unless they are the first command after a Sync. On success they force an immediate commit, so a Sync directly after one only produces ReadyForQuery.</li>
+<li>libpq's pipeline mode forbids simple Query, multi-statement strings and COPY. This is a libpq rule. At the protocol level, the server still processes a Query message that arrives while earlier commands are unfinished.</li>
+<li>An error in a simple Query does not skip later messages, because skipping applies only to extended-query errors. While the server is skipping after an extended-query error, it also discards Query messages.</li>
+</ul>
+<p class="observed">Sending three Query messages at once, where the second failed, produced three ReadyForQuery messages, and the third query still ran.</p>
+
+<h3>When it helps</h3>
+<p>Pipelining helps most with high latency and many small operations: a 100-statement operation at 300 ms round-trip time spends 30 s on network latency sequentially and as little as 0.3 s pipelined. It helps little when each query takes much longer than a round trip. It does not help when the client needs one result to produce the next command, since that requires a full round trip.</p>
+
+<hr>
+
+<h2 id="copy">COPY Protocol</h2>
+<p>COPY can start from a simple Query or an Execute. When it ends, the server returns to the protocol that started it. After a Query, ReadyForQuery follows automatically. After an Execute, ReadyForQuery comes only in reply to a later Sync.</p>
+
+<h3>Copy-out (<code>COPY ... TO STDOUT</code>)</h3>
+<div class="sequence"><svg viewBox="0 0 880 484" role="img" aria-label="Copy-out sequence: Query or Execute; CopyOutResponse; CopyData; CopyDone; CommandComplete; ErrorResponse; ReadyForQuery"><title>Copy-out</title><line class="seq-life" x1="100" y1="44" x2="100" y2="476"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="476"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="140" width="516" height="272" rx="6"/><rect class="seq-tab" x="72" y="140" width="109.60000000000001" height="24" rx="6"/><text class="seq-tab-text" x="80" y="156">copy-out mode</text><line class="seq-divider" x1="72" y1="342" x2="588" y2="342"/><text class="seq-tab-text" x="80" y="360">or at any point, with no CopyDone</text><rect class="seq-frame" x="84" y="176" width="492" height="74" rx="6"/><rect class="seq-tab" x="84" y="176" width="203.20000000000002" height="24" rx="6"/><text class="seq-tab-text" x="92" y="192">repeats zero or more times</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="90" x2="551" y2="90"/><polygon class="seq-head" points="560,90 551,85 551,95"/><text class="seq-label" x="330.0" y="82" text-anchor="middle">Query or Execute</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="126" x2="109" y2="126"/><polygon class="seq-head" points="100,126 109,121 109,131"/><text class="seq-label" x="330.0" y="118" text-anchor="middle">CopyOutResponse</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="234" x2="109" y2="234"/><polygon class="seq-head" points="100,234 109,229 109,239"/><text class="seq-label" x="330.0" y="226" text-anchor="middle">CopyData</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="290" x2="109" y2="290"/><polygon class="seq-head" points="100,290 109,285 109,295"/><text class="seq-label" x="330.0" y="282" text-anchor="middle">CopyDone</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="326" x2="109" y2="326"/><polygon class="seq-head" points="100,326 109,321 109,331"/><text class="seq-label" x="330.0" y="318" text-anchor="middle">CommandComplete</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="396" x2="109" y2="396"/><polygon class="seq-head" points="100,396 109,391 109,401"/><text class="seq-label" x="330.0" y="388" text-anchor="middle">ErrorResponse</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="452" x2="109" y2="452"/><polygon class="seq-head" points="100,452 109,447 109,457"/><text class="seq-label" x="330.0" y="444" text-anchor="middle">ReadyForQuery</text><text class="seq-note" x="604" y="456">after Query; after Execute, on Sync</text></g></svg></div>
+<ul>
+<li>On a server-side error, ErrorResponse replaces the remaining messages and ends copy-out mode. No CopyDone is sent.</li>
+<li>NoticeResponse and ParameterStatus can arrive between CopyData messages, and the client should be prepared for other asynchronous messages too. Any other message type may be treated as ending copy-out mode.</li>
+<li>The client cannot stop the transfer except by cancelling or closing the connection, but it can discard the data.</li>
+</ul>
+
+<h3>Copy-in (<code>COPY ... FROM STDIN</code>)</h3>
+<div class="sequence"><svg viewBox="0 0 880 520" role="img" aria-label="Copy-in sequence: Query or Execute; CopyInResponse; CopyData; CopyDone; CommandComplete; CopyFail; ErrorResponse; ReadyForQuery"><title>Copy-in</title><line class="seq-life" x1="100" y1="44" x2="100" y2="512"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="512"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="140" width="516" height="308" rx="6"/><rect class="seq-tab" x="72" y="140" width="102.4" height="24" rx="6"/><text class="seq-tab-text" x="80" y="156">copy-in mode</text><line class="seq-divider" x1="72" y1="342" x2="588" y2="342"/><text class="seq-tab-text" x="80" y="360">or on CopyFail or a server error at any point</text><rect class="seq-frame" x="84" y="176" width="492" height="74" rx="6"/><rect class="seq-tab" x="84" y="176" width="203.20000000000002" height="24" rx="6"/><text class="seq-tab-text" x="92" y="192">repeats zero or more times</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="90" x2="551" y2="90"/><polygon class="seq-head" points="560,90 551,85 551,95"/><text class="seq-label" x="330.0" y="82" text-anchor="middle">Query or Execute</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="126" x2="109" y2="126"/><polygon class="seq-head" points="100,126 109,121 109,131"/><text class="seq-label" x="330.0" y="118" text-anchor="middle">CopyInResponse</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="234" x2="551" y2="234"/><polygon class="seq-head" points="560,234 551,229 551,239"/><text class="seq-label" x="330.0" y="226" text-anchor="middle">CopyData</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="290" x2="551" y2="290"/><polygon class="seq-head" points="560,290 551,285 551,295"/><text class="seq-label" x="330.0" y="282" text-anchor="middle">CopyDone</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="326" x2="109" y2="326"/><polygon class="seq-head" points="100,326 109,321 109,331"/><text class="seq-label" x="330.0" y="318" text-anchor="middle">CommandComplete</text></g><g class="seq-c2s"><line class="seq-arrow seq-dash" x1="100" y1="396" x2="551" y2="396"/><polygon class="seq-head" points="560,396 551,391 551,401"/><text class="seq-label" x="330.0" y="388" text-anchor="middle">CopyFail</text><text class="seq-note" x="604" y="400">if the client aborts</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="432" x2="109" y2="432"/><polygon class="seq-head" points="100,432 109,427 109,437"/><text class="seq-label" x="330.0" y="424" text-anchor="middle">ErrorResponse</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="488" x2="109" y2="488"/><polygon class="seq-head" points="100,488 109,483 109,493"/><text class="seq-label" x="330.0" y="480" text-anchor="middle">ReadyForQuery</text><text class="seq-note" x="604" y="492">after Query; after Execute, on Sync</text></g></svg></div>
+<ul>
+<li>CopyData boundaries do not need to match row boundaries.</li>
+<li>CopyDone ends the copy successfully. CopyFail makes the COPY statement fail with an error.</li>
+<li>A client that is not prepared to supply data, such as a generic query API that receives an unexpected CopyInResponse, must send CopyFail. The server is waiting for input until it does.</li>
+<li>After an error, the server discards the rest of the Query message or skips to Sync. Any CopyData, CopyDone or CopyFail the client is still sending is dropped.</li>
+<li>Flush and Sync are ignored during copy-in, including those a client library sends right after Execute. After CopyDone, an extended-protocol client must send a new Sync to receive ReadyForQuery.</li>
+<li>Any other message type is a protocol error.</li>
+</ul>
+<div class="table-wrap"><table class="layout">
+<caption>CopyFail</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('f')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>String</code></td><td>Error message to report as the cause of failure</td></tr>
+</table></div>
+<p class="observed">The documentation says other message types abort copy-in, but sending Query or Parse during copy-in produced ERROR <code>08P01</code> and then FATAL <code>08P01</code>, and the server closed the connection. CopyFail produced ERROR <code>57014</code> and kept the session open.</p>
+
+<h3>Copy-both</h3>
+<p>Used only for streaming replication, after <code>START_REPLICATION</code> on a walsender connection. Both sides can send CopyData until one sends CopyDone, after which the connection is in copy-in or copy-out mode for the remaining direction. After both sides have sent CopyDone, copy mode ends and the server returns to command processing. After a server-side error, the server discards messages until Sync. The client should treat ErrorResponse as ending the copy in both directions and must not send CopyDone.</p>
+
+<h3>Message layouts</h3>
+<div class="table-wrap"><table class="layout">
+<caption>CopyInResponse / CopyOutResponse / CopyBothResponse</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('G' / 'H' / 'W')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int8</code></td><td>Overall format: 0 = textual, 1 = binary</td></tr>
+<tr><td><code>Int16</code></td><td>Number of columns (N)</td></tr>
+<tr><td><code>Int16[N]</code></td><td>Per-column format codes; all 0 if the overall format is textual</td></tr>
+</table></div>
+<div class="table-wrap"><table class="layout">
+<caption>CopyData</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('d')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Byten</code></td><td>Part of the COPY data stream</td></tr>
+</table></div>
+<p>The overall format is 0 for both <code>text</code> and <code>csv</code>, so these messages cannot tell the client which one is in use. All columns in one operation currently share a format, but the message design does not assume this.</p>
+<p class="observed">The documentation says each backend CopyData holds one row, but there are exceptions. Binary COPY puts the file header and first row in the first CopyData, and the trailer in its own message. <code>FORMAT json</code> reports overall format 0 and 1 column regardless of table width, and with <code>force_array</code> sends each bracket as its own CopyData.</p>
+
+<h3>Text format</h3>
+<ul>
+<li>One line per row. Rows end in <code>\n</code> on output. On input, <code>\n</code>, <code>\r</code> or <code>\r\n</code> are accepted, but must be used consistently. <code>COPY FROM</code> raises an error if a line has more or fewer columns than expected.</li>
+<li>Columns are separated by the delimiter (default tab). NULL is the null string (default <code>\N</code>). Both are configurable.</li>
+<li><code>COPY TO</code> writes the null string without adding backslashes, and <code>COPY FROM</code> matches it before removing backslashes. The data value <code>\N</code> is therefore written <code>\\N</code> and is not confused with NULL.</li>
+<li>A backslash, newline, carriage return or delimiter inside a value must be preceded by a backslash. Prefer <code>\n</code> and <code>\r</code> for newlines and carriage returns.</li>
+<li><code>COPY FROM</code> recognizes <code>\b</code>, <code>\f</code>, <code>\n</code>, <code>\r</code>, <code>\t</code>, <code>\v</code>, <code>\</code> plus 1 to 3 octal digits, and <code>\x</code> plus 1 or 2 hex digits. Any other backslashed character stands for itself. <code>COPY TO</code> uses the named sequences for those control characters, but never emits octal or hex sequences.</li>
+<li>Do not add unnecessary backslashes. The end-of-data marker <code>\.</code> and the null string are recognized before other backslash processing, so escaping <code>.</code> or <code>N</code> can produce one of them by accident.</li>
+<li>Backslash sequences are interpreted after encoding conversion. Bytes given by octal or hex sequences must form valid characters in the database encoding.</li>
+<li>End of data is signalled by CopyDone. A <code>\.</code> line is still recognized as a terminator in text-mode COPY IN, but this is deprecated, and it is not sent during COPY OUT.</li>
+</ul>
+
+<h3>CSV format</h3>
+<ul>
+<li>Values are separated by the delimiter (default comma). Backslash is not special, and text-format escapes do not apply.</li>
+<li>A value is enclosed in the quote character (default <code>"</code>) if it contains the delimiter, the quote character, the null string, a carriage return or a line feed. Inside it, each quote or escape character is preceded by the escape character, which defaults to the quote character, so quotes are doubled by default. <code>FORCE_QUOTE</code> can also quote other non-NULL values on output.</li>
+<li>NULL is the null string, unquoted, and a non-NULL value matching the null string is quoted. By default, NULL is an unquoted empty string and an empty string is <code>""</code>. Input follows the same rule, so compare against the null string before removing quotes. <code>FORCE_NOT_NULL</code> and <code>FORCE_NULL</code> change this for chosen columns on input.</li>
+<li>All characters are significant, so whitespace around a value is part of the data.</li>
+<li>Quoted values can contain carriage returns and line feeds, so one record can span several lines. Do not split records on newlines.</li>
+<li><code>\.</code> is not normally special when reading CSV. Servers before PostgreSQL 18 always treated an unquoted <code>\.</code> line as end of data, so <code>COPY TO</code> still quotes <code>\.</code> when it is alone on a line.</li>
+</ul>
+
+<h3>JSON format</h3>
+<p>Allowed only in <code>COPY TO</code>. Each row is one JSON object keyed by column name. SQL NULL is written as <code>null</code>, and so is a JSON or JSONB value that is the literal <code>null</code>, so the two cannot be told apart.</p>
+<p>With <code>FORCE_ARRAY</code>, the output is one JSON array, so an individual CopyData is not a valid JSON document:</p>
+<pre><code>[
+ {"id":1}
+,{"id":2}
+]</code></pre>
+
+<h3>Binary format</h3>
+<div class="table-wrap"><table class="layout">
+<caption>Header</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte11</code></td><td>Signature: PGCOPY\n\377\r\n\0</td></tr>
+<tr><td><code>Int32</code></td><td>Flags: bits 16-31 critical (abort on an unknown bit), bits 0-15 ignorable; bit 16 means OIDs are included, which current servers do not support. Only bit 16 is defined, and the rest must be zero. With bit 16 set, an OID field follows each field count and is not included in it.</td></tr>
+<tr><td><code>Int32</code></td><td>Header extension length, excluding itself; currently 0</td></tr>
+<tr><td><code>Byten</code></td><td>Header extension; skip it if not understood</td></tr>
+</table></div>
+<div class="table-wrap"><table class="layout">
+<caption>Each tuple</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Int16</code></td><td>Field count</td></tr>
+<tr class="group"><td colspan="2">For each field:</td></tr>
+<tr class="nested"><td><code>Int32</code></td><td>Field length excluding itself; can be 0; -1 means NULL</td></tr>
+<tr class="nested"><td><code>Byten</code></td><td>Field data in binary format; absent when NULL</td></tr>
+</table></div>
+<div class="table-wrap"><table class="layout">
+<caption>Trailer</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Int16(-1)</code></td><td>End-of-data marker</td></tr>
+</table></div>
+<p>A reader should report an error if a field count is neither -1 nor the expected number of columns. The representation depends on the exact data type: binary data output from a <code>smallint</code> column cannot be read into an <code>integer</code> column.</p>
+
+<hr>
+
+<h2 id="function-call">Function Call Protocol</h2>
+<p>This is a legacy feature that new code should avoid. A prepared <code>SELECT function($1, ...)</code> does the same job.</p>
+<div class="table-wrap"><table class="layout">
+<caption>FunctionCall</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('F')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int32</code></td><td>Function OID</td></tr>
+<tr><td><code>Int16</code></td><td>Number of argument format codes (C); same rule as <a href="#extended-messages">Bind</a></td></tr>
+<tr><td><code>Int16[C]</code></td><td>Argument format codes</td></tr>
+<tr><td><code>Int16</code></td><td>Number of arguments</td></tr>
+<tr class="group"><td colspan="2">For each argument:</td></tr>
+<tr class="nested"><td><code>Int32</code></td><td>Value length excluding itself; can be 0; -1 means NULL</td></tr>
+<tr class="nested"><td><code>Byten</code></td><td>Value; absent when NULL</td></tr>
+<tr><td><code>Int16</code></td><td>Result format code</td></tr>
+</table></div>
+<div class="table-wrap"><table class="layout">
+<caption>FunctionCallResponse</caption>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('V')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int32</code></td><td>Result length excluding itself; can be 0; -1 means NULL</td></tr>
+<tr><td><code>Byten</code></td><td>Result; absent when NULL</td></tr>
+</table></div>
+<p>The reply is FunctionCallResponse or ErrorResponse, possibly with NoticeResponse messages, then always ReadyForQuery. The function can return only a single scalar. The client needs execute permission on the function.</p>
+
+<hr>
+
+<h2 id="async">Asynchronous Messages</h2>
+<p>The server can send these without a client request. After startup, the client must be ready to accept them at any point, including while idle and during COPY, and should at minimum check for them before it starts reading a query response. During startup, the server sends none of them before AuthenticationOk. After AuthenticationOk, it sends ParameterStatus and can send NoticeResponse.</p>
+
+<h3>NoticeResponse</h3>
+<p>Layout is under <a href="#errors">Error and Notice Messages</a>. Notices can come from outside events, such as a server shutdown request, and do not stop the current command. Display them or pass them to the application.</p>
+
+<h3>ParameterStatus</h3>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('S')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>String</code></td><td>Parameter name</td></tr>
+<tr><td><code>String</code></td><td>Current value</td></tr>
+</table></div>
+<p>Sent at startup and whenever the active value of a reported parameter changes. The cause can be <code>SET</code>, a rolled-back <code>SET</code>, or a configuration reload.</p>
+<p>The currently reported parameters are <code>application_name</code>, <code>client_encoding</code>, <code>DateStyle</code>, <code>default_transaction_read_only</code>, <code>in_hot_standby</code>, <code>integer_datetimes</code>, <code>IntervalStyle</code>, <code>is_superuser</code>, <code>scram_iterations</code>, <code>search_path</code>, <code>server_encoding</code>, <code>server_version</code>, <code>session_authorization</code>, <code>standard_conforming_strings</code> and <code>TimeZone</code>. This set may change, so ignore unknown names. Older servers report fewer: <code>default_transaction_read_only</code> and <code>in_hot_standby</code> start in PostgreSQL 14, <code>scram_iterations</code> in 16, and <code>search_path</code> in 18. <code>server_version</code>, <code>server_encoding</code> and <code>integer_datetimes</code> cannot change after startup.</p>
+<p class="observed">After <code>SET</code>, the message arrived after CommandComplete and just before ReadyForQuery. A <code>SET</code> and <code>ROLLBACK</code> inside one Query message produced none, since the value was unchanged by then. Separate messages produced one each.</p>
+
+<h3>NotificationResponse</h3>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('A')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr><td><code>Int32</code></td><td>Notifying backend's process ID</td></tr>
+<tr><td><code>String</code></td><td>Channel name</td></tr>
+<tr><td><code>String</code></td><td>Payload</td></tr>
+</table></div>
+<p>Sent after <code>LISTEN</code> when a <code>NOTIFY</code> runs on that channel. Currently it is sent only outside a transaction, possibly just before ReadyForQuery, but clients should accept it anywhere.</p>
+
+<hr>
+
+<h2 id="errors">Error and Notice Messages</h2>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Byte1('E' or 'N')</code></td><td>Message type</td></tr>
+<tr><td><code>Int32</code></td><td>Length</td></tr>
+<tr class="group"><td colspan="2">For each field:</td></tr>
+<tr class="nested"><td><code>Byte1</code></td><td>Field code; never zero</td></tr>
+<tr class="nested"><td><code>String</code></td><td>Field value</td></tr>
+<tr><td><code>Byte1(0)</code></td><td>Terminator</td></tr>
+</table></div>
+<p>Fields can appear in any order, and each should appear at most once. Silently ignore unknown field codes.</p>
+<div class="table-wrap"><table>
+<tr><th>Code</th><th>Name</th><th>Contents</th></tr>
+<tr><td><code>S</code></td><td>Severity</td><td>Always present. Possibly localized. <code>ERROR</code>, <code>FATAL</code> or <code>PANIC</code> in an error; <code>WARNING</code>, <code>NOTICE</code>, <code>DEBUG</code>, <code>INFO</code> or <code>LOG</code> in a notice.</td></tr>
+<tr><td><code>V</code></td><td>Severity</td><td>Same as <code>S</code>, never localized. PostgreSQL 9.6 and later.</td></tr>
+<tr><td><code>C</code></td><td>Code</td><td>Always present. SQLSTATE code, not localized.</td></tr>
+<tr><td><code>M</code></td><td>Message</td><td>Always present. Primary message, typically one line.</td></tr>
+<tr><td><code>D</code></td><td>Detail</td><td>Secondary message; may be multi-line.</td></tr>
+<tr><td><code>H</code></td><td>Hint</td><td>Suggestion; may be multi-line.</td></tr>
+<tr><td><code>P</code></td><td>Position</td><td>Decimal ASCII index into the original query string. The first character is 1, and positions count characters, not bytes.</td></tr>
+<tr><td><code>p</code></td><td>Internal position</td><td>Same as <code>P</code>, but into an internally generated command. <code>q</code> always appears with it.</td></tr>
+<tr><td><code>q</code></td><td>Internal query</td><td>Text of the failed internal command.</td></tr>
+<tr><td><code>W</code></td><td>Where</td><td>Context traceback, one entry per line, most recent first.</td></tr>
+<tr><td><code>s</code></td><td>Schema name</td><td>Schema of the associated object.</td></tr>
+<tr><td><code>t</code></td><td>Table name</td><td>Associated table.</td></tr>
+<tr><td><code>c</code></td><td>Column name</td><td>Associated table column.</td></tr>
+<tr><td><code>d</code></td><td>Data type name</td><td>Associated data type.</td></tr>
+<tr><td><code>n</code></td><td>Constraint name</td><td>Associated constraint. Indexes count as constraints here. Use the other fields to identify the table or domain.</td></tr>
+<tr><td><code>F</code></td><td>File</td><td>Source file reporting the error.</td></tr>
+<tr><td><code>L</code></td><td>Line</td><td>Source line.</td></tr>
+<tr><td><code>R</code></td><td>Routine</td><td>Source routine.</td></tr>
+</table></div>
+<p>The <code>s</code>, <code>t</code>, <code>c</code>, <code>d</code> and <code>n</code> fields appear only for some error types. Do not assume one implies another, or that they name objects that currently exist. Treat newlines in message fields as paragraph breaks, not line breaks.</p>
+<p>The client must accept ErrorResponse and NoticeResponse whenever it is expecting any other message.</p>
+
+<hr>
+
+<h2 id="cancel">Query Cancellation</h2>
+<p>To cancel a running query, open a <strong>new connection</strong> and send CancelRequest instead of StartupMessage. SSLRequest or GSSENCRequest can precede it. Any process holding the process ID and secret key can send it, so keep the key private.</p>
+<div class="table-wrap"><table class="layout">
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>Int32</code></td><td>Length: 12 + secret key length</td></tr>
+<tr><td><code>Int32(80877102)</code></td><td>Cancel request code</td></tr>
+<tr><td><code>Int32</code></td><td>Backend process ID, from BackendKeyData</td></tr>
+<tr><td><code>Byten</code></td><td>Secret key, from BackendKeyData (4 bytes before protocol 3.2; at most 256)</td></tr>
+</table></div>
+<p>The server processes the request and closes this connection without any reply, even when the key does not match. The client cannot tell directly whether the cancel worked and must keep waiting on the original connection. If the cancel takes effect, the current command ends early with ErrorResponse. If it arrives too late, it has no effect.</p>
+
+<hr>
+
+<h2 id="terminate">Connection Termination</h2>
+<ul>
+<li><strong>Normal</strong>: the client sends Terminate (<code>X</code>) and immediately closes the connection. The server then closes its end and exits.</li>
+<li><strong>Server-initiated</strong>: in cases such as an administrator-commanded shutdown, the server tries to send an error or notice giving the reason before it closes.</li>
+<li><strong>Failure</strong>: on an unexpected closure, clean up and optionally reconnect. Also close the connection on an unrecognizable message type, since it probably indicates lost message-boundary synchronization.</li>
+</ul>
+<p>Any open transaction is rolled back in every case. If the client disconnects while a non-<code>SELECT</code> query is running outside a transaction block, the server will probably finish the query and may commit it before noticing.</p>
+
+<hr>
+
+<h2 id="notes">Implementation Checklist</h2>
+<ol>
+<li><strong>Framing</strong>: read each whole message using its length before processing it, and marshal each whole message before sending it. Partial messages lose synchronization, so abandon the connection if I/O fails partway through one.</li>
+<li><strong>State machine</strong>: accept any message whenever it could make sense. ErrorResponse, NoticeResponse, ParameterStatus and NotificationResponse can all appear between expected messages.</li>
+<li><strong>Buffers</strong>: strings and field values have no predefined length limit, so use growable buffers. A client with a fixed buffer should read the full string and discard what does not fit. In extreme cases, the message length lets a receiver skip a message it cannot buffer.</li>
+<li><strong>Encoding</strong>: strings use the session's <code>client_encoding</code>, not necessarily UTF-8. To get UTF-8, send <code>client_encoding=UTF8</code> in StartupMessage, and track ParameterStatus in case it changes.</li>
+<li><strong>Transaction status</strong>: use the ReadyForQuery status byte, since a <code>BEGIN</code> block is not closed by Sync.</li>
+<li><strong>Protocol version</strong>: handle NegotiateProtocolVersion on the same connection, and size the cancel key from BackendKeyData.</li>
+<li><strong>Encryption</strong>: <code>N</code> and ErrorResponse replies arrive before the server is authenticated. Follow the client's encryption policy instead of falling back automatically, because an attacker can forge these replies.</li>
+</ol>
+
+<hr>
+
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://www.rfc-editor.org/rfc/rfc5802">RFC 5802</a>: SCRAM</li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc7677">RFC 7677</a>: SCRAM-SHA-256</li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc5929">RFC 5929</a>: TLS channel bindings</li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc7628">RFC 7628</a>: OAUTHBEARER</li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc7301">RFC 7301</a>: TLS ALPN</li>
+</ul>
+
+</body>
+</html>
