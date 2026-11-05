@@ -6,29 +6,28 @@
     <title>PostgreSQL Wire Protocol Reference</title>
     <style>
         :root {
-            --bg: #14161b;
-            --surface: #1c1f26;
-            --code-bg: #0e1014;
-            --border: #2f343e;
-            --text: #d9dce3;
-            --text-muted: #9aa1ad;
-            --heading: #f4f5f7;
-            --accent: #57c7b8;
-            --accent-soft: #a5e4da;
-            --link: #7fb3ff;
-            --code-text: #f0b35e;
-            --note: #c3a6ff;
-            --error: #ff8f85;
+            color-scheme: light;
+            --bg: #ffffff;
+            --surface: #f4f6f5;
+            --code-bg: #f7f8f8;
+            --border: #ced4da;
+            --text: #212529;
+            --text-muted: #666666;
+            --heading: #336791;
+            --accent: #336791;
+            --accent-soft: #264d6d;
+            --link: #336791;
+            --code-text: #193145;
+            --note: #2f8a57;
+            --error: #df421e;
         }
         * { box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
             background: var(--bg);
             color: var(--text);
             line-height: 1.6;
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 2rem 1rem;
+            margin: 0;
         }
         h1 { color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 0.5rem; }
         h2 { color: var(--accent); font-size: 1.7rem; margin-top: 3rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.3rem; }
@@ -73,10 +72,6 @@
         hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
         ul, ol { padding-left: 1.5rem; }
         li { margin: 0.3rem 0; }
-        .toc { background: var(--surface); padding: 1rem 1.5rem; border-radius: 6px; margin-bottom: 2rem; }
-        .toc ul { list-style: none; padding-left: 0; }
-        .toc ul ul { padding-left: 1.25rem; }
-        .toc li { margin: 0.3rem 0; }
         .sequence { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem; margin: 1rem 0; overflow-x: auto; }
         .sequence svg { display: block; width: 100%; min-width: 640px; height: auto; font-size: 14px; }
         .seq-life { stroke: var(--border); stroke-width: 2; }
@@ -102,52 +97,48 @@
         .seq-divider { stroke: var(--text-muted); stroke-opacity: 0.5; stroke-dasharray: 3 4; }
         .observed { border-left: 3px solid var(--note); background: var(--surface); padding: 0.5rem 0.75rem; margin: 1rem 0; border-radius: 0 6px 6px 0; }
         .observed::before { content: "Observed on 19rc1: "; color: var(--note); font-weight: 600; }
+        html { scroll-padding-top: 0.5rem; }
+        .page { display: grid; grid-template-columns: 19rem minmax(0, 1fr); align-items: start; }
+        .sidebar {
+            position: sticky;
+            top: 0;
+            max-height: 100vh;
+            overflow-y: auto;
+            padding: 1rem;
+            background: var(--surface);
+            font-size: 0.86rem;
+            line-height: 1.35;
+        }
+        .sidebar summary { font-weight: 700; color: var(--heading); cursor: pointer; margin-bottom: 0.5rem; }
+        .sidebar ul { list-style: none; margin: 0; padding: 0; }
+        .sidebar ul ul { margin: 0.2rem 0 0.5rem 0.2rem; padding-left: 0.7rem; border-left: 1px solid var(--border); font-weight: 400; }
+        .sidebar > details > ul > li { margin-top: 0.45rem; font-weight: 600; }
+        .sidebar li li { margin: 0.25rem 0; }
+        .sidebar a { color: var(--text); }
+        .sidebar a.active { color: var(--accent); font-weight: 600; }
+        main { max-width: 62rem; width: 100%; padding: 1.5rem 2rem 4rem; }
+        @media (max-width: 900px) {
+            .page { display: block; }
+            .sidebar { position: static; max-height: none; }
+            main { padding: 1rem 1rem 3rem; }
+        }
+        .packet { margin: 1rem 0; overflow-x: auto; }
+        .packet svg { display: block; width: 100%; max-width: 760px; min-width: 520px; height: auto; font-size: 14px; font-family: inherit; }
+        .packet-cell { fill: var(--surface); stroke: var(--accent); }
+        .packet-title { fill: var(--heading); font-weight: 600; }
+        .packet-detail { fill: var(--text-muted); font-size: 13px; }
+        .packet-bytes { fill: var(--heading); font-size: 12.5px; font-family: 'JetBrains Mono', 'Fira Code', Consolas, Menlo, monospace; }
     </style>
 </head>
 <body>
+<div class="page">
+<nav class="sidebar" aria-label="Contents"><details open><summary>Contents</summary><ul><li><a href="#overview">Protocol Overview</a><ul><li><a href="#versions">Protocol Versions</a></li><li><a href="#framing">Message Framing</a></li><li><a href="#types">Message Data Types</a></li><li><a href="#formats">Format Codes</a></li><li><a href="#index">Message Index</a></li></ul></li><li><a href="#startup">Connection Startup</a><ul><li><a href="#encryption">Session Encryption</a></li><li><a href="#startupmessage">StartupMessage</a></li><li><a href="#negotiate">Version and Extension Negotiation</a></li><li><a href="#auth">Authentication</a></li><li><a href="#sasl">SASL Authentication</a></li><li><a href="#postauth">After AuthenticationOk</a></li></ul></li><li><a href="#simple">Simple Query Protocol</a><ul><li><a href="#responses-per-statement">Responses per statement</a></li><li><a href="#multiple-statements-in-one-query">Multiple statements in one Query</a></li><li><a href="#rowdescription">RowDescription</a></li><li><a href="#datarow">DataRow</a></li><li><a href="#commandcomplete">CommandComplete</a></li></ul></li><li><a href="#extended">Extended Query Protocol</a><ul><li><a href="#extended-messages">Messages</a></li><li><a href="#extended-errors">Error Recovery</a></li><li><a href="#lifetimes">Statement and Portal Lifetimes</a></li></ul></li><li><a href="#pipelining">Pipelining</a><ul><li><a href="#segments">Segments</a></li><li><a href="#transaction-outcomes">Transaction outcomes</a></li><li><a href="#client-requirements">Client requirements</a></li><li><a href="#restrictions-and-edge-cases">Restrictions and edge cases</a></li><li><a href="#when-it-helps">When it helps</a></li></ul></li><li><a href="#copy">COPY Protocol</a><ul><li><a href="#copy-out-copy-to-stdout">Copy-out (<code>COPY ... TO STDOUT</code>)</a></li><li><a href="#copy-in-copy-from-stdin">Copy-in (<code>COPY ... FROM STDIN</code>)</a></li><li><a href="#copy-both">Copy-both</a></li><li><a href="#message-layouts">Message layouts</a></li><li><a href="#text-format">Text format</a></li><li><a href="#csv-format">CSV format</a></li><li><a href="#json-format">JSON format</a></li><li><a href="#binary-format">Binary format</a></li></ul></li><li><a href="#function-call">Function Call Protocol</a></li><li><a href="#async">Asynchronous Messages</a><ul><li><a href="#noticeresponse">NoticeResponse</a></li><li><a href="#parameterstatus">ParameterStatus</a></li><li><a href="#notificationresponse">NotificationResponse</a></li></ul></li><li><a href="#errors">Error and Notice Messages</a></li><li><a href="#cancel">Query Cancellation</a></li><li><a href="#terminate">Connection Termination</a></li><li><a href="#notes">Implementation Checklist</a></li><li><a href="#refs">References</a></li></ul></details></nav>
+<main>
 
 <h1>PostgreSQL Wire Protocol Reference</h1>
 <p>This is a LLM-generated compilation of <a href="https://www.postgresql.org/docs/19/protocol.html">PostgreSQL 19, Chapter 54. Frontend/Backend Protocol</a> and <a href="https://www.postgresql.org/docs/19/libpq-pipeline-mode.html">Section 32.5. libpq Pipeline Mode</a>.<br>
 Streaming and logical replication are out of scope.</p>
 
-<div class="toc">
-<strong>Contents</strong>
-<ul>
-<li><a href="#overview">Protocol Overview</a>
-  <ul>
-  <li><a href="#versions">Protocol Versions</a></li>
-  <li><a href="#framing">Message Framing</a></li>
-  <li><a href="#types">Message Data Types</a></li>
-  <li><a href="#formats">Format Codes</a></li>
-  <li><a href="#index">Message Index</a></li>
-  </ul></li>
-<li><a href="#startup">Connection Startup</a>
-  <ul>
-  <li><a href="#encryption">Session Encryption</a></li>
-  <li><a href="#startupmessage">StartupMessage</a></li>
-  <li><a href="#negotiate">Version and Extension Negotiation</a></li>
-  <li><a href="#auth">Authentication</a></li>
-  <li><a href="#sasl">SASL Authentication</a></li>
-  <li><a href="#postauth">After AuthenticationOk</a></li>
-  </ul></li>
-<li><a href="#simple">Simple Query Protocol</a></li>
-<li><a href="#extended">Extended Query Protocol</a>
-  <ul>
-  <li><a href="#extended-messages">Messages</a></li>
-  <li><a href="#extended-errors">Error Recovery</a></li>
-  <li><a href="#lifetimes">Statement and Portal Lifetimes</a></li>
-  </ul></li>
-<li><a href="#pipelining">Pipelining</a></li>
-<li><a href="#copy">COPY Protocol</a></li>
-<li><a href="#function-call">Function Call Protocol</a></li>
-<li><a href="#async">Asynchronous Messages</a></li>
-<li><a href="#errors">Error and Notice Messages</a></li>
-<li><a href="#cancel">Query Cancellation</a></li>
-<li><a href="#terminate">Connection Termination</a></li>
-<li><a href="#notes">Implementation Checklist</a></li>
-<li><a href="#refs">References</a></li>
-</ul>
-</div>
 
 <h2 id="overview">Protocol Overview</h2>
 <ul>
@@ -168,10 +159,7 @@ Streaming and logical replication are out of scope.</p>
 <p>See <a href="#negotiate">Version and Extension Negotiation</a> for how client and server settle on a version.</p>
 
 <h3 id="framing">Message Framing</h3>
-<pre><code>┌─────────┬────────────┬──────────────────┐
-│ Type    │ Length     │ Payload          │
-│ 1 byte  │ 4 bytes    │ (Length-4) bytes │
-└─────────┴────────────┴──────────────────┘</code></pre>
+<div class="packet"><svg viewBox="0 0 760 68" role="img" aria-label="Message framing: a 1-byte Type, a 4-byte Length, then Length minus 4 bytes of Payload"><title>Message framing: a 1-byte Type, a 4-byte Length, then Length minus 4 bytes of Payload</title><rect class="packet-cell" x="1.0" y="1" width="137.8" height="66"/><text class="packet-title" x="69.9" y="27" text-anchor="middle">Type</text><text class="packet-detail" x="69.9" y="49" text-anchor="middle">1 byte</text><rect class="packet-cell" x="138.8" y="1" width="206.7" height="66"/><text class="packet-title" x="242.2" y="27" text-anchor="middle">Length</text><text class="packet-detail" x="242.2" y="49" text-anchor="middle">4 bytes</text><rect class="packet-cell" x="345.5" y="1" width="413.5" height="66"/><text class="packet-title" x="552.3" y="27" text-anchor="middle">Payload</text><text class="packet-detail" x="552.3" y="49" text-anchor="middle">(Length - 4) bytes</text></svg></div>
 <ul>
 <li><strong>Type</strong>: a single ASCII character. The same byte can mean different messages in each direction; see <a href="#index">Message Index</a>.</li>
 <li><strong>Length</strong>: Int32 counting itself and the payload, but not the type byte. An empty message has length 4.</li>
@@ -478,7 +466,7 @@ ServerSignature = HMAC(ServerKey, AuthMessage)</code></pre>
 <tr><td><code>String</code></td><td>SQL text; may contain several statements</td></tr>
 </table></div>
 
-<h3>Responses per statement</h3>
+<h3 id="responses-per-statement">Responses per statement</h3>
 <div class="table-wrap"><table>
 <tr><th>Statement</th><th>Response</th></tr>
 <tr><td>Returns rows (<code>SELECT</code>, <code>SHOW</code>, <code>EXPLAIN</code>, <code>FETCH</code>, <code>INSERT ... RETURNING</code>)</td><td>RowDescription, zero or more DataRow, CommandComplete</td></tr>
@@ -488,7 +476,7 @@ ServerSignature = HMAC(ServerKey, AuthMessage)</code></pre>
 </table></div>
 <p>An error can occur partway through a statement's messages. ErrorResponse aborts the rest of the query string, and ReadyForQuery always follows. Values are in text format, unless the statement is a <code>FETCH</code> from a cursor declared <code>BINARY</code>; the format codes in RowDescription show which applies.</p>
 
-<h3>Multiple statements in one Query</h3>
+<h3 id="multiple-statements-in-one-query">Multiple statements in one Query</h3>
 <ul>
 <li>Without explicit transaction control, the statements run in one implicit transaction block, which commits at the end of the message or rolls back on error.</li>
 <li>A <code>COMMIT</code> or <code>ROLLBACK</code> closes the current block. Any following statements run in a new implicit block. In an implicit block, the server also issues a warning, since there was no matching <code>BEGIN</code>.</li>
@@ -500,7 +488,7 @@ ServerSignature = HMAC(ServerKey, AuthMessage)</code></pre>
 <li>All statements in the message see the same <code>statement_timestamp()</code>.</li>
 </ul>
 
-<h3>RowDescription</h3>
+<h3 id="rowdescription">RowDescription</h3>
 <div class="table-wrap"><table class="layout">
 <tr><th>Type</th><th>Description</th></tr>
 <tr><td><code>Byte1('T')</code></td><td>Message type</td></tr>
@@ -516,7 +504,7 @@ ServerSignature = HMAC(ServerKey, AuthMessage)</code></pre>
 <tr class="nested"><td><code>Int16</code></td><td>Format code; always 0 from the statement variant of Describe</td></tr>
 </table></div>
 
-<h3>DataRow</h3>
+<h3 id="datarow">DataRow</h3>
 <div class="table-wrap"><table class="layout">
 <tr><th>Type</th><th>Description</th></tr>
 <tr><td><code>Byte1('D')</code></td><td>Message type</td></tr>
@@ -682,13 +670,13 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <h2 id="pipelining">Pipelining</h2>
 <p>Pipelining means sending further queries without waiting for earlier ones to finish, which reduces network round trips. There is no pipeline message or server mode; the client sends ordinary extended-query messages. The server starts executing commands as they arrive and returns results in the order received.</p>
 
-<h3>Segments</h3>
+<h3 id="segments">Segments</h3>
 <p>Each Sync ends one segment of the pipeline. Without an explicit <code>BEGIN</code>, the commands in a segment form one implicit transaction block, so a failure rolls back the whole segment and skips the rest of it. Segments that must commit independently are separated by Sync. The server only detects the implicit block when the first command ends without a Sync.</p>
 <div class="sequence"><svg viewBox="0 0 880 828" role="img" aria-label="Pipeline with a failing query sequence: Parse, Bind, Execute; Parse, Bind, Execute; Parse, Bind, Execute; Sync; Parse, Bind, Execute; Sync; ParseComplete, BindComplete; CommandComplete; ParseComplete, BindComplete; ErrorResponse; ReadyForQuery 'I'; ParseComplete, BindComplete; CommandComplete; ReadyForQuery 'I'"><title>Pipeline with a failing query</title><line class="seq-life" x1="100" y1="44" x2="100" y2="820"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="820"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="68" width="516" height="182" rx="6"/><rect class="seq-tab" x="72" y="68" width="80.8" height="24" rx="6"/><text class="seq-tab-text" x="80" y="84">segment 1</text><rect class="seq-frame" x="72" y="268" width="516" height="110" rx="6"/><rect class="seq-tab" x="72" y="268" width="80.8" height="24" rx="6"/><text class="seq-tab-text" x="80" y="284">segment 2</text><rect class="seq-frame" x="72" y="410" width="516" height="218" rx="6"/><rect class="seq-tab" x="72" y="410" width="160.0" height="24" rx="6"/><text class="seq-tab-text" x="80" y="426">replies to segment 1</text><rect class="seq-frame" x="72" y="646" width="516" height="146" rx="6"/><rect class="seq-tab" x="72" y="646" width="160.0" height="24" rx="6"/><text class="seq-tab-text" x="80" y="662">replies to segment 2</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="126" x2="551" y2="126"/><polygon class="seq-head" points="560,126 551,121 551,131"/><text class="seq-label" x="330.0" y="118" text-anchor="middle">Parse, Bind, Execute</text><text class="seq-note" x="604" y="130">query 1 succeeds</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="162" x2="551" y2="162"/><polygon class="seq-head" points="560,162 551,157 551,167"/><text class="seq-label" x="330.0" y="154" text-anchor="middle">Parse, Bind, Execute</text><text class="seq-note" x="604" y="166">query 2 fails</text></g><g class="seq-c2s seq-dim"><line class="seq-arrow" x1="100" y1="198" x2="551" y2="198"/><polygon class="seq-head" points="560,198 551,193 551,203"/><text class="seq-label" x="330.0" y="190" text-anchor="middle">Parse, Bind, Execute</text><text class="seq-note" x="604" y="202">query 3 skipped</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="234" x2="551" y2="234"/><polygon class="seq-head" points="560,234 551,229 551,239"/><text class="seq-label" x="330.0" y="226" text-anchor="middle">Sync</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="326" x2="551" y2="326"/><polygon class="seq-head" points="560,326 551,321 551,331"/><text class="seq-label" x="330.0" y="318" text-anchor="middle">Parse, Bind, Execute</text><text class="seq-note" x="604" y="330">query 4</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="362" x2="551" y2="362"/><polygon class="seq-head" points="560,362 551,357 551,367"/><text class="seq-label" x="330.0" y="354" text-anchor="middle">Sync</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="468" x2="109" y2="468"/><polygon class="seq-head" points="100,468 109,463 109,473"/><text class="seq-label" x="330.0" y="460" text-anchor="middle">ParseComplete, BindComplete</text><text class="seq-note" x="604" y="472">query 1</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="504" x2="109" y2="504"/><polygon class="seq-head" points="100,504 109,499 109,509"/><text class="seq-label" x="330.0" y="496" text-anchor="middle">CommandComplete</text><text class="seq-note" x="604" y="508">query 1, rolled back</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="540" x2="109" y2="540"/><polygon class="seq-head" points="100,540 109,535 109,545"/><text class="seq-label" x="330.0" y="532" text-anchor="middle">ParseComplete, BindComplete</text><text class="seq-note" x="604" y="544">query 2</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="576" x2="109" y2="576"/><polygon class="seq-head" points="100,576 109,571 109,581"/><text class="seq-label" x="330.0" y="568" text-anchor="middle">ErrorResponse</text><text class="seq-note" x="604" y="580">query 2</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="612" x2="109" y2="612"/><polygon class="seq-head" points="100,612 109,607 109,617"/><text class="seq-label" x="330.0" y="604" text-anchor="middle">ReadyForQuery 'I'</text><text class="seq-note" x="604" y="616">segment 1 rolled back</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="704" x2="109" y2="704"/><polygon class="seq-head" points="100,704 109,699 109,709"/><text class="seq-label" x="330.0" y="696" text-anchor="middle">ParseComplete, BindComplete</text><text class="seq-note" x="604" y="708">query 4</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="740" x2="109" y2="740"/><polygon class="seq-head" points="100,740 109,735 109,745"/><text class="seq-label" x="330.0" y="732" text-anchor="middle">CommandComplete</text><text class="seq-note" x="604" y="744">query 4</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="776" x2="109" y2="776"/><polygon class="seq-head" points="100,776 109,771 109,781"/><text class="seq-label" x="330.0" y="768" text-anchor="middle">ReadyForQuery 'I'</text><text class="seq-note" x="604" y="780">segment 2 committed</text></g></svg></div>
 
 <p>This example uses statements that return no rows and sends no Describe. Those replies follow the <a href="#extended">Extended Query</a> diagram.</p>
 
-<h3>Transaction outcomes</h3>
+<h3 id="transaction-outcomes">Transaction outcomes</h3>
 <div class="table-wrap"><table>
 <tr><th>Pipeline</th><th>On error</th><th>Status at Sync</th></tr>
 <tr><td>No <code>BEGIN</code></td><td>The earlier commands in the segment roll back and the later ones are skipped. The next segment starts clean.</td><td><code>'I'</code></td></tr>
@@ -699,7 +687,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <p>Work is committed only once the client receives the CommandComplete for <code>COMMIT</code> (or the ReadyForQuery for an implicit commit), not when the client sends it. Since errors arrive later, the client must be able to resend work done after the last confirmed commit.</p>
 <p class="observed">The tests confirmed <code>'I'</code> with the earlier insert rolled back in the first row, and <code>'E'</code> then <code>25P02</code> in the second row.</p>
 
-<h3>Client requirements</h3>
+<h3 id="client-requirements">Client requirements</h3>
 <ul>
 <li><strong>Detect completion by counting ReadyForQuery</strong> against the number of Syncs sent. Skipped commands produce no messages, so counting command responses is unreliable.</li>
 <li><strong>Match results with a FIFO queue</strong> of what was sent, because messages carry no request ID.</li>
@@ -707,7 +695,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <li><strong>Send Flush or Sync</strong> before waiting for any result.</li>
 </ul>
 
-<h3>Restrictions and edge cases</h3>
+<h3 id="restrictions-and-edge-cases">Restrictions and edge cases</h3>
 <ul>
 <li>A later command can depend on an earlier one in the same pipeline, such as using a table it creates or a statement it prepares.</li>
 <li>Commands that cannot run in a transaction block, such as <code>CREATE DATABASE</code>, fail in a pipeline unless they are the first command after a Sync. On success they force an immediate commit, so a Sync directly after one only produces ReadyForQuery.</li>
@@ -716,7 +704,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 </ul>
 <p class="observed">Sending three Query messages at once, where the second failed, produced three ReadyForQuery messages, and the third query still ran.</p>
 
-<h3>When it helps</h3>
+<h3 id="when-it-helps">When it helps</h3>
 <p>Pipelining helps most with high latency and many small operations: a 100-statement operation at 300 ms round-trip time spends 30 s on network latency sequentially and as little as 0.3 s pipelined. It helps little when each query takes much longer than a round trip. It does not help when the client needs one result to produce the next command, since that requires a full round trip.</p>
 
 <hr>
@@ -724,7 +712,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <h2 id="copy">COPY Protocol</h2>
 <p>COPY can start from a simple Query or an Execute. When it ends, the server returns to the protocol that started it. After a Query, ReadyForQuery follows automatically. After an Execute, ReadyForQuery comes only in reply to a later Sync.</p>
 
-<h3>Copy-out (<code>COPY ... TO STDOUT</code>)</h3>
+<h3 id="copy-out-copy-to-stdout">Copy-out (<code>COPY ... TO STDOUT</code>)</h3>
 <div class="sequence"><svg viewBox="0 0 880 484" role="img" aria-label="Copy-out sequence: Query or Execute; CopyOutResponse; CopyData; CopyDone; CommandComplete; ErrorResponse; ReadyForQuery"><title>Copy-out</title><line class="seq-life" x1="100" y1="44" x2="100" y2="476"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="476"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="140" width="516" height="272" rx="6"/><rect class="seq-tab" x="72" y="140" width="109.60000000000001" height="24" rx="6"/><text class="seq-tab-text" x="80" y="156">copy-out mode</text><line class="seq-divider" x1="72" y1="342" x2="588" y2="342"/><text class="seq-tab-text" x="80" y="360">or at any point, with no CopyDone</text><rect class="seq-frame" x="84" y="176" width="492" height="74" rx="6"/><rect class="seq-tab" x="84" y="176" width="203.20000000000002" height="24" rx="6"/><text class="seq-tab-text" x="92" y="192">repeats zero or more times</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="90" x2="551" y2="90"/><polygon class="seq-head" points="560,90 551,85 551,95"/><text class="seq-label" x="330.0" y="82" text-anchor="middle">Query or Execute</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="126" x2="109" y2="126"/><polygon class="seq-head" points="100,126 109,121 109,131"/><text class="seq-label" x="330.0" y="118" text-anchor="middle">CopyOutResponse</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="234" x2="109" y2="234"/><polygon class="seq-head" points="100,234 109,229 109,239"/><text class="seq-label" x="330.0" y="226" text-anchor="middle">CopyData</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="290" x2="109" y2="290"/><polygon class="seq-head" points="100,290 109,285 109,295"/><text class="seq-label" x="330.0" y="282" text-anchor="middle">CopyDone</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="326" x2="109" y2="326"/><polygon class="seq-head" points="100,326 109,321 109,331"/><text class="seq-label" x="330.0" y="318" text-anchor="middle">CommandComplete</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="396" x2="109" y2="396"/><polygon class="seq-head" points="100,396 109,391 109,401"/><text class="seq-label" x="330.0" y="388" text-anchor="middle">ErrorResponse</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="452" x2="109" y2="452"/><polygon class="seq-head" points="100,452 109,447 109,457"/><text class="seq-label" x="330.0" y="444" text-anchor="middle">ReadyForQuery</text><text class="seq-note" x="604" y="456">after Query; after Execute, on Sync</text></g></svg></div>
 <ul>
 <li>On a server-side error, ErrorResponse replaces the remaining messages and ends copy-out mode. No CopyDone is sent.</li>
@@ -732,7 +720,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <li>The client cannot stop the transfer except by cancelling or closing the connection, but it can discard the data.</li>
 </ul>
 
-<h3>Copy-in (<code>COPY ... FROM STDIN</code>)</h3>
+<h3 id="copy-in-copy-from-stdin">Copy-in (<code>COPY ... FROM STDIN</code>)</h3>
 <div class="sequence"><svg viewBox="0 0 880 520" role="img" aria-label="Copy-in sequence: Query or Execute; CopyInResponse; CopyData; CopyDone; CommandComplete; CopyFail; ErrorResponse; ReadyForQuery"><title>Copy-in</title><line class="seq-life" x1="100" y1="44" x2="100" y2="512"/><rect class="seq-actor" x="48" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="100" y="32" text-anchor="middle">Client</text><line class="seq-life" x1="560" y1="44" x2="560" y2="512"/><rect class="seq-actor" x="508" y="10" width="104" height="34" rx="6"/><text class="seq-actor-text" x="560" y="32" text-anchor="middle">Server</text><rect class="seq-frame" x="72" y="140" width="516" height="308" rx="6"/><rect class="seq-tab" x="72" y="140" width="102.4" height="24" rx="6"/><text class="seq-tab-text" x="80" y="156">copy-in mode</text><line class="seq-divider" x1="72" y1="342" x2="588" y2="342"/><text class="seq-tab-text" x="80" y="360">or on CopyFail or a server error at any point</text><rect class="seq-frame" x="84" y="176" width="492" height="74" rx="6"/><rect class="seq-tab" x="84" y="176" width="203.20000000000002" height="24" rx="6"/><text class="seq-tab-text" x="92" y="192">repeats zero or more times</text><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="90" x2="551" y2="90"/><polygon class="seq-head" points="560,90 551,85 551,95"/><text class="seq-label" x="330.0" y="82" text-anchor="middle">Query or Execute</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="126" x2="109" y2="126"/><polygon class="seq-head" points="100,126 109,121 109,131"/><text class="seq-label" x="330.0" y="118" text-anchor="middle">CopyInResponse</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="234" x2="551" y2="234"/><polygon class="seq-head" points="560,234 551,229 551,239"/><text class="seq-label" x="330.0" y="226" text-anchor="middle">CopyData</text></g><g class="seq-c2s"><line class="seq-arrow" x1="100" y1="290" x2="551" y2="290"/><polygon class="seq-head" points="560,290 551,285 551,295"/><text class="seq-label" x="330.0" y="282" text-anchor="middle">CopyDone</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="326" x2="109" y2="326"/><polygon class="seq-head" points="100,326 109,321 109,331"/><text class="seq-label" x="330.0" y="318" text-anchor="middle">CommandComplete</text></g><g class="seq-c2s"><line class="seq-arrow seq-dash" x1="100" y1="396" x2="551" y2="396"/><polygon class="seq-head" points="560,396 551,391 551,401"/><text class="seq-label" x="330.0" y="388" text-anchor="middle">CopyFail</text><text class="seq-note" x="604" y="400">if the client aborts</text></g><g class="seq-err"><line class="seq-arrow" x1="560" y1="432" x2="109" y2="432"/><polygon class="seq-head" points="100,432 109,427 109,437"/><text class="seq-label" x="330.0" y="424" text-anchor="middle">ErrorResponse</text></g><g class="seq-s2c"><line class="seq-arrow" x1="560" y1="488" x2="109" y2="488"/><polygon class="seq-head" points="100,488 109,483 109,493"/><text class="seq-label" x="330.0" y="480" text-anchor="middle">ReadyForQuery</text><text class="seq-note" x="604" y="492">after Query; after Execute, on Sync</text></g></svg></div>
 <ul>
 <li>CopyData boundaries do not need to match row boundaries.</li>
@@ -751,10 +739,10 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 </table></div>
 <p class="observed">The documentation says other message types abort copy-in, but sending Query or Parse during copy-in produced ERROR <code>08P01</code> and then FATAL <code>08P01</code>, and the server closed the connection. CopyFail produced ERROR <code>57014</code> and kept the session open.</p>
 
-<h3>Copy-both</h3>
+<h3 id="copy-both">Copy-both</h3>
 <p>Used only for streaming replication, after <code>START_REPLICATION</code> on a walsender connection. Both sides can send CopyData until one sends CopyDone, after which the connection is in copy-in or copy-out mode for the remaining direction. After both sides have sent CopyDone, copy mode ends and the server returns to command processing. After a server-side error, the server discards messages until Sync. The client should treat ErrorResponse as ending the copy in both directions and must not send CopyDone.</p>
 
-<h3>Message layouts</h3>
+<h3 id="message-layouts">Message layouts</h3>
 <div class="table-wrap"><table class="layout">
 <caption>CopyInResponse / CopyOutResponse / CopyBothResponse</caption>
 <tr><th>Type</th><th>Description</th></tr>
@@ -774,7 +762,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <p>The overall format is 0 for both <code>text</code> and <code>csv</code>, so these messages cannot tell the client which one is in use. All columns in one operation currently share a format, but the message design does not assume this.</p>
 <p class="observed">The documentation says each backend CopyData holds one row, but there are exceptions. Binary COPY puts the file header and first row in the first CopyData, and the trailer in its own message. <code>FORMAT json</code> reports overall format 0 and 1 column regardless of table width, and with <code>force_array</code> sends each bracket as its own CopyData.</p>
 
-<h3>Text format</h3>
+<h3 id="text-format">Text format</h3>
 <ul>
 <li>One line per row. Rows end in <code>\n</code> on output. On input, <code>\n</code>, <code>\r</code> or <code>\r\n</code> are accepted, but must be used consistently. <code>COPY FROM</code> raises an error if a line has more or fewer columns than expected.</li>
 <li>Columns are separated by the delimiter (default tab). NULL is the null string (default <code>\N</code>). Both are configurable.</li>
@@ -786,7 +774,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <li>End of data is signalled by CopyDone. A <code>\.</code> line is still recognized as a terminator in text-mode COPY IN, but this is deprecated, and it is not sent during COPY OUT.</li>
 </ul>
 
-<h3>CSV format</h3>
+<h3 id="csv-format">CSV format</h3>
 <ul>
 <li>Values are separated by the delimiter (default comma). Backslash is not special, and text-format escapes do not apply.</li>
 <li>A value is enclosed in the quote character (default <code>"</code>) if it contains the delimiter, the quote character, the null string, a carriage return or a line feed. Inside it, each quote or escape character is preceded by the escape character, which defaults to the quote character, so quotes are doubled by default. <code>FORCE_QUOTE</code> can also quote other non-NULL values on output.</li>
@@ -796,7 +784,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <li><code>\.</code> is not normally special when reading CSV. Servers before PostgreSQL 18 always treated an unquoted <code>\.</code> line as end of data, so <code>COPY TO</code> still quotes <code>\.</code> when it is alone on a line.</li>
 </ul>
 
-<h3>JSON format</h3>
+<h3 id="json-format">JSON format</h3>
 <p>Allowed only in <code>COPY TO</code>. Each row is one JSON object keyed by column name. SQL NULL is written as <code>null</code>, and so is a JSON or JSONB value that is the literal <code>null</code>, so the two cannot be told apart.</p>
 <p>With <code>FORCE_ARRAY</code>, the output is one JSON array, so an individual CopyData is not a valid JSON document:</p>
 <pre><code>[
@@ -804,7 +792,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 ,{"id":2}
 ]</code></pre>
 
-<h3>Binary format</h3>
+<h3 id="binary-format">Binary format</h3>
 <div class="table-wrap"><table class="layout">
 <caption>Header</caption>
 <tr><th>Type</th><th>Description</th></tr>
@@ -861,10 +849,10 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <h2 id="async">Asynchronous Messages</h2>
 <p>The server can send these without a client request. After startup, the client must be ready to accept them at any point, including while idle and during COPY, and should at minimum check for them before it starts reading a query response. During startup, the server sends none of them before AuthenticationOk. After AuthenticationOk, it sends ParameterStatus and can send NoticeResponse.</p>
 
-<h3>NoticeResponse</h3>
+<h3 id="noticeresponse">NoticeResponse</h3>
 <p>Layout is under <a href="#errors">Error and Notice Messages</a>. Notices can come from outside events, such as a server shutdown request, and do not stop the current command. Display them or pass them to the application.</p>
 
-<h3>ParameterStatus</h3>
+<h3 id="parameterstatus">ParameterStatus</h3>
 <div class="table-wrap"><table class="layout">
 <tr><th>Type</th><th>Description</th></tr>
 <tr><td><code>Byte1('S')</code></td><td>Message type</td></tr>
@@ -876,7 +864,7 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <p>The currently reported parameters are <code>application_name</code>, <code>client_encoding</code>, <code>DateStyle</code>, <code>default_transaction_read_only</code>, <code>in_hot_standby</code>, <code>integer_datetimes</code>, <code>IntervalStyle</code>, <code>is_superuser</code>, <code>scram_iterations</code>, <code>search_path</code>, <code>server_encoding</code>, <code>server_version</code>, <code>session_authorization</code>, <code>standard_conforming_strings</code> and <code>TimeZone</code>. This set may change, so ignore unknown names. Older servers report fewer: <code>default_transaction_read_only</code> and <code>in_hot_standby</code> start in PostgreSQL 14, <code>scram_iterations</code> in 16, and <code>search_path</code> in 18. <code>server_version</code>, <code>server_encoding</code> and <code>integer_datetimes</code> cannot change after startup.</p>
 <p class="observed">After <code>SET</code>, the message arrived after CommandComplete and just before ReadyForQuery. A <code>SET</code> and <code>ROLLBACK</code> inside one Query message produced none, since the value was unchanged by then. Separate messages produced one each.</p>
 
-<h3>NotificationResponse</h3>
+<h3 id="notificationresponse">NotificationResponse</h3>
 <div class="table-wrap"><table class="layout">
 <tr><th>Type</th><th>Description</th></tr>
 <tr><td><code>Byte1('A')</code></td><td>Message type</td></tr>
@@ -971,5 +959,35 @@ Execute "p1" (max 1), Sync               → DataRow, PortalSuspended, ReadyForQ
 <li><a href="https://www.rfc-editor.org/rfc/rfc7301">RFC 7301</a>: TLS ALPN</li>
 </ul>
 
+</main>
+</div>
+<script>
+(() => {
+    const sidebar = document.querySelector('.sidebar');
+    const links = new Map([...sidebar.querySelectorAll('a')].map(a => [a.getAttribute('href').slice(1), a]));
+    const headings = [...links.keys()].map(id => document.getElementById(id)).filter(Boolean);
+    if (matchMedia('(max-width: 900px)').matches) sidebar.querySelector('details').open = false;
+    let active;
+    const update = () => {
+        let current = headings[0];
+        for (const heading of headings) {
+            if (heading.getBoundingClientRect().top > 96) break;
+            current = heading;
+        }
+        const next = links.get(current.id);
+        if (next === active) return;
+        active?.classList.remove('active');
+        active = next;
+        active.classList.add('active');
+        const bounds = sidebar.getBoundingClientRect();
+        const link = active.getBoundingClientRect();
+        if (link.top < bounds.top) sidebar.scrollTop -= bounds.top - link.top + 8;
+        else if (link.bottom > bounds.bottom) sidebar.scrollTop += link.bottom - bounds.bottom + 8;
+    };
+    addEventListener('scroll', update, { passive: true });
+    addEventListener('resize', update);
+    update();
+})();
+</script>
 </body>
 </html>
