@@ -1,11 +1,10 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "dependencyDashboard": { "enabled": false },
+  "dependencyDashboard": false,
   "timezone": "Asia/Seoul",
   "platformAutomerge": false,
   "minimumReleaseAge": "7 days",
-  "minimumReleaseAgePackageManagerSync": true,
   "constraints": { "rust": "stable" },
   "vulnerabilityAlerts": { "automerge": true, "platformAutomerge": true, "commitMessageSuffix": "" },
   "prHourlyLimit": 0,
