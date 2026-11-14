@@ -1,5 +1,6 @@
 [graph]
 all-features = true
+exclude = ["loom"]
 
 [licenses]
 version = 2
