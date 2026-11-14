@@ -2,6 +2,7 @@
 dependencies_update = false
 pr_name = "release{% if package and version %}: {{ package }} v{{ version }}{% endif %}"
 pr_labels = ["release"]
+release_commits = "^(feat|fix|refactor|perf|deps|revert)[(!:]"
 pr_body = """
 {% set changes %}
 {%- for release in releases %}
@@ -46,7 +47,7 @@ header = """# Changelog
 commit_parsers = [
   { message = "^release", skip = true },
   { message = "^infra", skip = true },
-  { message = "^deps", skip = true },
+  { message = "^deps", group = "<!-- hidden -->" },
   { message = "^feat", group = "<!-- 0 -->New features" },
   { message = "^fix", group = "<!-- 1 -->Bug fixes" },
   { message = "^perf", group = "<!-- 2 -->Performance" },
@@ -55,7 +56,7 @@ commit_parsers = [
 ]
 body = """
 ## [v{{ version }}]{%- if release_link -%}({{ release_link }}){% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
-{% for group, commits in commits | group_by(attribute="group") %}
+{% for group, commits in commits | group_by(attribute="group") %}{% if group != "<!-- hidden -->" %}
 ### {{ group | upper_first }}
 {% for commit in commits %}
 {%- if group is containing("Other") -%}
@@ -69,5 +70,5 @@ body = """
 - {% if commit.breaking %}[**breaking**] {% endif %}{{ msg }}
 {% endif -%}
 {% endfor -%}
-{% endfor %}
+{% endif %}{% endfor %}
 """
