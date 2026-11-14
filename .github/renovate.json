@@ -21,21 +21,21 @@
     },
     {
       "matchUpdateTypes": ["minor"],
-      "matchCurrentVersion": "<1.0.0",
+      "matchCurrentVersion": "/^v?0\\./",
       "commitMessagePrefix": "infra!: ",
       "groupName": "breaking dependencies",
       "groupSlug": "breaking"
     },
     {
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "matchCurrentVersion": ">=1.0.0",
+      "matchCurrentVersion": "!/^v?0\\./",
       "groupName": "non-breaking dependencies",
       "groupSlug": "non-breaking",
       "automerge": true
     },
     {
       "matchUpdateTypes": ["patch", "pin", "digest"],
-      "matchCurrentVersion": "<1.0.0",
+      "matchCurrentVersion": "/^v?0\\./",
       "groupName": "non-breaking dependencies",
       "groupSlug": "non-breaking",
       "automerge": true
