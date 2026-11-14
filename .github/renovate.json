@@ -1,44 +1,28 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "dependencyDashboard": false,
+  "dependencyDashboard": { "enabled": false },
   "timezone": "Asia/Seoul",
-  "platformAutomerge": true,
+  "platformAutomerge": false,
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgePackageManagerSync": true,
+  "constraints": { "rust": "stable" },
+  "vulnerabilityAlerts": { "automerge": true, "platformAutomerge": true, "commitMessageSuffix": "" },
   "prHourlyLimit": 0,
   "separateMajorMinor": false,
+  "lockFileMaintenance": { "enabled": true, "commitMessageAction": "update", "commitMessageTopic": "lockfiles" },
   "prFooter": "",
   "prBodyTemplate": "{{{header}}}{{{table}}}{{{warnings}}}{{{notes}}}{{{changelogs}}}{{{controls}}}",
-  "commitMessagePrefix": "infra: ",
+  "commitMessagePrefix": "deps: ",
   "commitMessageAction": "update",
   "commitMessageTopic": "{{depName}}",
   "commitMessageExtra": "to {{#if isPinDigest}}{{{newDigestShort}}}{{else}}{{#if isMajor}}v{{{newMajor}}}{{else}}{{#if isSingleVersion}}v{{{newVersion}}}{{else}}{{{newValue}}}{{/if}}{{/if}}{{/if}}",
   "packageRules": [
     {
-      "matchUpdateTypes": ["major"],
-      "commitMessagePrefix": "infra!: ",
-      "groupName": "breaking dependencies",
-      "groupSlug": "breaking"
-    },
-    {
-      "matchUpdateTypes": ["minor"],
-      "matchCurrentVersion": "/^v?0\\./",
-      "commitMessagePrefix": "infra!: ",
-      "groupName": "breaking dependencies",
-      "groupSlug": "breaking"
-    },
-    {
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "matchCurrentVersion": "!/^v?0\\./",
-      "groupName": "non-breaking dependencies",
-      "groupSlug": "non-breaking",
-      "automerge": true
-    },
-    {
-      "matchUpdateTypes": ["patch", "pin", "digest"],
-      "matchCurrentVersion": "/^v?0\\./",
-      "groupName": "non-breaking dependencies",
-      "groupSlug": "non-breaking",
-      "automerge": true
+      "matchPackageNames": ["*"],
+      "commitMessageTopic": "{{depName}}",
+      "groupName": "dependencies",
+      "groupSlug": "dependencies"
     }
   ]
 }
